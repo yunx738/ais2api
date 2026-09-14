@@ -91,7 +91,7 @@ function getNextAuthIndex() {
     console.log(`   -> 找到了 ${count} 个 JSON <script> 标签。`);
 
     // 2. 定义一个基础的 Email 正则表达式
-    // 它会匹配 "ouyang5453@gmail.com" 这样的字符串
+    // 它会匹配 "example@gmail.com" 这样的字符串
     const emailRegex = /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/;
 
     // 3. 遍历所有标签，寻找第一个匹配的 Email
