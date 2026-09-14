@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'"><title>转换与导入账号</title>
+<style>body{font-family:system-ui;max-width:720px;margin:24px auto;padding:16px;line-height:1.6}textarea{box-sizing:border-box;width:100%;min-height:220px;font:14px monospace}button{padding:12px;margin:8px 6px 8px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eee;padding:12px}small{color:#555}</style></head>
+<body><a href="/">返回管理页面</a><h2>Cookie 转换与账号导入</h2>
+<p>转换仅在当前浏览器内完成，不请求第三方服务。只有点击「确认导入」才上传到本 VPS。最多 256 KiB，不覆盖已有账号、不自动切换。</p>
+<label for="file">选择 Cookie 导出 JSON 或 Playwright storageState 文件</label><p><input id="file" type="file" accept=".json,application/json"></p>
+<label for="raw">或粘贴 Cookies JSON</label>
+<textarea id="raw" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴 Cookie 数组 […] 或完整的 {cookies: […], origins: […]} JSON"></textarea>
+<small>不支持只有名称和值的 Cookie 请求头：这种格式缺少域名等属性。无需填写邮箱。输入不会写入本地存储；请自行留意系统剪贴板及浏览器扩展。</small>
+<p><button id="convert">① 本地转换 / 校验</button><button id="send" disabled>② 确认导入</button><button id="clear">清空</button></p>
+<pre id="result" role="status" aria-live="polite">尚未转换。转换成功不代表认证有效。</pre>
+<script>
+"use strict";
+const token="__CSRF_TOKEN__",limit=262144;
+const $=id=>document.getElementById(id);
+let prepared=null,busy=false;
+function reset(){prepared=null;$("send").disabled=true;}
+function convertCookies(text){
+ if(new TextEncoder().encode(text).length>limit)throw Error("输入超过256 KiB");
+ let d;try{d=JSON.parse(text);}catch{throw Error("JSON格式无效；请粘贴完整JSON，不是Cookie请求头");}
+ const arr=Array.isArray(d)?d:d&&d.cookies;
+ if(!Array.isArray(arr)||!arr.length||arr.length>200)throw Error("需要包含1至200个Cookie的数组");
+ let sessions=0,defaults=0;const seen=new Set();
+ const cookies=arr.map((c,i)=>{
+  const fail=msg=>{throw Error("第"+(i+1)+"个Cookie："+msg);};
+  if(!c||typeof c!=="object")fail("结构无效");
+  if(typeof c.name!=="string"||!c.name||c.name.length>256||typeof c.value!=="string"||c.value.length>16384)fail("名称或值类型/长度无效");
+  if(typeof c.domain!=="string"||!/^\.?([a-z0-9-]+\.)*google\.com$/i.test(c.domain))fail("缺少或不支持的域名，仅支持google.com及其子域");
+  if(typeof c.path!=="string"||!c.path.startsWith("/")||c.path.length>2048)fail("缺少有效path");
+  if(typeof c.httpOnly!=="boolean"||typeof c.secure!=="boolean")fail("缺少httpOnly或secure布尔属性");
+  if(c.partitionKey != null ||c.partitioned===true)fail("暂不支持分区Cookie，避免转换时丢失属性");
+  let expires=c.session===true?-1:(c.expires??c.expirationDate??-1);
+  if(!Number.isFinite(expires)||expires< -1||expires>253402300799)fail("有效期必须是Unix秒时间戳或-1");
+  if(expires===-1)sessions++;
+  else if(expires<=Date.now()/1000)fail("Cookie已过期，请重新导出");
+  const ss=c.sameSite == null ?"unspecified":String(c.sameSite).toLowerCase();
+  const map={lax:"Lax",strict:"Strict",none:"None",no_restriction:"None",unspecified:"Lax"};
+  if(!Object.hasOwn(map,ss))fail("无法识别SameSite");
+  if(ss==="unspecified")defaults++;
+  const sameSite=map[ss];
+  if(sameSite==="None"&&!c.secure)fail("SameSite=None但secure=false，请检查原始导出");
+  const key=JSON.stringify([c.name,c.domain,c.path]);
+  if(seen.has(key))fail("名称、域名和路径重复");seen.add(key);
+  return {name:c.name,value:c.value,domain:c.domain,path:c.path,expires,httpOnly:c.httpOnly,secure:c.secure,sameSite};
+ });
+ const origins=Array.isArray(d)?[]:(d.origins??[]);
+ if(!Array.isArray(origins)||origins.length>20)throw Error("origins结构无效");
+ const cleanOrigins=origins.map(o=>{
+  if(!o||!["https://aistudio.google.com","https://ai.studio","https://accounts.google.com"].includes(o.origin)||!Array.isArray(o.localStorage)||o.localStorage.length>200)throw Error("不支持的origin或localStorage结构");
+  if(o.indexedDB != null)throw Error("暂不支持含IndexedDB的认证文件，避免丢失状态");
+  return {origin:o.origin,localStorage:o.localStorage.map(v=>{
+   if(!v||typeof v.name!=="string"||typeof v.value!=="string"||v.name.length>1024||v.value.length>65536)throw Error("localStorage字段无效");
+   return {name:v.name,value:v.value};
+  })};
+ });
+ const data={cookies,origins:cleanOrigins};
+ if(new TextEncoder().encode(JSON.stringify(data)).length>limit)throw Error("转换结果超过256 KiB");
+ return {data,summary:"本地校验通过："+cookies.length+"个Cookie，"+cleanOrigins.length+"个origin。\n会话Cookie："+sessions+"个（expires=-1，不虚构一年有效期）。"+(defaults?"\n注意："+defaults+"个未指定SameSite，按Lax转换；不能保证与原浏览器行为完全相同。":"")+"\n尚未上传。确认后将新增账号，不验证登录或生成权限。"};
+}
+$("raw").oninput=()=>{reset();$("file").value="";$("result").textContent="输入已更改，请重新转换。";};
+$("file").onchange=()=>{reset();$("raw").value="";$("result").textContent="已选择文件，请点击本地转换。";};
+$("convert").onclick=async()=>{
+ if(busy)return;reset();const f=$("file").files[0];
+ try{
+  if(f&&f.size>limit)throw Error("文件超过256 KiB");
+  const text=f?await f.text():$("raw").value;
+  const result=convertCookies(text);prepared=result.data;
+  $("result").textContent=result.summary;$("send").disabled=false;
+ }catch(e){$("result").textContent=e.message;}
+};
+$("clear").onclick=()=>{reset();$("raw").value="";$("file").value="";$("result").textContent="页面输入已清空（不会清除系统剪贴板）。";};
+$("send").onclick=async()=>{
+ if(!prepared||busy)return;busy=true;
+ for(const id of ["send","convert","raw","file","clear"])$(id).disabled=true;
+ try{
+  const r=await fetch("/api/import-account",{method:"POST",credentials:"same-origin",redirect:"error",headers:{"Content-Type":"application/json","X-Import-Token":token},body:JSON.stringify(prepared)});
+  const d=await r.json();
+  if(r.ok){$("raw").value="";$("file").value="";$("result").textContent="导入成功：账号 #"+d.index+"（尚未验证）。返回首页手动切换测试。";}
+  else $("result").textContent=d.error||"服务器拒绝导入";
+ }catch{$("result").textContent="未能确认导入结果。请先检查首页账号列表，避免重复导入。";}
+ finally{busy=false;reset();for(const id of ["convert","raw","file","clear"])$(id).disabled=false;}
+};
+window.addEventListener("pagehide",()=>{reset();$("raw").value="";$("file").value="";});
+</script></body></html>

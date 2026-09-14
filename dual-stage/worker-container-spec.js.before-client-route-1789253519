@@ -1,0 +1,29 @@
+'use strict';
+const path=require('path');
+function buildSpec(slot,account,root,image){
+ if(['A','B'].includes(slot)===false)throw Error('Invalid slot');
+ if(Number.isSafeInteger(account)===false||account<1)throw Error('Invalid account');
+ if(path.isAbsolute(root)===false||root.includes(','))throw Error('Invalid root');
+ if(typeof image!=='string'||image.startsWith('sha256:')===false)throw Error('Pinned image ID required');
+ const suffix=slot.toLowerCase(),base=path.join(root,'slots',slot);
+ const args=['create','--name','ais2api-dual-'+suffix,
+ '--label','operit.project=ais2api-dual','--label','operit.slot='+slot,
+ '--label','operit.account='+account,
+ '--user','1000:1000','--init','--restart=no',
+ '--network','ais2api-dual-'+suffix,
+ '--security-opt','no-new-privileges:true','--cap-drop','ALL',
+ '--memory','1300m','--memory-swap','1800m','--pids-limit','256',
+ '--shm-size','256m','--log-opt','max-size=10m','--log-opt','max-file=2',
+ '-p','127.0.0.1:'+(slot==='A'?8891:8892)+':7860',
+ '--env-file',path.join(base,'worker.env'),
+ '-e','WORKER_ACCOUNT='+account];
+ const mount=(source,target)=>args.push('--mount','type=bind,source='+source+',target='+target+',readonly');
+ mount(path.join(base,'auth'),'/app/auth');
+ const files=['observe-client-scripts.js','worker-protocol.js','worker-system.js','worker-operations.js','operation-tracker.js','worker-http.js','start-worker.js','stability.js','black-browser.js','import-ui.js','import-ui.html'];
+ for(const name of files)mount(path.join(root,'code',name),'/app/'+name);
+ mount(path.join(root,'code','unified-server.runtime.js'),'/app/unified-server.js');
+ mount('/opt/ais2api/proxy-relay','/relay');
+ args.push(image,'node','start-worker.js');
+ return args;
+}
+module.exports={buildSpec};
