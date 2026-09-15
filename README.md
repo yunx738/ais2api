@@ -1,14 +1,27 @@
 # ais2api
 
-Dual-worker AI Studio reverse proxy with OpenAI-compatible API, per-account quota tracking (3.7-flash / 3.8-flash / pro), anti-truncation via synthetic `emit_answer` tool, and a web management dashboard.
+Dual-worker AI Studio proxy with OpenAI-compatible responses and an authenticated management console.
 
-## Layout
-- `dual-runtime/code/` — runtime code (coordinator, workers, browser client, management UI)
-- `dual-stage/` — staged/deployed code snapshots
-- `app.env.example` — sanitized env template (real values live on the server)
+## Current production architecture
+- `dual-runtime/refactor/`: coordinator, protocol-v2 workers, model catalog, independent quota ledger, request history and dashboard.
+- `dual-runtime/code/`: shared browser/server code and legacy support modules. `unified-server.runtime.js` contains the deployed response adapter.
+- Account/model quotas are independent: Flash 100 requests and Pro 10 requests per configured window. Anti-truncation aliases use their canonical model quota.
+- Token prices are reference valuations only; they never affect request admission, quota windows or scheduling.
+- Persistent request records do not store prompts, response text, credentials or raw errors.
+- Native usage metadata is retained through OpenAI stream/non-stream conversion. Missing counts remain unknown.
+- A received stream terminator is distinguished from an unconfirmed HTTP transport close. Worker settlement still requires execution-ledger evidence.
 
-## Security
-Auth cookie files (`auth/auth-*.json`), `app.env`, and runtime state are excluded via `.gitignore`. Never commit credentials.
+## Private runtime data
+Account credentials, environment files, coordinator configuration, quota/execution state, request history, model policies and price configuration are local deployment data and must not be committed. Model policies and prices require explicit configuration on a new installation; they are not reconstructed from repository history.
 
-## Anti-truncation usage
-Prepend `anti-truncation/` to a model name, e.g. `anti-truncation/gemini-3.8-flash`. The proxy injects a synthetic `emit_answer` tool (UPPERCASE schema) and auto-continues up to 3 rounds when the first response is truncated or misses the tool call.
+## Verification and limitations
+The usage adapter passed 102 offline tests on Node 18.20.8 and Node 22. Completion-state handling subsequently passed 93 regression tests and UI rendering checks on both versions.
+These tests do not replace live end-to-end acceptance. Missing cache/reasoning counts, incomplete transport and anti-truncation continuation totals can leave cost unknown.
+Scalar price configuration does not automatically handle long-context tiers, mixed media, storage or tool charges.
+
+## Anti-truncation
+Prefix a configured canonical model with `anti-truncation/`. The proxy uses a synthetic `emit_answer` tool and bounded continuation attempts. Do not treat single-segment usage as the complete continuation total.
+
+## Deployment
+A deployment requires an explicit admission pause, drainage of in-flight executions, current-state backups, code identity checks and health verification before reopening.
+Never overwrite the current quota/execution ledger with an old snapshot to recover a service.

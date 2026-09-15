@@ -9,8 +9,13 @@ function install(system){
  const cancel=h._cancelBrowserRequest.bind(h);
  h._cancelBrowserRequest=function(id){
   const socket=operationConnections.get(id);
-  if(!socket || socket.readyState!==1 || r.getFirstConnection()!==socket)return;
-  return cancel(id);
+  const current=r.getFirstConnection();
+  if(!socket||!current||current.readyState!==1)return;
+  if(socket===current)return cancel(id);
+  if(r.sessionIdentity(socket)!==r.sessionIdentity(current))return;
+  current.send(JSON.stringify({event_type:"cancel_request",request_id:id}),()=>{});
+  return;
+
  };
  r.on('operationDone',id=>{
   tracker.acknowledge(id);
@@ -20,23 +25,20 @@ function install(system){
   let affected=0;
   for(const [id,owner] of operationConnections){
    if(owner!==socket)continue;
-   operationConnections.delete(id);
    const entry=tracker.active.get(id);
    if(!entry)continue;
-   tracker.quarantined=true;
-   // End waiting, but retain the unconfirmed operation until safe recovery.
-   entry.done(false);
+   tracker.disconnected(id);
    r.removeMessageQueue(id);
    affected++;
   }
-  if(affected)console.warn('[Worker] disconnected operation owner; requests failed; safe recovery required',affected);
+  if(affected)console.warn('[Worker] disconnected operation owner; requests failed; completion reconciliation pending',affected);
  });
  h._forwardRequest=function(request){
   const socket=r.getFirstConnection();
   if(!socket || socket.readyState!==1)throw Error('Verified browser connection unavailable');
   tracker.begin(request.request_id);
   operationConnections.set(request.request_id,socket);
-  try{return forward(request);}
+  try{const operationSequence=r.bindOperation(request.request_id,socket);return forward({...request,operationSequence,workerEpoch:r.workerEpoch});}
   catch(error){tracker.quarantined=true;throw error;}
  };
  for(const name of ['processRequest','processOpenAIRequest']){
@@ -55,7 +57,7 @@ function install(system){
     }
    }
   },()=>!res.destroyed).catch(()=>{
-   tracker.quarantined=true;
+   // Request failure is not an invariant failure; unconfirmed operations retain occupancy.
    if(!res.destroyed){
     h._sendErrorResponse(res,503,'工作实例请求未安全完成');
     if(!res.writableEnded)res.end();

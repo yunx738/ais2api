@@ -1,0 +1,14 @@
+# Candidate deployment gates — NOT deployed
+- Production code, authentication and quota state must remain intact.
+- Old coordinator cannot forward execution IDs/worker epochs to v2 workers.
+- V2 coordinator cannot admit v1 workers without epoch/completion evidence.
+- Therefore do NOT assume ordinary live A/B rolling replacement is compatible.
+- Before cutover, either implement a reviewed mixed-version drain mechanism or obtain approval for a bounded admission pause. Drain and verify old work first; change workers individually, never restart both together.
+- Preserve account assignment and all quota/window counters. Do not clear legacy unresolved requests based on health alone.
+- Management replacement must mount candidate start-management.js, console-routes.js and ui/ alongside existing runtime, import and stability dependencies. Preserve existing auth mount and configuration without copying secrets into source.
+- Browser script and verified-client-route.js integrity pin must change together.
+- No upstream discovery has yet been verified with the real browser/account. Initial sync and explicit policies are required before candidate generation admission.
+- Worker ledger, protocol deduplication and browser outbox remain memory-local. Page loss or worker restart does not prove old execution completion.
+- Candidate retirement is now implemented: coordinator persists settled retirement intent before requesting worker deletion; pending retirement survives restart and blocks rotation/recovery. Worker retains deadline-bound replay tombstones. Protocol records retire after sequence-bound browser ACK confirmation. These are offline-verified candidate behaviors, not production guarantees.
+- Temporary checkpoint/retirement fixtures passed, including lost retirement reply and persistence failure. Halted coordinator startup/shutdown passed on an ephemeral loopback port with worker access disabled. Active coordinator + real worker/browser + management startup remains unverified. Never test against production state.
+- User performs actual usage acceptance after approved cutover. No load tests or production fault injection.

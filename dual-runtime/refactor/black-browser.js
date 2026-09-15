@@ -1,0 +1,575 @@
+const Logger = {
+  enabled: true,
+  output(...messages) {
+    if (!this.enabled) return;
+    const timestamp =
+      new Date().toLocaleTimeString("zh-CN", { hour12: false }) +
+      "." +
+      new Date().getMilliseconds().toString().padStart(3, "0");
+    console.log(`[ProxyClient] ${timestamp}`, ...messages);
+    const logElement = document.createElement("div");
+    logElement.textContent = `[${timestamp}] ${messages.join(" ")}`;
+    document.body.appendChild(logElement);
+  },
+};
+
+class ConnectionManager extends EventTarget {
+  // =================================================================
+  // ===                 *** 请修改此行   *** ===
+  constructor(endpoint = "ws://127.0.0.1:9998") {
+    // =================================================================
+    super();
+    this.endpoint = endpoint;
+    this.socket = null;
+    this.isConnected = false;
+    this.reconnectDelay = 5000;
+    this.reconnectAttempts = 0;
+    this.operationSockets = new Map();
+    this.sessionId = crypto.randomUUID();
+    this.workerEpoch = null;
+    this.protocolReady = false;
+    this.completedOperations = new Map();
+    this.lastOperationSequence = 0;
+    setInterval(() => this.flushCompletions(), 2000);
+  }
+
+  establish() {
+    if (this.isConnected) return Promise.resolve();
+    if (this.connecting) return this.connecting;
+    const pending = new Promise((resolve, reject) => {
+      let opened = false;
+      const socket = new WebSocket(this.endpoint);
+      this.socket = socket;
+      socket.addEventListener("open", () => {
+        if (this.socket !== socket) { socket.close(); reject(new Error("Superseded connection")); return; }
+        opened = true;
+        this.isConnected = true;
+        this.reconnectAttempts = 0;
+        this.dispatchEvent(new CustomEvent("connected"));
+        resolve();
+      });
+      socket.addEventListener("close", () => {
+        if (!opened) reject(new Error("Connection closed before open"));
+        if (this.socket !== socket) return;
+        this.isConnected = false;
+        this.protocolReady = false;
+        this.socket = null;
+        this.dispatchEvent(new CustomEvent("disconnected"));
+        this._scheduleReconnect();
+      });
+      socket.addEventListener("error", () => {
+        // close drives reconnect; do not replace a still-connecting socket.
+        Logger.output("WebSocket connection error");
+      });
+      socket.addEventListener("message", event => {
+        if (this.socket !== socket) return;
+        this.dispatchEvent(new CustomEvent("message", {detail:event.data}));
+      });
+    });
+    this.connecting = pending;
+    const clear = () => { if (this.connecting === pending) this.connecting = null; };
+    pending.then(clear, clear);
+    return pending;
+  }
+  transmit(data) {
+    if (data.request_id && this.operationSockets.has(data.request_id) &&
+        this.operationSockets.get(data.request_id) !== this.socket) return false;
+    if (!this.isConnected || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      Logger.output("无法发送数据：连接未建立");
+      return false;
+    }
+    this.socket.send(JSON.stringify(data));
+    return true;
+  }
+
+  flushCompletions() {
+    if (!this.protocolReady || !this.isConnected || this.socket?.readyState !== WebSocket.OPEN) return;
+    for (const [request_id, receipt] of this.completedOperations) {
+      const {workerEpoch,operationSequence}=receipt;
+      if (workerEpoch !== this.workerEpoch) continue;
+      try {
+        this.socket.send(JSON.stringify({
+          event_type: "operation_done", request_id,
+          workerEpoch, operationSequence, sessionId: this.sessionId
+        }));
+      } catch { return; } // Keep receipt cached for the next connected retry.
+    }
+  }
+  completeOperation(id, epoch, operationSequence) {
+    this.completedOperations.set(id, {workerEpoch:epoch,operationSequence});
+    this.flushCompletions();
+  }
+  _scheduleReconnect() {
+    if (this.reconnectTimer) return;
+    this.reconnectAttempts++;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.establish().catch(() => this._scheduleReconnect());
+    }, this.reconnectDelay);
+  }
+}
+class RequestProcessor {
+  constructor() {
+    this.activeOperations = new Map();
+    this.cancelledOperations = new Set();
+    this.targetDomain = "generativelanguage.googleapis.com";
+    this.maxRetries = 3; // 最多尝试3次
+    this.retryDelay = 2000; // 每次重试前等待2秒
+  }
+
+  execute(requestSpec, operationId) {
+    const IDLE_TIMEOUT_DURATION = 600000;
+    const abortController = new AbortController();
+    this.activeOperations.set(operationId, abortController);
+
+    let timeoutId = null;
+
+    // One deadline covers fetch and body consumption; cleanup clears it.
+
+    const cancelTimeout = () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        Logger.output("已收到数据块，超时限制已解除。");
+      }
+    };
+
+    const attemptPromise = new Promise(async (resolve, reject) => {
+      for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+        try {
+          if (abortController.signal.aborted) {
+            throw new DOMException("Request cancelled", "AbortError");
+          }
+          Logger.output(
+            `执行请求 (尝试 ${attempt}/${this.maxRetries}):`,
+            requestSpec.method,
+            requestSpec.path
+          );
+
+          const requestUrl = this._constructUrl(requestSpec);
+          const requestConfig = this._buildRequestConfig(
+            requestSpec,
+            abortController.signal
+          );
+
+          const response = await fetch(requestUrl, requestConfig);
+
+          if (!response.ok) {
+            const errorBody = await response.text();
+            const error = new Error(
+              `Google API返回错误: ${response.status} ${response.statusText} ${errorBody}`
+            );
+            error.status = response.status;
+            error.retryAfter = response.headers.get("retry-after");
+            throw error;
+          }
+
+          resolve(response);
+          return;
+        } catch (error) {
+          if (error.name === "AbortError") {
+            reject(error);
+            return;
+          }
+          const isNetworkError = error.message.includes("Failed to fetch");
+          const isRetryableServerError =
+            error.status && [500, 502, 503, 504].includes(error.status);
+          if (
+            isRetryableServerError &&
+            !abortController.signal.aborted &&
+            attempt < this.maxRetries
+          ) {
+            Logger.output(
+              `❌ 请求尝试 #${attempt} 失败: ${error.message.substring(0, 200)}`
+            );
+            Logger.output(`将在 ${this.retryDelay / 1000}秒后重试...`);
+            await new Promise((r) => setTimeout(r, this.retryDelay));
+            continue;
+          } else {
+            reject(error);
+            return;
+          }
+        }
+      }
+    });
+
+    // Abort on deadline, but await the actual fetch settlement before completion.
+    // A Promise.race timeout is not evidence that browser work has stopped.
+    timeoutId = setTimeout(() => abortController.abort(), IDLE_TIMEOUT_DURATION);
+    const responsePromise = attemptPromise.catch((error) => {
+      cancelTimeout();
+      throw error;
+    });
+
+    return { responsePromise, cancelTimeout };
+  }
+
+  cancelAllOperations() {
+    this.activeOperations.forEach((controller, id) => controller.abort());
+    // Keep operation records until their fetch/stream actually settles.
+  }
+
+  _constructUrl(requestSpec) {
+    let pathSegment = requestSpec.path.startsWith("/")
+      ? requestSpec.path.substring(1)
+      : requestSpec.path;
+    const queryParams = new URLSearchParams(requestSpec.query_params);
+    if (requestSpec.streaming_mode === "fake") {
+      Logger.output("假流式模式激活，正在修改请求...");
+      if (pathSegment.includes(":streamGenerateContent")) {
+        pathSegment = pathSegment.replace(
+          ":streamGenerateContent",
+          ":generateContent"
+        );
+        Logger.output(`API路径已修改为: ${pathSegment}`);
+      }
+      if (queryParams.has("alt") && queryParams.get("alt") === "sse") {
+        queryParams.delete("alt");
+        Logger.output('已移除 "alt=sse" 查询参数。');
+      }
+    }
+    const queryString = queryParams.toString();
+    return `https://${this.targetDomain}/${pathSegment}${
+      queryString ? "?" + queryString : ""
+    }`;
+  }
+
+  _generateRandomString(length) {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    let result = "";
+    for (let i = 0; i < length; i++)
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    return result;
+  }
+
+  _buildRequestConfig(requestSpec, signal) {
+    const config = {
+      method: requestSpec.method,
+      headers: this._sanitizeHeaders(requestSpec.headers),
+      signal,
+    };
+
+    if (
+      ["POST", "PUT", "PATCH"].includes(requestSpec.method) &&
+      requestSpec.body
+    ) {
+      try {
+        let bodyObj = JSON.parse(requestSpec.body);
+
+        // --- 模块1：智能过滤 (保留) ---
+        const isImageModel =
+          requestSpec.path.includes("-image-") ||
+          requestSpec.path.includes("imagen");
+
+        if (isImageModel) {
+          const incompatibleKeys = ["tool_config", "toolChoice", "tools"];
+          incompatibleKeys.forEach((key) => {
+            if (bodyObj.hasOwnProperty(key)) delete bodyObj[key];
+          });
+          if (bodyObj.generationConfig?.thinkingConfig) {
+            delete bodyObj.generationConfig.thinkingConfig;
+          }
+        }
+
+        config.body = JSON.stringify(bodyObj);
+      } catch (e) {
+        Logger.output("处理请求体时发生错误:", e.message);
+        config.body = requestSpec.body;
+      }
+    }
+
+    return config;
+  }
+
+  _sanitizeHeaders(headers) {
+    const sanitized = { ...headers };
+    [
+      "host",
+      "connection",
+      "content-length",
+      "origin",
+      "referer",
+      "user-agent",
+      "sec-fetch-mode",
+      "sec-fetch-site",
+      "sec-fetch-dest",
+    ].forEach((h) => delete sanitized[h]);
+    return sanitized;
+  }
+  cancelOperation(operationId) {
+    this.cancelledOperations.add(operationId); // 核心：将ID加入取消集合
+    const controller = this.activeOperations.get(operationId);
+    if (controller) {
+      Logger.output(`收到取消指令，正在中止操作 #${operationId}...`);
+      controller.abort();
+    }
+  }
+} // <--- 关键！确保这个括号存在
+
+class ProxySystem extends EventTarget {
+  constructor(websocketEndpoint) {
+    super();
+    this.connectionManager = new ConnectionManager(websocketEndpoint);
+    this.requestProcessor = new RequestProcessor();
+    this._setupEventHandlers();
+  }
+
+  async initialize() {
+    Logger.output("系统初始化中...");
+    while (true) {
+      try {
+        await this.connectionManager.establish();
+        break;
+      } catch (error) {
+        Logger.output("连接服务器失败，1秒后重试...");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+    Logger.output("系统初始化完成，等待服务器指令...");
+    this.dispatchEvent(new CustomEvent("ready"));
+  }
+
+  _setupEventHandlers() {
+    this.connectionManager.addEventListener("message", (e) =>
+      this._handleIncomingMessage(e.detail)
+    );
+    this.connectionManager.addEventListener("disconnected", () =>
+      this.requestProcessor.cancelAllOperations()
+    );
+  }
+
+  async _handleIncomingMessage(messageData) {
+    let requestSpec = {};
+    try {
+      requestSpec = JSON.parse(messageData);
+
+      // --- 核心修改：根据 event_type 分发任务 ---
+      switch (requestSpec.event_type) {
+        case "worker_challenge": {
+          const cm = this.connectionManager;
+          if (requestSpec.protocol !== 2 ||
+              !/^[a-f0-9-]{36}$/.test(requestSpec.workerEpoch || "") ||
+              typeof requestSpec.challenge !== "string" ||
+              requestSpec.challenge.length > 256) return;
+          cm.protocolReady = false;
+          if (cm.workerEpoch && cm.workerEpoch !== requestSpec.workerEpoch) {
+            this.requestProcessor.cancelAllOperations();
+            // Never transfer old-worker evidence to a new worker.
+          }
+          if(cm.workerEpoch!==requestSpec.workerEpoch)cm.lastOperationSequence=0;
+          cm.workerEpoch = requestSpec.workerEpoch;
+          cm.transmit({event_type:"worker_hello", protocol:2,
+            workerEpoch:cm.workerEpoch, sessionId:cm.sessionId,
+            challenge:requestSpec.challenge});
+          return;
+        }
+        case "worker_ready": {
+          const cm = this.connectionManager;
+          if (requestSpec.protocol===2 && requestSpec.workerEpoch===cm.workerEpoch &&
+              requestSpec.sessionId===cm.sessionId) {
+            cm.protocolReady=true; cm.flushCompletions();
+          }
+          return;
+        }
+        case "operation_ack": {
+          const cm=this.connectionManager, m=requestSpec;
+          if(!cm.protocolReady || m.sessionId!==cm.sessionId || m.workerEpoch!==cm.workerEpoch ||
+             !Number.isSafeInteger(m.operationSequence) || m.operationSequence<1 || m.operationSequence>cm.lastOperationSequence)return;
+          const receipt=cm.completedOperations.get(m.request_id);
+          if(receipt && (receipt.workerEpoch!==m.workerEpoch || receipt.operationSequence!==m.operationSequence))return;
+          if(receipt)cm.completedOperations.delete(m.request_id);
+          cm.transmit({event_type:"operation_ack_received",request_id:m.request_id,
+            sessionId:cm.sessionId,workerEpoch:cm.workerEpoch,operationSequence:m.operationSequence});
+          return;
+        }
+        case "cancel_request":
+          // 如果是取消指令，则调用取消方法
+          this.requestProcessor.cancelOperation(requestSpec.request_id);
+          break;
+        default:
+          // 默认情况，认为是代理请求
+          // [最终优化] 直接显示路径，不再显示模式，因为路径本身已足够清晰
+          Logger.output(`收到请求: ${requestSpec.method} ${requestSpec.path}`);
+
+          await this._processProxyRequest(requestSpec);
+          break;
+      }
+    } catch (error) {
+      Logger.output("消息处理错误:", error.message);
+      // 只有在代理请求处理中出错时才发送错误响应
+      if (
+        requestSpec.request_id &&
+        requestSpec.event_type !== "cancel_request"
+      ) {
+        this._sendErrorResponse(error, requestSpec.request_id);
+      }
+    }
+  }
+
+  // 在 v3.4-black-browser.js 中
+  // [最终武器 - Canvas抽魂] 替换整个 _processProxyRequest 函数
+  async _processProxyRequest(requestSpec) {
+    const operationId = requestSpec.request_id;
+    const mode = requestSpec.streaming_mode || "fake";
+    Logger.output(`浏览器收到请求`);
+    const operationSocket = this.connectionManager.socket;
+    const operationEpoch = this.connectionManager.workerEpoch;
+    const cm = this.connectionManager;
+    if (!cm.protocolReady || requestSpec.workerEpoch!==operationEpoch || !Number.isSafeInteger(requestSpec.operationSequence) || requestSpec.operationSequence<=cm.lastOperationSequence) {
+      cm.flushCompletions(); return;
+    }
+    cm.lastOperationSequence=requestSpec.operationSequence;
+    let cancelTimeout = () => {};
+    let reader = null;
+    let streamTerminal = false;
+    let settled = false;
+    if (typeof operationId !== "string" || !operationId ||
+        this.requestProcessor.activeOperations.size >= 2) {
+      this._sendErrorResponse({ status: 409, message: "Invalid request or worker busy" }, operationId);
+      return;
+    }
+    this.connectionManager.operationSockets.set(operationId, operationSocket);
+
+    try {
+      if (this.requestProcessor.cancelledOperations.has(operationId)) {
+        throw new DOMException("The user aborted a request.", "AbortError");
+      }
+      const operation = this.requestProcessor.execute(requestSpec, operationId);
+      cancelTimeout = operation.cancelTimeout;
+      const response = await operation.responsePromise;
+      reader = response.body ? response.body.getReader() : null;
+      if (this.requestProcessor.cancelledOperations.has(operationId)) {
+        throw new DOMException("The user aborted a request.", "AbortError");
+      }
+
+      this._transmitHeaders(response, operationId);
+      const textDecoder = new TextDecoder();
+      let fullBody = "";
+
+      // [核心修正] 在循环内部正确分发流式和非流式数据
+      while (reader) {
+        let part;
+        try { part = await reader.read(); }
+        catch (error) { streamTerminal = true; throw error; }
+        const { done, value } = part;
+        if (done) { streamTerminal = true; break; }
+
+        const chunk = textDecoder.decode(value, { stream: true });
+
+        if (mode === "real") {
+          // 流式模式：立即转发每个数据块
+          this._transmitChunk(chunk, operationId);
+        } else {
+          // fake mode
+          // 非流式模式：拼接数据块，等待最后一次性转发
+          fullBody += chunk;
+        }
+      }
+
+      const tail = textDecoder.decode();
+      if (mode === "real") this._transmitChunk(tail, operationId);
+      else fullBody += tail;
+      Logger.output("数据流已读取完成。");
+
+      if (mode === "fake") {
+        // 非流式模式下，在循环结束后，转发拼接好的完整响应体
+        this._transmitChunk(fullBody, operationId);
+      }
+
+      this._transmitStreamEnd(operationId);
+    } catch (error) {
+      if (error.name === "AbortError") {
+        Logger.output(`[诊断] 操作 #${operationId} 已被用户中止。`);
+      } else {
+        Logger.output(`❌ 请求处理失败: ${error.message}`);
+      }
+      this._sendErrorResponse(error, operationId);
+    } finally {
+      cancelTimeout();
+      try {
+        if (reader) {
+          // A fulfilled EOF or rejected read proves this owned stream terminal.
+          // Cancelling an already errored stream may reject despite no live work.
+          if (!streamTerminal) {
+            try { await reader.cancel(); }
+            catch {
+              // closed settling (fulfilled or rejected) proves this owned reader terminal.
+              await reader.closed.then(() => {}, () => {});
+            }
+          }
+          reader.releaseLock();
+        }
+        settled = true;
+      } catch {
+        // Uncertain cleanup must not release the server-side worker.
+        settled = false;
+      }
+      if (settled) {
+        this.requestProcessor.activeOperations.delete(operationId);
+        this.requestProcessor.cancelledOperations.delete(operationId);
+        this.connectionManager.completeOperation(operationId, operationEpoch, requestSpec.operationSequence);
+        this.connectionManager.operationSockets.delete(operationId);
+      }
+    }
+  }
+
+  _transmitHeaders(response, operationId) {
+    const headerMap = {};
+    response.headers.forEach((v, k) => {
+      headerMap[k] = v;
+    });
+    this.connectionManager.transmit({
+      request_id: operationId,
+      event_type: "response_headers",
+      status: response.status,
+      headers: headerMap,
+    });
+  }
+
+  _transmitChunk(chunk, operationId) {
+    if (!chunk) return;
+    this.connectionManager.transmit({
+      request_id: operationId,
+      event_type: "chunk",
+      data: chunk,
+    });
+  }
+
+  _transmitStreamEnd(operationId) {
+    this.connectionManager.transmit({
+      request_id: operationId,
+      event_type: "stream_close",
+    });
+    Logger.output("任务完成，已发送流结束信号");
+  }
+
+  _sendErrorResponse(error, operationId) {
+    if (!operationId) return;
+    this.connectionManager.transmit({
+      request_id: operationId,
+      event_type: "error",
+      status: error.status || 504,
+      retry_after: error.retryAfter || undefined,
+      message: `代理端浏览器错误: ${error.message || "未知错误"}`,
+    });
+    // --- 核心修改：根据错误类型，使用不同的日志措辞 ---
+    if (error.name === "AbortError") {
+      Logger.output("已将“中止”状态发送回服务器");
+    } else {
+      Logger.output("已将“错误”信息发送回服务器");
+    }
+  }
+}
+
+async function initializeProxySystem() {
+  // 清理旧的日志
+  document.body.innerHTML = "";
+  const proxySystem = new ProxySystem();
+  try {
+    await proxySystem.initialize();
+  } catch (error) {
+    console.error("代理系统启动失败:", error);
+    Logger.output("代理系统启动失败:", error.message);
+  }
+}
+
+initializeProxySystem();

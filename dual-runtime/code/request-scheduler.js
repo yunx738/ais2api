@@ -14,7 +14,7 @@ class RequestScheduler {
  constructor(dispatch,client,forward,credentials){
   this.dispatch=dispatch;this.client=client;this.forward=forward;
   this.credentials=credentials;this.queue=[];this.pumping=false;
-  this.closed=false;
+  this.closed=false;this.executing=new Set();
   this.wakeup=setInterval(()=>this.pump(),1000);
   this.wakeup.unref();
 
@@ -56,7 +56,7 @@ class RequestScheduler {
     const ticket=this.dispatch.acquire(item.id,item.kind);
     if(ticket===undefined)break;
     item.remove();
-    this.execute(ticket,item).catch(()=>{
+    this.executing.add(ticket);this.execute(ticket,item).finally(()=>this.executing.delete(ticket)).catch(error=>{console.error(error);
      this.dispatch.halted=true;
      if(item.res.destroyed===false){
       if(item.res.headersSent===false){item.res.statusCode=503;item.res.end('Coordinator safety stop');}

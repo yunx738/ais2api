@@ -1,0 +1,33 @@
+
+.history-list,.quota-accounts{display:grid;gap:16px}
+.request-card{overflow:hidden}.request-card strong,.distribution-row strong{overflow-wrap:anywhere}
+.request-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:20px 0}
+.metric-cell{display:flex;flex-direction:column;gap:6px}.metric-cell small{opacity:.65}
+.metric-cell span{font-variant-numeric:tabular-nums;font-weight:600}
+.request-id{display:block;overflow-wrap:anywhere;font-size:11px;opacity:.65;margin-top:16px}
+.pager{display:flex;align-items:center;justify-content:center;gap:18px;margin:24px 0}
+.quota-detail summary{cursor:pointer;font-weight:600;padding:4px 0;overflow-wrap:anywhere}
+.quota-detail[open] summary{margin-bottom:20px}
+.distribution-row{display:grid;grid-template-columns:minmax(140px,1fr) 1fr;gap:12px;padding:15px 0;border-bottom:1px solid #8882}
+.distribution-row span{grid-column:1/-1;font-size:12px;opacity:.7}
+.analytics-stale .stats,.analytics-stale .history-list{opacity:.5}
+.mobile-nav{display:none}
+@media(max-width:720px){
+ .request-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+ .distribution-row{grid-template-columns:1fr}
+ .mobile-nav{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:50;justify-content:space-around;gap:2px;padding:12px 4px calc(12px + env(safe-area-inset-bottom));background:#ffffffed;border-top:1px solid #8883;backdrop-filter:blur(16px)}
+ .mobile-nav a{font-size:12px;text-decoration:none;color:#64748b;padding:8px 5px;border-radius:8px}
+ .mobile-nav a.selected{color:#2563eb;background:#2563eb12}
+ .dark .mobile-nav{background:#121826ed}.dark .mobile-nav a{color:#b7c3d4}
+ .dark .mobile-nav a.selected{color:#8eb6ff}
+ main{padding-bottom:100px!important}.form-row label{min-width:0}
+ .request-card .worker-head{flex-wrap:wrap;gap:8px}
+}
+
+/* pricing and spacing */
+.request-card,.quota-detail,#usage-models{padding:20px}
+#history-filter,#usage>.form-row{padding:18px}
+input{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 10px;max-width:100%}
+input:focus-visible,summary:focus-visible{outline:2px solid var(--primary);outline-offset:3px}
+.quota-label{gap:12px;flex-wrap:wrap}.quota-label strong{overflow-wrap:anywhere}
+@media(max-width:720px){aside nav{display:none}.brand{padding-bottom:0}.request-card,.quota-detail{padding:16px}.stat strong{overflow-wrap:anywhere;font-size:22px}}

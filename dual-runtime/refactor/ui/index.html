@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AIS 控制台</title><link rel="stylesheet" href="/console-assets/console.css"><script src="/console-assets/console.js" defer></script><script src="/console-assets/models.js" defer></script><link rel="stylesheet" href="/console-assets/analytics.css"><script src="/console-assets/analytics.js" defer></script><script src="/console-assets/prices.js" defer></script></head>
+<body>
+<aside><a class="brand" href="#overview"><b class="logo">A</b><span>AIS Console<small>模型与实例管理</small></span></a>
+<div class="nav-label">工作空间</div><nav aria-label="主导航">
+<a href="#overview" data-page="overview">◫ &nbsp; 运行总览</a><a href="#accounts" data-page="accounts">▤ &nbsp; 实例与账号</a><a href="#models" data-page="models">◇ &nbsp; 模型目录</a><a href="#usage" data-page="usage">▥ &nbsp; 使用统计</a><a href="#history" data-page="history">≡ &nbsp; 请求记录</a><a href="#settings" data-page="settings">⚙ &nbsp; 运行设置</a></nav>
+<div class="aside-bottom"><span class="badge">独立额度</span><p>协议 v2 · 双实例调度<br>每账号、每模型独立额度</p></div></aside>
+<main><header><div><div class="eyebrow">工作空间 / 控制台</div><h1 id="page-title">运行总览</h1></div><div class="tools"><span id="updated" class="muted">尚未同步</span><button id="theme" aria-label="切换深浅主题">◐ 主题</button><button id="refresh">刷新</button></div></header>
+<div id="notice" role="status" aria-live="polite" hidden></div>
+<section id="overview" class="page"><p class="subtitle">查看调度状态、实例占用和独立额度窗口。</p>
+<div class="stats"><article class="card stat"><span>调度服务</span><strong id="service">—</strong><small id="service-note">等待状态数据</small></article><article class="card stat"><span>排队请求</span><strong id="queued">—</strong><small>等待分配到实例</small></article><article class="card stat"><span>调度占用</span><strong id="active">—</strong><small>包含尚未确认收尾的请求</small></article><article class="card stat"><span>账号总数</span><strong id="account-count">—</strong><small>已加入调度池</small></article></div>
+<div class="section-head"><h2>工作实例</h2><span class="muted">每 5 秒读取状态</span></div><div id="workers" class="workers"><div class="card empty">正在读取实例状态…</div></div>
+<div class="card note"><b>状态说明</b><p>Running 仅代表协调器未停调度，不等于所有实例可用。请求是否结束以执行记录和浏览器回执为准；历史额度待核实不等于用量为零。</p></div></section>
+<section id="accounts" class="page" hidden><div class="section-head"><div><h2>账号池</h2><p class="subtitle">查看账号归属、冷却时间和轮换目标。</p></div><div class="tools"><a class="button" href="/import">导入账号</a><button id="sync">同步账号池</button></div></div>
+<div class="card table-wrap"><table><thead><tr><th>账号</th><th>名称</th><th>实例归属</th><th>状态</th><th>冷却结束</th></tr></thead><tbody id="account-rows"><tr><td colspan="5">等待状态数据</td></tr></tbody></table></div>
+<div class="section-head"><h2>账号额度详情</h2><label>搜索账号<input id="quota-search" type="search" maxlength="200" placeholder="账号 ID 或名称"></label></div>
+ <p class="muted">本地次数额度，不代表上游余额。不同模型不共享；防截断别名与原模型共用额度。</p>
+ <div id="quota-accounts" class="quota-accounts"></div>
+ <div class="card form-card"><h2>单实例账号轮换</h2><p class="subtitle">只提交所选实例。接收操作不代表轮换已完成，请观察实例状态。</p><div class="form-row"><label>实例<select id="slot"><option value="A">实例 A</option><option value="B">实例 B</option></select></label><label>目标账号<select id="target"><option value="">自动选择下一账号</option></select></label><button id="rotate" class="primary">提交轮换</button></div></div></section>
+<section id="models" class="page" hidden>
+<div class="section-head"><div><h2>上游模型目录</h2><p class="subtitle">按实例所属账号展示最近一次同步结果。</p></div><button id="catalog-read">刷新目录状态</button></div>
+<div class="card note">生成路由仅接受有效同步目录和明确额度策略；目录同步成功不等于生成请求已验收。当前目录保存在内存中，worker 重启后需要重新同步。</div>
+<p id="catalog-message" role="status" aria-live="polite" class="muted">等待读取目录状态</p>
+
+<div class="card form-card"><h2>模型额度策略</h2>
+<p class="subtitle">每个账号下每个模型独立计数：Flash 100、Pro 10；防截断别名共用原模型额度。设置本地规则不改变上游能力、不重置已用额度。请在无排队、执行或实例操作时保存。</p>
+<div class="form-row">
+<label>模型<select id="policy-model"><option value="">先刷新目录</option></select></label>
+<label>额度类别<select id="policy-bucket"><option value="">请选择，不自动推断</option><option value="flash">Flash · 每模型 100</option><option value="pro">Pro · 每模型 10</option></select></label>
+<label><input id="policy-anti" type="checkbox">允许防截断续传</label>
+<button id="policy-save" class="primary" disabled>保存规则</button></div>
+<p id="policy-message" role="status">尚未读取策略</p></div>
+<div id="catalog-workers" class="workers"></div>
+<div class="section-head"><h2>模型清单</h2><label>筛选模型 <input id="catalog-search" type="search" placeholder="输入模型名称" maxlength="200"></label></div>
+<div class="card table-wrap"><table><thead><tr><th>模型</th><th>实例 / 账号</th><th>上游声明的方法</th><th>目录更新时间</th></tr></thead><tbody id="catalog-rows"></tbody></table></div>
+</section>
+<section id="usage" class="page" hidden>
+ <div class="section-head"><div><h2>使用统计</h2><p class="subtitle">仅统计功能启用后已记录的派单请求，不包含派单前拒绝或旧历史。</p></div><button id="usage-refresh">刷新统计</button></div>
+ <div class="card form-row"><label>时间范围<select id="usage-range"><option value="today">今日（浏览器时区）</option><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="all">全部记录</option></select></label></div>
+ <p id="usage-message" class="muted" role="status">等待读取</p>
+ <div id="usage-cards" class="stats"></div>
+ <div class="card note">费用为参考单价估算，不是实际账单。Token 来源由响应报告，尚未核实为上游原始计量；缺失数据不按零处理。RPM 为最近一分钟派单数；TPM 按响应结束时间归属，受所选范围限制。</div>
+ <div class="section-head"><h2>模型使用分布</h2></div><div id="usage-models" class="card"></div>
+ </section>
+ <section id="history" class="page" hidden>
+ <div class="section-head"><div><h2>请求记录</h2><p class="subtitle">记录响应结果与指标，不保存提示词和回复正文。响应结束不代表浏览器执行账本已完成结算。</p></div><button id="history-refresh">刷新记录</button></div>
+ <form id="history-filter" class="card form-row">
+ <label>模型（精确匹配）<input id="history-model" maxlength="200" placeholder="gemini-…" autocomplete="off"></label>
+ <label>账号<input id="history-account" type="number" min="0" step="1" placeholder="全部"></label>
+ <label>结果<select id="history-outcome"><option value="">全部</option><option value="success">响应正常结束</option><option value="http_error">HTTP 错误</option><option value="application_error">应用错误</option><option value="cancelled">连接取消</option><option value="uncertain">结果待核实</option><option value="pending">尚未记录结束</option></select></label>
+ <button type="submit" class="primary">应用筛选</button></form>
+ <p id="history-message" class="muted" role="status">等待读取</p><div id="history-list" class="history-list"></div>
+ <div class="pager"><button id="history-prev" disabled>上一页</button><span id="history-page">第 1 页</span><button id="history-next" disabled>下一页</button></div>
+ </section>
+ <section id="settings"  class="page" hidden><h2>运行设置</h2><p class="subtitle">修改流式响应方式，不修改账号额度和窗口。</p><div class="card form-card"><h2>流式模式</h2><p>协调器记录的模式 <span id="mode-current" class="badge">—</span></p><p class="subtitle">该值不是各 worker 的独立读回结果。unknown 表示协调器尚未记录模式。</p><div class="form-row"><label>响应方式<select id="mode"><option value="fake">Fake · 缓冲后发送</option><option value="real">Real · 流式转发</option></select></label><button id="save-mode" class="primary">应用到 A / B</button></div></div><div class="card form-card">
+ <div class="section-head"><h2>模型参考单价</h2><button id="price-read" type="button">重新读取</button></div>
+ <p class="subtitle">单位 USD / 百万 Token。留空代表未知，0 代表明确免费。仅影响之后派单请求的估算费用；不会改变次数额度或重算历史费用。这里没有预填官方价格，请填写你采用的参考价格。</p>
+ <p id="price-message" role="status">尚未读取价格</p>
+ <form id="price-form" class="form-row">
+ <label>原模型<select id="price-model" required><option value="">先读取价格配置</option></select></label>
+ <label>输入单价<input id="price-input" type="number" min="0" max="1000000" step="any" placeholder="未知"></label>
+ <label>输出单价<input id="price-output" type="number" min="0" max="1000000" step="any" placeholder="未知"></label>
+ <label>缓存输入单价<input id="price-cached" type="number" min="0" max="1000000" step="any" placeholder="未知"></label>
+ <label>原生思考 Token 计价<select id="price-reasoning-mode"><option value="unknown">未知，暂不估价</option><option value="separate">按思考单价另计</option><option value="included">已包含，不另计</option></select></label>
+ <label>思考单价<input id="price-reasoning" type="number" min="0" max="1000000" step="any" placeholder="未知"></label>
+ <button id="price-save" type="submit" class="primary" disabled>保存参考单价</button>
+ </form>
+ <p class="muted">OpenAI 格式中思考 Token 已包含于输出 Token，不会重复计费。防截断别名沿用原模型单价；若续传用量无法确认完整，估价可能不完整。</p>
+ </div></section>
+<footer>AIS Console · 不发送生成测试请求</footer></main><nav class="mobile-nav" aria-label="手机主导航">
+ <a href="#overview" data-page="overview">总览</a><a href="#accounts" data-page="accounts">账号</a><a href="#usage" data-page="usage">统计</a><a href="#history" data-page="history">记录</a><a href="#models" data-page="models">模型</a><a href="#settings" data-page="settings">设置</a>
+ </nav></body></html>

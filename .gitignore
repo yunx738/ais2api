@@ -29,3 +29,18 @@ import-ui.next.html
 *.bak-mgmt
 proxy-relay/node_modules/
 node_modules/
+
+# Production data and local development artifacts
+!dual-runtime/code/unified-server.runtime.js
+dual-runtime/*-development/
+dual-runtime/maintenance-cutover/
+dual-runtime/price-audit/
+dual-runtime/request-history/
+dual-runtime/model-policies.json
+dual-runtime/model-prices.json
+dual-runtime/refactor/ingress-plan.json
+dual-runtime/refactor/management-mounts.json
+dual-runtime/refactor/management-replacement-plan.json
+dual-runtime/refactor/ingress-paused.conf
+__pycache__/
+*.pyc
