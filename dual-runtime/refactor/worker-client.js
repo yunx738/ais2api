@@ -7,6 +7,11 @@ class WorkerClient {
   const key=this.keys[slot];
   if(typeof key!=='string'||key.length<32)return Promise.reject(Error('Missing internal key'));
   return new Promise((resolve,reject)=>{
+   let settled=false,timer;
+   const finish=(error,value)=>{
+    if(settled)return;settled=true;clearTimeout(timer);
+    if(error)reject(error);else resolve(value);
+   };
    const req=http.get({
     hostname:'127.0.0.1',port:slot==='A'?8891:8892,
     path:'/internal/status',headers:{'X-Worker-Key':key},agent:false
@@ -14,10 +19,12 @@ class WorkerClient {
     let body='',size=0;
     res.on('data',chunk=>{
      size+=chunk.length;
-     if(size>16384){req.destroy(Error('Oversized worker status'));return;}
+     if(size>16384){finish(Error('Oversized worker status'));res.destroy();req.destroy();return;}
      body+=chunk;
     });
-    res.on('error',reject);
+    res.on('aborted',()=>finish(Error('Worker status response aborted')));
+    res.on('error',()=>finish(Error('Worker status response failed')));
+    res.on('close',()=>{if(!res.complete)finish(Error('Worker status response incomplete'));});
     res.on('end',()=>{
      try{
       if(res.statusCode!==200)throw Error('Worker status rejected');
@@ -30,13 +37,13 @@ class WorkerClient {
        if(Number.isSafeInteger(s[name])===false||s[name]<0)throw Error('Invalid operation count');
       }
       if(Number.isFinite(s.cooldownUntil)===false||s.cooldownUntil<0)throw Error('Invalid cooldown');
-      resolve(s);
-     }catch(error){reject(error);}
+      finish(undefined,s);
+     }catch(error){finish(error);}
     });
    });
-   const timer=setTimeout(()=>req.destroy(Error('Worker status deadline exceeded')),5000);
-   req.on('close',()=>clearTimeout(timer));
-   req.on('error',reject);
+   // A request close can precede an incomplete response. Only settlement clears the deadline.
+   timer=setTimeout(()=>{finish(Error('Worker status deadline exceeded'));req.destroy();},5000);
+   req.on('error',error=>finish(error));
   });
  }
  retireExecution(ticket){return this.execution(ticket,true);}

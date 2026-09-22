@@ -14,9 +14,10 @@ async function main(){
  const client=new WorkerClient(Object.fromEntries(['A','B'].map(s=>[s,cfg.workers[s].control])));
  const driver=new WorkerDriver(root,cfg.image,client);
  const rotation=new RotationController(dispatch,driver);
- const {RequestHistory}=require('./request-history');
+ const {openHistory}=require('./history-startup');
  const {createRecordedForward}=require('./recorded-forward');
- const history=await new RequestHistory(path.join(root,'request-history')).init();
+ const history=await openHistory(path.join(root,'request-history'));
+ if(!history.status().ready)console.error('[Analytics] history unavailable; generation remains enabled');
  const {ModelPriceStore}=require('./model-price-store');
  const priceStore=new ModelPriceStore(path.join(root,'model-prices.json'));
  const recordedForward=createRecordedForward({history,forward:forwardWorker,priceFor:model=>priceStore.get(model)});
@@ -32,63 +33,35 @@ async function main(){
  const {ModelPolicyStore}=require("./model-policy-store");
  const policyStore=new ModelPolicyStore(path.join(root,"model-policies.json"),cfg.modelPolicies||{});
  const routing=new CatalogRouting(dispatch,catalogs,policyStore.policies);
- scheduler.resolveModel=(route,body)=>routing.resolve(route,body);
- dispatch.quotaExhausted=slot=>routing.exhausted(slot);
- let stopping=false,ticking=false;
- async function tick(){
-  if(stopping||ticking||dispatch.halted)return;
-  ticking=true;
-  try{
-   for(const slot of ['A','B']){
-    const owner=dispatch.pool.slots.get(slot),state=dispatch.slots.get(slot);
-    // Account/model quota windows are managed by the ledger; legacy evidence is never reset here.
-    if(!catalogs.jobs.has(slot)){try{await catalogs.read(slot);}catch{}}
-    catalogs.reconcile(slot).catch(()=>console.error('[Catalog] reconciliation failed'));
-    if(dispatch.operations.has(slot))continue;
-    recovery.check(slot).catch(()=>console.error('[Recovery] unexpected check failure'));
-    // Busy/uncertain requests and interrupted rotations require explicit reconciliation.
-    if(!owner||owner.pending||rotation.running.has(slot)||rotation.failures.has(slot))continue;
-
-    try{
-     const current=await client.status(slot,owner.current);
-     if(dispatch.operations.has(slot))continue;
-    dispatch.update(slot,current);
-     if(require('./catalog-refresh-policy').shouldRefresh({
-      account:owner.current,epoch:state.workerEpoch,state,
-      cached:catalogs.cache.get(slot),operation:dispatch.operations.has(slot),
-      jobs:catalogs.jobs.size,rotating:rotation.running.size>0
-     })){
-      await catalogs.start(slot);
-      continue;
-     }
-
-     if(current.cooldownUntil>Date.now())dispatch.pool.cooldown(owner.current,current.cooldownUntil);
-     if(state.active===0 && state.ready && rotation.running.size===0 && routing.exhausted(slot)){
-      rotation.rotate(slot).then(result=>{
-       if(!result.waiting)console.log('[Rotation]',slot,'account',result.account);
-      }).catch(()=>console.error('[Rotation]',slot,'blocked; manual reconciliation required'));
-     }
-    }catch{state.ready=false;}
-   }
-   dispatch.checkpoint();
-   scheduler.pump();
-  }finally{ticking=false;}
- }
+ scheduler.resolveModel=(route,body,options)=>routing.resolve(route,body,options);
+ dispatch.quotaExhausted=(slot,plan)=>routing.exhausted(slot,plan);
+ let stopping=false;
+ const {RetiredResourceCleanup}=require('./retired-resource-cleanup');
+ const cleanup=new RetiredResourceCleanup({dispatch,driver,root,options:cfg.retiredCleanup===undefined?{}:cfg.retiredCleanup,
+  isStopping:()=>stopping,hasWaiting:()=>scheduler.queue.length>0});
+ rotation.onRetired=(slot,marker)=>cleanup.record(slot,marker);
+ const {CoordinatorMonitor}=require('./coordinator-monitor');
+ const monitor=new CoordinatorMonitor({dispatch,client,catalogs,recovery,rotation,routing,scheduler});
  let lastMode='unknown';
  const status=()=>({
-  halted:dispatch.halted,queue:scheduler.queue.length,
+  halted:dispatch.halted,queue:scheduler.queue.length,scheduling:scheduler.status(),
   streamingMode:lastMode,
   analytics:recordedForward.status(),
+  retiredCleanup:cleanup.status(),
   quotaMode:"per-account-per-model",quotaLimits:{flash:100,pro:10},
   slots:Object.fromEntries([...dispatch.slots].map(([slot,s])=>[slot,{
    account:dispatch.pool.slots.get(slot)?.current,
    pending:dispatch.pool.slots.get(slot)?.pending?.id,
    active:s.active,ready:s.ready,
    quota:Number.isSafeInteger(dispatch.pool.slots.get(slot)?.current)?dispatch.quotas.summary(dispatch.pool.slots.get(slot).current,policyStore.policies):undefined,
-   workerEpoch:s.workerEpoch,workerHealth:s.workerHealth,pendingRetirements:Object.keys(s.retirements||{}).length,
+   healthCheck:monitor.status(slot),workerEpoch:s.workerEpoch,workerHealth:s.workerHealth,pendingRetirements:Object.keys(s.retirements||{}).length,
    pendingExecutions:Object.values(s.executions||{}).map(t=>({id:t.id,phase:t.phase,createdAt:t.createdAt})),
    legacyUnresolved:[...s.requests].filter(id=>!s.executions?.[id]).length,
-   operation:dispatch.operations.status(slot),rotationBlocked:rotation.failures.has(slot)
+   operation:dispatch.operations.status(slot),rotationBlocked:rotation.failures.has(slot),
+   rotationFailure:rotation.failures.has(slot)?{
+    reason:rotation.failures.get(slot).reason,retryable:rotation.failures.get(slot).retryable===true,
+    retryAt:rotation.failures.get(slot).retryAt||null
+   }:undefined
   }])),
   accounts:dispatch.pool.ids.map(id=>{
    let name='N/A (未命名)';
@@ -98,7 +71,7 @@ async function main(){
    return {id,name,owner:owner||null,cooldownUntil,quota:dispatch.quotas.summary(id,policyStore.policies)};
   })
  });
- await tick();
+ monitor.tick();
  const actions={
   prices(){return {...priceStore.snapshot(),models:[...routing.policies.keys()].sort()};},
   savePrice(body){
@@ -140,17 +113,20 @@ async function main(){
    return {mode,results};
   },
   async rotate(slot,targetAccount){
+   if(stopping)return {started:[],skipped:[{slot,reason:'coordinator_stopping'}]};
    const targets=slot===undefined?['A','B']:[slot];
    const started=[];const skipped=[];
    for(const target of targets){
     const state=dispatch.slots.get(target),owner=dispatch.pool.slots.get(target);
-    if(dispatch.operations.has(target)||owner?.pending||rotation.running.size>0||rotation.failures.has(target)){skipped.push({slot:target,reason:'busy or blocked'});continue;}
+    if(dispatch.operations.has(target)||owner?.pending||rotation.running.has(target)||rotation.failures.has(target)){skipped.push({slot:target,reason:'busy or blocked'});continue;}
     if(!state.ready||state.active>0){skipped.push({slot:target,reason:'not idle'});continue;}
     if(targetAccount!==undefined&&targetAccount!==null){
      if(dispatch.pool.ids.includes(targetAccount)===false)return {started,skipped:[{slot:target,reason:'unknown account'}]};
      if(dispatch.pool.owners.has(targetAccount)||((dispatch.pool.cooldowns.get(targetAccount)||0)>Date.now()))return {started,skipped:[{slot:target,reason:'target occupied or cooling'}]};
      if(dispatch.pool.slots.get(target)?.current===targetAccount)return {started,skipped:[{slot:target,reason:'target already active'}]};
     }
+    const available=rotation.preflight(target,targetAccount);
+    if(!available.available){skipped.push({slot:target,reason:available.reason});continue;}
     rotation.rotate(target,true,targetAccount).then(result=>{
      console.log('[ManualRotation]',target,'account',result.account);
     }).catch(error=>console.error('[ManualRotation]',target,'failed:',String(error.message||error)));
@@ -159,7 +135,8 @@ async function main(){
    return {started,skipped};
   },
   async syncAccounts(){
-   const files=fs.readdirSync('/opt/ais2api/auth').filter(n=>/^auth-\d+\.json$/.test(n)).map(n=>Number(n.match(/\d+/)[0])).sort((a,b)=>a-b);
+   if(stopping)return {added:[],reason:'coordinator_stopping'};
+   const files=fs.readdirSync('/opt/ais2api/auth').filter(n=>/^auth-[1-9]\d*\.json$/.test(n)).map(n=>Number(n.match(/\d+/)[0])).filter(Number.isSafeInteger).sort((a,b)=>a-b);
    const added=[];
    for(const id of files){
     if(dispatch.pool.ids.includes(id))continue;
@@ -176,13 +153,11 @@ async function main(){
  await new Promise((resolve,reject)=>{
   server.once('error',reject);server.listen(8890,'127.0.0.1',resolve);
  });
- const timer=setInterval(()=>tick().catch(()=>{
-  dispatch.halted=true;
-  console.error('[Coordinator] checkpoint or health reconciliation failed; dispatch stopped');
- }),2000);
+ const timer=setInterval(()=>monitor.tick(),2000);
+ const cleanupTimer=setInterval(()=>cleanup.tick(),60000);cleanupTimer.unref();
  console.log('[Coordinator] loopback 8890; protocol v2; per-slot concurrency 2; explicit model quotas');
  async function shutdown(){
-  if(stopping)return;stopping=true;clearInterval(timer);scheduler.close();
+  if(stopping)return;stopping=true;clearInterval(timer);clearInterval(cleanupTimer);cleanup.close();monitor.close();scheduler.close();
   server.close();
   const deadline=Date.now()+620000;
   while(Date.now()<deadline && ([...dispatch.slots.values()].some(s=>s.active>0||Object.keys(s.retirements||{}).length>0)||rotation.running.size||catalogs.jobs.size)){

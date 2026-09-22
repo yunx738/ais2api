@@ -1,12 +1,15 @@
  'use strict';
 const {randomUUID}=require('crypto');
+const {withDeadline}=require('./control-deadline');
 // Task intent is persisted in slot.catalogTask before sending to the worker.
 class CatalogController {
-  constructor({dispatch,scheduler,client,call,rotation}) {
+  constructor({dispatch,scheduler,client,call,rotation,timeoutMs=6000}) {
     Object.assign(this,{dispatch,scheduler,client,call,rotation});
+    this.timeoutMs=timeoutMs;
     this.jobs=new Map();
     this.checking=new Set();
     this.cache=new Map();
+    this.reading=new Map();
     for(const [slot,state] of dispatch.slots) {
       const saved=state.catalogTask;
       if(saved===undefined)continue;
@@ -50,12 +53,17 @@ class CatalogController {
     if(!['A','B'].includes(slot))throw Error('Invalid slot');
     const owner=this.dispatch.pool.slots.get(slot),account=owner?.current;
     if(!account||owner.pending)throw Error('Account unavailable');
-    const data=await this.call(slot,account);
-    if(this.dispatch.pool.slots.get(slot)!==owner||owner.current!==account||owner.pending) {
-      throw Error('Account changed during catalog read');
-    }
-    this.cache.set(slot,{...data,observedAt:Date.now()});
-    return data;
+    const existing=this.reading.get(slot);
+    if(existing?.owner===owner&&existing.account===account)return existing.promise;
+    const reading={owner,account};
+    reading.promise=withDeadline(()=>this.call(slot,account),this.timeoutMs).then(data=>{
+      if(this.dispatch.pool.slots.get(slot)!==owner||owner.current!==account||owner.pending)
+        throw Error('Account changed during catalog read');
+      this.cache.set(slot,{...data,observedAt:Date.now()});
+      return data;
+    }).finally(()=>{if(this.reading.get(slot)===reading)this.reading.delete(slot);});
+    this.reading.set(slot,reading);
+    return reading.promise;
   }
   async start(slot) {
     if(!['A','B'].includes(slot))throw Error('Invalid slot');
@@ -73,7 +81,7 @@ class CatalogController {
     s.ready=false;
     try {
       this.persist(job);
-      const probe=await this.client.status(slot,job.account);
+      const probe=await withDeadline(()=>this.client.status(slot,job.account),this.timeoutMs);
       if(!this.current(job)||d.halted||this.scheduler.closed||s.active!==0||
          this.occupied(slot)||!probe.ready||probe.busy||probe.quarantined||
          probe.activeRequests!==0||probe.browserOperations!==0||probe.cooldownUntil>Date.now()) {
@@ -85,7 +93,7 @@ class CatalogController {
        job.workerEpoch=probe.workerEpoch;
        job.phase='starting';job.sent=true;
       this.persist(job);
-      const result=await this.call(slot,job.account,job.id);
+      const result=await withDeadline(()=>this.call(slot,job.account,job.id),this.timeoutMs);
       if(!this.current(job))throw Error('Catalog ownership changed');
       if(result.accepted===false) {
         // Authenticated rejection of this exact ID confirms it was not started.
@@ -133,13 +141,28 @@ class CatalogController {
     try {
       if(!this.current(job))throw Error('Catalog ownership changed');
       const data=await this.read(slot);
-      if(!job.workerEpoch||data.workerEpoch!==job.workerEpoch||data.jobId!==job.id) {
+      if(!job.workerEpoch||data.workerEpoch!==job.workerEpoch) {
         job.phase='uncertain';job.error='catalog_job_identity_unconfirmed';return;
+      }
+      if(data.jobId!==job.id){
+        job.phase='uncertain';job.error='catalog_job_identity_unconfirmed';
+        // A coordinator may crash after persisting sent=true but before the
+        // POST reaches the worker. Re-send the SAME idempotent job identity;
+        // never drop the lease or infer completion from a missing job.
+        if(data.syncing||(job.retryAt||0)>Date.now())return;
+        const probe=await withDeadline(()=>this.client.status(slot,job.account),this.timeoutMs);
+        if(!this.current(job)||this.dispatch.halted||this.scheduler.closed||
+           probe.workerEpoch!==job.workerEpoch||!probe.ready||probe.busy||probe.quarantined||
+           probe.activeRequests!==0||probe.browserOperations!==0||probe.pendingCompletions!==0)return;
+        job.retryAt=Date.now()+5000;
+        const receipt=await withDeadline(()=>this.call(slot,job.account,job.id),this.timeoutMs);
+        if(receipt.accepted===true&&this.current(job)){job.phase='syncing';job.error=undefined;}
+        return;
       }
       if(data.syncing) {
         job.phase='syncing';job.error=undefined;return;
       }
-      const probe=await this.client.status(slot,job.account);
+      const probe=await withDeadline(()=>this.client.status(slot,job.account),this.timeoutMs);
       if(!this.current(job)||probe.workerEpoch!==job.workerEpoch||probe.busy||probe.activeRequests!==0) {
         job.phase='settling';return;
       }

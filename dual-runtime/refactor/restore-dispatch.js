@@ -34,6 +34,11 @@ function restore(file){
  dispatch.slots=new Map(d.dispatch.slots.map(([slot,st])=>[slot,{...st,requests:new Set(st.requests||[])}]));
  for(const [slot,state] of dispatch.slots){
   const owner=pool.slots.get(slot);
+  if(state.rotation&&(!owner.pending||state.rotation.account!==owner.pending.id||
+     state.rotation.token!==owner.pending.token||
+     (state.rotation.oldAccount!==undefined&&state.rotation.oldAccount!==owner.current)))
+   throw Error('Rotation ownership mismatch');
+  if(state.recovery&&(owner.pending||state.recovery.account!==owner.current))throw Error('Recovery ownership mismatch');
   for(const t of [...Object.values(state.executions),...Object.values(state.retirements)]){
    if(t.account!==owner.current||owner.pending)throw Error("Execution ownership mismatch");
   }

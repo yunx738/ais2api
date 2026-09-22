@@ -71,6 +71,26 @@ function read(file){
   }
   for(const t of Object.values(retired))if(t.admissionDeadline!==undefined && (!Number.isSafeInteger(t.admissionDeadline)||t.admissionDeadline!==t.createdAt+30000))throw Error("Invalid retirement deadline"); state.retirements=retired;
   state.executions=records;
+  const timestamps=value=>Array.isArray(value)&&value.length<=1000&&value.every(t=>Number.isSafeInteger(t)&&t>=0);
+  if(state.recoveryAttempts!==undefined&&!timestamps(state.recoveryAttempts))throw Error('Invalid recovery attempts');
+  const rotation=state.rotation,recovery=state.recovery;
+  if(rotation!==undefined){
+   if(!rotation||typeof rotation!=='object'||Array.isArray(rotation)||
+      !Number.isSafeInteger(rotation.account)||rotation.account<1||
+      !Number.isSafeInteger(rotation.token)||rotation.token<1||
+      !['reserved','stopping','old_closed','prepared','started'].includes(rotation.phase)||
+      (rotation.phase!=='reserved'&&!/^[a-f0-9]{64}$/.test(rotation.oldContainerId||''))||
+      (rotation.oldAccount!==undefined&&(!Number.isSafeInteger(rotation.oldAccount)||rotation.oldAccount<1))||
+      (rotation.restartAttempts!==undefined&&!timestamps(rotation.restartAttempts)))throw Error('Invalid rotation intent');
+  }
+  if(recovery!==undefined){
+   if(!recovery||typeof recovery!=='object'||Array.isArray(recovery)||
+      !Number.isSafeInteger(recovery.account)||recovery.account<1||
+      !['stopping','starting','waiting'].includes(recovery.phase)||
+      !/^[a-f0-9]{64}$/.test(recovery.containerId||''))throw Error('Invalid recovery intent');
+  }
+  if([rotation,recovery,state.catalogTask].filter(x=>x!==undefined).length>1)throw Error('Conflicting slot operation intents');
+  if((rotation||recovery)&&(state.active||Object.keys(records).length||Object.keys(retired).length))throw Error('Lifecycle intent overlaps unresolved executions');
   state.ready=false;
  }
  if(Number.isSafeInteger(s.cursor)===false||s.cursor<0||s.cursor>1||Number.isFinite(s.globalUntil)===false||s.globalUntil<0||typeof s.halted!=='boolean')throw Error('Invalid dispatch metadata');

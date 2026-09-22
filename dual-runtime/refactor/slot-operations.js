@@ -5,7 +5,7 @@ class SlotOperations {
   #held = new Map();
   acquire(slot, kind) {
     if (!['A','B'].includes(slot) ||
-        !['rotation','recovery','catalog'].includes(kind)) {
+        !['rotation','recovery','catalog','cleanup'].includes(kind)) {
       throw Error('Invalid slot operation');
     }
     if (this.#held.has(slot)) return undefined;

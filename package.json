@@ -8,5 +8,9 @@
     "express-session": "^1.18.0",
     "ws": "^8.17.0",
     "basic-auth": "^2.0.1"
+  },
+  "scripts": {
+    "test": "node --test dual-runtime/refactor/test-*.js",
+    "test:ui": "node dual-runtime/refactor/verify-console-ui.js"
   }
 }
