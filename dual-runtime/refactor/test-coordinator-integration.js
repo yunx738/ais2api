@@ -35,6 +35,7 @@ test('429 traverses settlement, spare rotation and fresh catalog before one succ
   res.statusCode=200;res.end('success');return {status:200};
  },{A:{},B:{}},{queueTimeoutMs:2000,controlTimeoutMs:40,confirmationTimeoutMs:40});
  const driver={validateAccount(){},async stop(){},
+  async describe(slot){return {Id:'a'.repeat(64),Config:{Labels:{'operit.account':String(workers.get(slot).account)}}};},
   async inspect(){return {running:false,processesStopped:true,id:'a'.repeat(64)};},
   async prepare(slot,account){workers.set(slot,{account,epoch:randomUUID(),catalog:false});},
   async start(){},waitReady:(slot,account)=>client.status(slot,account)
@@ -50,7 +51,7 @@ test('429 traverses settlement, spare rotation and fresh catalog before one succ
  };
  const catalogs=new CatalogController({dispatch,scheduler,client,rotation,call,timeoutMs:40});
  const routing=new CatalogRouting(dispatch,catalogs,{[model]:{quotaFamily:'flash',antiTruncation:false}});
- scheduler.resolveModel=(route,body)=>routing.resolve(route,body);
+ scheduler.resolveModel=(route,body,options)=>routing.resolve(route,body,options);
  dispatch.quotaExhausted=(slot,plan)=>routing.exhausted(slot,plan);
  const monitor=new CoordinatorMonitor({dispatch,scheduler,client,catalogs,rotation,routing,
   recovery:{async check(){}},timeoutMs:40});

@@ -11,11 +11,11 @@ function forwardWorker(ticket,route,body,res,credentials,options={}){
  if(route!=='/v1/chat/completions' && native===false)throw Error('Unsupported generation route');
  if(options.signal?.aborted)return Promise.resolve({uncertain:true});
  return new Promise(resolve=>{
-  let ended=false,receivedStatus,receivedRetryAfter,upstreamReply;
+  let ended=false,receivedStatus,receivedRetryAfter,workerRejection,upstreamReply;
   const observer=new ResponseMetrics();
   const finish=(result)=>{
    if(ended)return;
-   result={status:receivedStatus,retryAfter:receivedRetryAfter,...result};
+   result={status:receivedStatus,retryAfter:receivedRetryAfter,...(workerRejection?{workerRejection}:{}),...result};
    ended=true;clearTimeout(timer);res.removeListener('close',disconnect);
    options.signal?.removeEventListener('abort',cancel);
    const metrics=observer.finish({complete:Number.isInteger(result.status) && !result.uncertain && !result.cancelled});
@@ -30,6 +30,10 @@ function forwardWorker(ticket,route,body,res,credentials,options={}){
   },reply=>{
    upstreamReply=reply;
    receivedStatus=reply.statusCode;receivedRetryAfter=reply.headers['retry-after'];
+   // The local worker gateway can reject coordinator credentials before any
+   // upstream account is used. Preserve this provenance only for scheduling;
+   // it is not an upstream account-authentication failure.
+   if(reply.headers['x-ais-worker-rejection']==='control_auth')workerRejection='control_auth';
    if(ended||res.destroyed||res.writableEnded||res.headersSent){finish({cancelled:true});reply.destroy();upstream.destroy();return;}
    observer.stream=String(reply.headers['content-type']||'').toLowerCase().includes('text/event-stream');
    let deferred=options.deferRejections===true && [401,403,429].includes(reply.statusCode);

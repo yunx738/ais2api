@@ -74,11 +74,17 @@ class RequestScheduler {
    else this.fail(item.res, 503, 'Request queue full');
    return false;
   }
-  item.timer = setTimeout(() => {
+  const expire = () => {
+   if (!this.queue.includes(item)) return;
+   const wait = item.deadline - Date.now();
+   // Timers may fire before an absolute wall-clock deadline (rounding or a
+   // clock adjustment). Keep the admitted request until its real deadline.
+   if (wait > 0) { item.timer = setTimeout(expire, Math.min(wait, 2147483647)); return; }
    item.remove(); this.counts.queueExpired++;
    if (item.rejection) this.respondRejection(item);
    else this.fail(item.res, 503, 'Queue wait deadline exceeded');
-  }, remaining);
+  };
+  item.timer = setTimeout(expire, Math.min(remaining, 2147483647));
   item.res.on('close', item.remove); this.queue.push(item); return true;
  }
  submit(route, body, res) {
@@ -86,7 +92,10 @@ class RequestScheduler {
   let plan;
   try {
    if (!this.resolveModel) throw Error('Model routing unavailable');
-   plan = this.resolveModel(route, body);
+   // Validate model policy immediately, but admit known models while their
+   // account catalogs are temporarily unavailable. Keeping that demand in the
+   // bounded queue lets recovery/rotation prepare a worker for this request.
+   plan = this.resolveModel(route, body, { allowUnavailable: true });
   } catch (error) { return this.fail(res, error.statusCode || 503, error.message); }
   const item = { id: randomUUID(), route, body, res, plan, attempts: 0,
    attemptedAccounts: new Set(), deadline: Date.now() + this.limits.queueTimeoutMs };
@@ -140,6 +149,7 @@ class RequestScheduler {
   } finally { this.pumping = false; }
  }
  applyRejection(ticket, result) {
+  if (result?.workerRejection) return;
   const restriction = rejectionCooldown(result);
   if (!restriction) return;
   if (restriction.scope === 'account') this.dispatch.pool.cooldown(ticket.account, restriction.until);
@@ -171,7 +181,7 @@ class RequestScheduler {
   try { this.applyRejection(ticket, result); }
   finally { this.dispatch.markUncertain(ticket); }
 
-  const retryable = !!result?.rejection && !result.uncertain && !result.cancelled &&
+  const retryable = !!result?.rejection && !result.workerRejection && !result.uncertain && !result.cancelled &&
    [401, 403, 429].includes(result.status) && !item.res.headersSent &&
    !item.res.destroyed && !item.res.writableEnded;
   const canRetry = retryable && item.attempts < this.limits.maxAttempts && this.hasRetryCandidate(item);

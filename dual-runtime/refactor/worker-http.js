@@ -11,8 +11,8 @@ function install(system,secret){
    res.setHeader('Cache-Control','no-store');
    const supplied=req.headers['x-worker-key'];
    const a=Buffer.from(typeof supplied==='string'?supplied:''),b=Buffer.from(secret);
-   if(a.length !== b.length)return res.status(401).json({error:'Unauthorized worker access'});
-   if(crypto.timingSafeEqual(a,b)===false)return res.status(401).json({error:'Unauthorized worker access'});
+   if(a.length !== b.length)return res.setHeader('X-AIS-Worker-Rejection','control_auth').status(401).json({error:'Unauthorized worker access'});
+   if(crypto.timingSafeEqual(a,b)===false)return res.setHeader('X-AIS-Worker-Rejection','control_auth').status(401).json({error:'Unauthorized worker access'});
    if(req.method==='GET' && req.path==='/internal/status')return res.json(system.workerStatus());
    if(req.method==='POST' && req.path==='/internal/set-mode'){
     let size=0;const chunks=[];

@@ -4,7 +4,7 @@ const vm = require('vm'), fs = require('fs'), path = require('path');
 const { PassThrough, Writable } = require('stream'), { EventEmitter } = require('events');
 const { randomUUID } = require('crypto');
 const { ResponseMetrics } = require('./response-metrics');
-async function forwardFixture({ status = 429, chunks = [], abort = false, defer = true, slow = false, signal, delay = 0 }) {
+async function forwardFixture({ status = 429, chunks = [], abort = false, defer = true, slow = false, signal, delay = 0, headers = {} }) {
  const collected = [];
  const res = new Writable({ highWaterMark: slow ? 1 : 16384,
   write(chunk, encoding, done) { collected.push(Buffer.from(chunk)); if (slow) setTimeout(done, 1); else done(); } });
@@ -16,7 +16,7 @@ async function forwardFixture({ status = 429, chunks = [], abort = false, defer 
   const req = new EventEmitter(); req.destroy = () => {};
   req.end = () => setTimeout(() => {
    const reply = new PassThrough(); reply.statusCode = status;
-   reply.headers = { 'content-type': 'application/json', 'retry-after': '42', 'cache-control': 'no-store' };
+   reply.headers = { 'content-type': 'application/json', 'retry-after': '42', 'cache-control': 'no-store', ...headers };
    callback(reply);
    for (const chunk of chunks) reply.write(chunk);
    if (abort) { reply.emit('aborted'); reply.destroy(); } else reply.end();
@@ -77,6 +77,17 @@ test('deferral is explicitly opt-in and standalone caller keeps previous rejecti
  const { result, res, bytes } = await forwardFixture({ chunks: [source], defer: false });
  assert.deepEqual(bytes, source); assert.equal(res.statusCode, 429);
  assert.equal(result.rejection, undefined); assert.equal(result.metrics.applicationError, true);
+});
+
+test('local gateway denial retains provenance for scheduling without exposing internal response headers', async () => {
+ const source = Buffer.from('{"error":"Unauthorized worker access"}');
+ const { result, res, bytes } = await forwardFixture({ status: 401, chunks: [source],
+  headers: { 'x-ais-worker-rejection': 'control_auth' } });
+ assert.equal(result.workerRejection, 'control_auth');
+ assert.deepEqual(result.rejection.body, source); assert.equal(bytes.length, 0);
+ assert.equal(result.rejection.headers['x-ais-worker-rejection'], undefined);
+ assert.equal(res.headers['x-ais-worker-rejection'], undefined);
+ res.destroy();
 });
 
 test('cancellation prevents a late upstream reply from writing after the scheduler timeout response', async () => {

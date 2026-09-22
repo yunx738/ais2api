@@ -91,7 +91,12 @@ class DispatchCore {
   target=this.rotationCandidate(target,plan);
   if(target===undefined)return null;
   const ticket=this.pool.reserve(slot,target);
-  if(ticket){s.ready=false;this.checkpoint();}
+  if(ticket){
+   s.ready=false;
+   // The reservation and resumable transaction intent must be durable together.
+   s.rotation={account:ticket.id,token:ticket.token,oldAccount:this.pool.slots.get(slot).current,phase:'reserved'};
+   this.checkpoint();
+  }
   return ticket;
  }
  commitRotation(ticket,oldClosed){

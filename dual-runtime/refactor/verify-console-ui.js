@@ -1,15 +1,26 @@
 'use strict';
-// Isolated console UI smoke/regression verification. All API data below is synthetic.
+// Isolated console UI smoke/regression verification. Fixtures also exercise real ledger/history schemas.
 // No credentials or upstream generation requests are used; non-fixture network access is blocked.
 // Run: node dual-runtime/refactor/verify-console-ui.js
 // Optional: AIS_BROWSER_EXECUTABLE=/path/to/chromium AIS_UI_SCREENSHOTS=/tmp/ais-console-preview
 const {chromium}=require('playwright');const http=require('http'),fs=require('fs'),path=require('path'),assert=require('node:assert/strict');
+const {ModelQuotaLedger}=require('./model-quota-ledger'),{RequestHistory}=require('./request-history');
 const ui=path.join(__dirname,'ui');
 const out=process.env.AIS_UI_SCREENSHOTS||path.join(require('os').tmpdir(),'ais-console-preview');
 fs.mkdirSync(out,{recursive:true});
-const now=Date.now();let delayHistory=false,delayUsage=false,statusFailure=false;
+const now=Date.now();let delayHistory=false,delayUsage=false,statusFailure=false,syncFailure=false,failAfterSync=false,realHistory=false;
+const historyDir=fs.mkdtempSync(path.join(require('os').tmpdir(),'ais-ui-history-'));
+const history=new RequestHistory(historyDir);
 const names=['演示账号','开发测试','Demo Alpha','Demo Beta','沙盒实例','测试账号','Demo Gamma','Demo Delta'];
-const quota=i=>({models:Object.fromEntries(['gemini-3.7-flash','gemini-3.1-pro','gemini-3.6-flash'].map((model,n)=>[model,{model,limit:n===1?10:100,used:n===1?i%9:i*3%95,windowEnd:now+3600000,cooldownUntil:i===3&&n===1?now+60000:0}]))});
+const quota=i=>{
+ const ledger=new ModelQuotaLedger(undefined,()=>now),policies={};
+ for(const [n,model] of ['gemini-3.7-flash','gemini-3.1-pro','gemini-3.6-flash'].entries()){
+  const family=n===1?'pro':'flash';policies[model]={quotaFamily:family};
+  for(let used=0;used<(n===1?i%9:i*3%95);used++)ledger.charge(i+1,model,family);
+  if(i===3&&n===1)ledger.defer(i+1,model,family,now+60000);
+ }
+ return ledger.summary(i+1,policies);
+};
 const accounts=Array.from({length:28},(_,i)=>({id:i+1,name:(names[i%names.length])+' '+(i+1),owner:i===0?'A':i===1?'B':null,cooldownUntil:i===3||i===5?now+60000:0,quota:quota(i)}));
 const slots=Object.fromEntries(['A','B'].map((slot,i)=>[slot,{ready:true,active:i,account:i+1,quota:quota(i),workerEpoch:'epoch-'+slot,workerHealth:{account:i+1,workerEpoch:'epoch-'+slot,observedAt:now,pendingCompletions:0}}]));
 const status={halted:false,queue:2,accounts,slots};
@@ -17,6 +28,9 @@ const makeHistory=(model='gemini-3.7-flash',count=20)=>Array.from({length:count}
 const server=http.createServer((req,res)=>{
  const url=new URL(req.url,'http://local');const send=(data,code=200,delay=0)=>setTimeout(()=>{if(!res.destroyed){res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}},delay);
  if(url.pathname==='/api/status')return send(statusFailure?{error:'fixture offline'}:status,statusFailure?503:200);
+ if(url.pathname==='/api/sync-accounts'){if(failAfterSync)statusFailure=true;return send(syncFailure?{error:'sync outcome unavailable'}:{added:[29]},syncFailure?503:200);}
+ if(realHistory&&url.pathname==='/api/usage')return send(history.summary());
+ if(realHistory&&url.pathname==='/api/requests')return send(history.list());
  if(url.pathname==='/api/usage'){const all=!url.searchParams.has('from');return send({requests:all?401:303,success:302,errors:1,tokenKnownRequests:302,tokenUnknownRequests:1,knownTokenTotal:28100000,pricedRequests:302,unpricedRequests:1,estimatedCostKnownSubtotal:53.91,averageDurationMs:22065,rpm:2,tpmKnown:57500,tpmUnknownRequests:0,errorRate:1/303,models:[{model:'gemini-3.7-flash',requests:all?380:297,knownTokenTotal:27400000,tokenUnknownRequests:1},{model:'gemini-3.1-pro',requests:all?21:6,knownTokenTotal:710000,tokenUnknownRequests:0}]},200,delayUsage&&!all?300:0);}
  if(url.pathname==='/api/requests'){const filtered=url.searchParams.get('model');return send({items:makeHistory(filtered||'gemini-3.7-flash',filtered?1:20),total:filtered?1:43},200,delayHistory&&!filtered?350:0);}
  if(url.pathname.startsWith('/api/'))return send({slots:{},workers:{},models:[],prices:{},revision:0});
@@ -24,6 +38,11 @@ const server=http.createServer((req,res)=>{
  const types={'.html':'text/html','.js':'application/javascript','.css':'text/css'};try{res.writeHead(200,{'Content-Type':types[path.extname(filename)]||'text/plain'});res.end(fs.readFileSync(path.join(ui,filename)));}catch{res.writeHead(404);res.end();}
 });
 (async()=>{
+ await history.init();
+ for(let i=0;i<3;i++){
+  const id=require('crypto').randomUUID();await history.begin({id,model:i===2?'gemini-real-pro':'gemini-real-flash',account:1,slot:'A'});
+  if(i<2)await history.finish(id,{outcome:i?'http_error':'success',httpStatus:i?429:200,metrics:{durationMs:2000,transportComplete:true,usageComplete:i===0,usage:i?null:{format:'openai',input:1000,output:500,total:1500,cached:100,reasoning:30}}});
+ }
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const address='http://127.0.0.1:'+server.address().port;
  let browser;
  try{browser=await chromium.launch({headless:true,...(process.env.AIS_BROWSER_EXECUTABLE?{executablePath:process.env.AIS_BROWSER_EXECUTABLE}:{}),args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu']});}
@@ -47,7 +66,17 @@ const server=http.createServer((req,res)=>{
   await page.locator('.mobile-nav [data-page="overview"]').click();await page.screenshot({path:out+'/mobile-overview.png',fullPage:true});
   statusFailure=true;await page.locator('#refresh').click();await page.waitForTimeout(150);assert.equal(await page.locator('body').evaluate(e=>e.classList.contains('stale')),true);assert.equal(await page.locator('#sync').isDisabled(),true);
   statusFailure=false;await page.locator('#refresh').click();await page.waitForTimeout(150);assert.equal(await page.locator('body').evaluate(e=>e.classList.contains('stale')),false);assert.equal(await page.locator('#notice').isHidden(),true);
+  await page.locator('.mobile-nav [data-page="accounts"]').click();
+  failAfterSync=true;page.once('dialog',dialog=>dialog.accept());await page.locator('#sync').click();await page.waitForFunction(()=>document.getElementById('updated').textContent==='状态已过期');
+  assert.match(await page.locator('#notice').textContent(),/状态读取失败/);assert.doesNotMatch(await page.locator('#notice').textContent(),/新增/);assert.equal(await page.locator('#sync').isDisabled(),true);
+  failAfterSync=false;statusFailure=false;await page.locator('#refresh').click();await page.waitForFunction(()=>!document.getElementById('sync').disabled);
+  syncFailure=true;page.once('dialog',dialog=>dialog.accept());await page.locator('#sync').click();await page.waitForFunction(()=>document.getElementById('updated').textContent==='操作后状态待核实');
+  assert.match(await page.locator('#notice').textContent(),/请刷新状态后再操作/);assert.equal(await page.locator('#sync').isDisabled(),true);
+  syncFailure=false;await page.locator('#refresh').click();await page.waitForFunction(()=>!document.getElementById('sync').disabled);
+  realHistory=true;await page.locator('.mobile-nav [data-page="usage"]').click();await page.waitForFunction(()=>document.querySelector('#usage-cards .stat strong')?.textContent==='3');
+  assert.equal(await page.locator('#usage-cards .stat-tokens strong').textContent(),'1.5K');assert.equal(await page.locator('.distribution-row').count(),2);assert.match(await page.locator('#usage-models').textContent(),/gemini-real-flash/);
+  await page.locator('.mobile-nav [data-page="history"]').click();await page.waitForFunction(()=>document.querySelectorAll('.request-card').length===3);assert.match(await page.locator('#history-list').textContent(),/等待完成/);assert.match(await page.locator('#history-list').textContent(),/1K \/ 500/);
   await page.locator('#theme').click();await page.screenshot({path:out+'/mobile-dark.png',fullPage:true});
-  assert.deepEqual(errors,[]);console.log('PASS: responsive 360–1440px, 6 stats, accounts pagination/search/status/dialog, filter race, usage range race, disclosure preservation, stale/recovery controls, dark theme, zero runtime errors.');
- }finally{await browser.close();server.close();}
-})().catch(e=>{console.error(e);server.close();process.exitCode=1});
+  assert.deepEqual(errors,[]);console.log('PASS: responsive 360–1440px, real quota/history schemas, 6 stats, accounts pagination/search/status/dialog, filter race, usage range race, disclosure preservation, mutation failure/stale recovery controls, dark theme, zero runtime errors.');
+ }finally{await browser.close();server.close();fs.rmSync(historyDir,{recursive:true,force:true});}
+})().catch(e=>{console.error(e);server.close();fs.rmSync(historyDir,{recursive:true,force:true});process.exitCode=1});

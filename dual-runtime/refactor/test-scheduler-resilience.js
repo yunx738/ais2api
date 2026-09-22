@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('events');
 const { randomUUID } = require('crypto');
+const fs = require('fs'), vm = require('vm'), path = require('path');
 const { DispatchCore } = require('./dispatch-core');
 const { RequestScheduler } = require('./request-scheduler');
 const { rejectionCooldown } = require('./rejection-policy');
@@ -79,6 +80,20 @@ test('unproven rejection is returned but neither replayed nor released', async t
  assert.equal(f.dispatch.slots.get('A').active, 1);
  assert.equal(Object.values(f.dispatch.slots.get('A').executions)[0].phase, 'reconciling');
  assert.equal(f.scheduler.queue.length, 0);
+});
+
+test('worker gateway authentication failure never cools or rotates an unused upstream account', async t => {
+ const calls = [];
+ const f = fixture(t, async ticket => {
+  calls.push(ticket);
+  return { ...rejected(401, '{"error":"Unauthorized worker access"}'), workerRejection: 'control_auth' };
+ });
+ const res = response(); f.scheduler.submit(route, body, res);
+ await eventually(() => res.writableEnded);
+ assert.equal(res.statusCode, 401); assert.equal(calls.length, 1);
+ assert.equal(f.pool.cooldowns.size, 0);
+ assert.equal(f.dispatch.quotas.view(4, model, 'flash').cooldownUntil, 0);
+ assert.equal(f.scheduler.status().retried, 0);
 });
 
 test('a disconnected or uncertain request cannot be replayed even if execution later settles', async t => {
@@ -165,6 +180,28 @@ test('temporarily missing catalog preserves queued demand and skips to an unrela
  assert.deepEqual(f.scheduler.pendingPlans(), [{ model, quotaFamily: 'flash', excludedAccounts: [] }]);
 });
 
+test('new known-model requests wait through catalog recovery while invalid models still fail immediately', async t => {
+ const f = fixture(t, async (ticket, requestRoute, requestBody, res) => {
+  res.statusCode = 200; res.end('catalog recovered'); return { status: 200 };
+ });
+ let available = false;
+ f.scheduler.resolveModel = (_, input, options = {}) => {
+  const requested = JSON.parse(input.toString()).model;
+  if (requested !== model) throw Object.assign(Error('Unknown model policy'), { statusCode: 422 });
+  if (!available && !options.allowUnavailable) throw Error('catalog refreshing');
+  return { model, quotaFamily: 'flash', eligible: () => available };
+ };
+ const res = response(); f.scheduler.submit(route, body, res);
+ assert.equal(res.writableEnded, false);
+ assert.equal(f.scheduler.queue.length, 1);
+ assert.deepEqual(f.scheduler.pendingPlans(), [{ model, quotaFamily: 'flash', excludedAccounts: [] }]);
+ const invalid = response(); f.scheduler.submit(route, Buffer.from('{"model":"unknown"}'), invalid);
+ assert.equal(invalid.statusCode, 422); assert.equal(invalid.writableEnded, true);
+ available = true; f.scheduler.pump();
+ await eventually(() => res.writableEnded);
+ assert.equal(res.statusCode, 200); assert.equal(f.scheduler.queue.length, 0);
+});
+
 test('queue deadline is not reset after a rejected attempt and disconnect removes waiting work', async t => {
  const f = fixture(t, async () => rejected(), { queueTimeoutMs: 55 });
  f.dispatch.slots.get('B').ready = false;
@@ -177,6 +214,28 @@ test('queue deadline is not reset after a rejected attempt and disconnect remove
  const waiting = response(); f.scheduler.submit(route, body, waiting);
  assert.equal(f.scheduler.queue.length, 1); waiting.destroy();
  assert.equal(f.scheduler.queue.length, 0);
+});
+
+test('an early queue timer cannot expire work before its absolute deadline', () => {
+ let now = 1700000000000;
+ const timers = [];
+ const context = { module: { exports: {} }, require, console, Date: { now: () => now },
+  setInterval: () => ({ unref() {} }), clearInterval() {},
+  setTimeout(callback, delay) { const timer = { callback, delay }; timers.push(timer); return timer; },
+  clearTimeout(timer) { if (timer) timer.cancelled = true; }
+ };
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'request-scheduler.js'), 'utf8'), context);
+ const scheduler = new context.module.exports.RequestScheduler({ halted: false, acquire: () => undefined }, {}, () => {}, {}, { queueTimeoutMs: 50 });
+ scheduler.resolveModel = () => ({ model, quotaFamily: 'flash' });
+ const res = response(); scheduler.submit(route, body, res);
+ const originalDeadline = scheduler.queue[0].deadline;
+ now = originalDeadline - 1; timers[0].callback();
+ assert.equal(res.writableEnded, false); assert.equal(scheduler.queue.length, 1);
+ assert.equal(scheduler.status().queueExpired, 0); assert.equal(timers[1].delay, 1);
+ now = originalDeadline; timers[1].callback();
+ assert.equal(res.writableEnded, true); assert.equal(res.statusCode, 503);
+ assert.equal(scheduler.queue.length, 0); assert.equal(scheduler.status().queueExpired, 1);
+ scheduler.close();
 });
 
 test('queued requests fail promptly when persistence halts dispatch', t => {

@@ -14,9 +14,10 @@ async function main(){
  const client=new WorkerClient(Object.fromEntries(['A','B'].map(s=>[s,cfg.workers[s].control])));
  const driver=new WorkerDriver(root,cfg.image,client);
  const rotation=new RotationController(dispatch,driver);
- const {RequestHistory}=require('./request-history');
+ const {openHistory}=require('./history-startup');
  const {createRecordedForward}=require('./recorded-forward');
- const history=await new RequestHistory(path.join(root,'request-history')).init();
+ const history=await openHistory(path.join(root,'request-history'));
+ if(!history.status().ready)console.error('[Analytics] history unavailable; generation remains enabled');
  const {ModelPriceStore}=require('./model-price-store');
  const priceStore=new ModelPriceStore(path.join(root,'model-prices.json'));
  const recordedForward=createRecordedForward({history,forward:forwardWorker,priceFor:model=>priceStore.get(model)});
@@ -32,7 +33,7 @@ async function main(){
  const {ModelPolicyStore}=require("./model-policy-store");
  const policyStore=new ModelPolicyStore(path.join(root,"model-policies.json"),cfg.modelPolicies||{});
  const routing=new CatalogRouting(dispatch,catalogs,policyStore.policies);
- scheduler.resolveModel=(route,body)=>routing.resolve(route,body);
+ scheduler.resolveModel=(route,body,options)=>routing.resolve(route,body,options);
  dispatch.quotaExhausted=(slot,plan)=>routing.exhausted(slot,plan);
  let stopping=false;
  const {CoordinatorMonitor}=require('./coordinator-monitor');
@@ -107,6 +108,7 @@ async function main(){
    return {mode,results};
   },
   async rotate(slot,targetAccount){
+   if(stopping)return {started:[],skipped:[{slot,reason:'coordinator_stopping'}]};
    const targets=slot===undefined?['A','B']:[slot];
    const started=[];const skipped=[];
    for(const target of targets){
@@ -128,7 +130,8 @@ async function main(){
    return {started,skipped};
   },
   async syncAccounts(){
-   const files=fs.readdirSync('/opt/ais2api/auth').filter(n=>/^auth-\d+\.json$/.test(n)).map(n=>Number(n.match(/\d+/)[0])).sort((a,b)=>a-b);
+   if(stopping)return {added:[],reason:'coordinator_stopping'};
+   const files=fs.readdirSync('/opt/ais2api/auth').filter(n=>/^auth-[1-9]\d*\.json$/.test(n)).map(n=>Number(n.match(/\d+/)[0])).filter(Number.isSafeInteger).sort((a,b)=>a-b);
    const added=[];
    for(const id of files){
     if(dispatch.pool.ids.includes(id))continue;

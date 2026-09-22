@@ -141,8 +141,23 @@ class CatalogController {
     try {
       if(!this.current(job))throw Error('Catalog ownership changed');
       const data=await this.read(slot);
-      if(!job.workerEpoch||data.workerEpoch!==job.workerEpoch||data.jobId!==job.id) {
+      if(!job.workerEpoch||data.workerEpoch!==job.workerEpoch) {
         job.phase='uncertain';job.error='catalog_job_identity_unconfirmed';return;
+      }
+      if(data.jobId!==job.id){
+        job.phase='uncertain';job.error='catalog_job_identity_unconfirmed';
+        // A coordinator may crash after persisting sent=true but before the
+        // POST reaches the worker. Re-send the SAME idempotent job identity;
+        // never drop the lease or infer completion from a missing job.
+        if(data.syncing||(job.retryAt||0)>Date.now())return;
+        const probe=await withDeadline(()=>this.client.status(slot,job.account),this.timeoutMs);
+        if(!this.current(job)||this.dispatch.halted||this.scheduler.closed||
+           probe.workerEpoch!==job.workerEpoch||!probe.ready||probe.busy||probe.quarantined||
+           probe.activeRequests!==0||probe.browserOperations!==0||probe.pendingCompletions!==0)return;
+        job.retryAt=Date.now()+5000;
+        const receipt=await withDeadline(()=>this.call(slot,job.account,job.id),this.timeoutMs);
+        if(receipt.accepted===true&&this.current(job)){job.phase='syncing';job.error=undefined;}
+        return;
       }
       if(data.syncing) {
         job.phase='syncing';job.error=undefined;return;

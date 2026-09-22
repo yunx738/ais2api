@@ -94,14 +94,20 @@ function refresh(){
  readTask=(async()=>{
   try{const d=await api('/api/status');if(typeof d.halted!=='boolean'||!Number.isInteger(d.queue)||!d.slots||!Array.isArray(d.accounts))throw Error('状态数据格式不完整');
    state=d;render(d);fresh=true;document.dispatchEvent(new CustomEvent('ais-status',{detail:d}));document.body.classList.remove('stale');$('updated').textContent='更新于 '+new Date().toLocaleTimeString('zh-CN');
-   if(statusError){notice('');statusError=false;}
-  }catch(e){fresh=false;statusError=true;document.body.classList.add('stale');$('updated').textContent='状态已过期';notice('状态读取失败，已保留上次数据。'+e.message);}
+   if(statusError){notice('');statusError=false;}return true;
+  }catch(e){fresh=false;statusError=true;document.body.classList.add('stale');$('updated').textContent='状态已过期';notice('状态读取失败，已保留上次数据。'+e.message);return false;}
   finally{reading=false;$('refresh').disabled=false;$('refresh').removeAttribute('aria-busy');controls();}
  })();return readTask;
 }
 async function action(path,body,message,format){
  if(mutating||!fresh)return;if(message&&!confirm(message))return;
- mutating=true;controls();try{const result=await api(path,body);if(readTask)await readTask;await refresh();notice(format(result));statusError=false;}catch(e){notice(e.message);}finally{mutating=false;controls();}
+ mutating=true;controls();try{
+  const result=await api(path,body);if(readTask)await readTask;
+  if(await refresh()){notice(format(result));statusError=false;}
+ }catch(e){
+  fresh=false;document.body.classList.add('stale');$('updated').textContent='操作后状态待核实';
+  notice(e.message+'；请刷新状态后再操作。');
+ }finally{mutating=false;controls();}
 }
 $('rotate').addEventListener('click',()=>{
  const slot=$('slot').value,s=state?.slots?.[slot];

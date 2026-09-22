@@ -82,3 +82,37 @@ test('catalog POST timeout retains durable uncertainty and slot lease',async()=>
  assert.equal(catalogs.jobs.get('A').phase,'uncertain');
  assert.equal(f.dispatch.slots.get('B').ready,true);
 });
+
+test('restart between durable catalog intent and POST resumes the same idempotent job',async()=>{
+ const f=fixture(),id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',epoch='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+ f.scheduler.executing=new Set();
+ f.dispatch.slots.get('A').catalogTask={id,account:1,startedAt:Date.now(),sent:true,workerEpoch:epoch};
+ f.client.status=async()=>({account:1,ready:true,busy:false,quarantined:false,
+  activeRequests:0,browserOperations:0,pendingCompletions:0,workerEpoch:epoch});
+ let acceptedJob;const sent=[];
+ const catalogs=new CatalogController({...f,timeoutMs:25,call:async(_slot,_account,job)=>{
+  if(job){sent.push(job);acceptedJob=job;return {accepted:true,jobId:job,account:1};}
+  return {account:1,workerEpoch:epoch,syncing:false,jobId:acceptedJob};
+ }});
+ assert.equal(f.dispatch.operations.has('A'),true);
+ await catalogs.reconcile('A');assert.deepEqual(sent,[id]);
+ assert.equal(f.dispatch.operations.has('A'),true,'receipt is not completion');
+ await catalogs.reconcile('A');
+ assert.equal(f.dispatch.operations.has('A'),false);assert.equal(catalogs.jobs.size,0);
+ assert.equal(f.dispatch.slots.get('A').catalogTask,undefined);
+});
+
+test('missing catalog job in a different epoch or occupied worker remains blocked',async()=>{
+ for(const changedEpoch of [true,false]){
+  const f=fixture(),id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',epoch='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  f.scheduler.executing=new Set();
+  f.dispatch.slots.get('A').catalogTask={id,account:1,startedAt:Date.now(),sent:true,workerEpoch:epoch};
+  f.client.status=async()=>({account:1,ready:true,busy:false,quarantined:false,
+   activeRequests:1,browserOperations:0,pendingCompletions:0,workerEpoch:epoch});
+  const catalogs=new CatalogController({...f,call:async(_slot,_account,job)=>{
+   assert.equal(job,undefined,'must not submit while identity or occupancy is unresolved');
+   return {account:1,workerEpoch:changedEpoch?'cccccccc-cccc-cccc-cccc-cccccccccccc':epoch,syncing:false};
+  }});
+  await catalogs.reconcile('A');assert.equal(f.dispatch.operations.has('A'),true);
+ }
+});

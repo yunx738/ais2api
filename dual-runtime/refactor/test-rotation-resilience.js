@@ -28,7 +28,7 @@ function driver(){
   stop:async()=>{},inspect:async slot=>({running:false,processesStopped:true,id:oldIds[slot]}),
   prepare:async(slot,account)=>accounts.set(slot,account),start:async()=>{},
   waitReady:async(slot,account)=>ready(account),probeReady:async(slot,account)=>ready(account),
-  describe:async slot=>({Id:'c'.repeat(64),Config:{Labels:{'operit.account':String(accounts.get(slot))}},State:{Running:true,Pid:200}})
+  describe:async slot=>({Id:accounts.get(slot)<=2?oldIds[slot]:'c'.repeat(64),Config:{Labels:{'operit.account':String(accounts.get(slot))}},State:{Running:true,Pid:200}})
  };
 }
 function routing(dispatch){
@@ -55,7 +55,7 @@ test('uncertain stop retains both account reservations but only blocks its slot'
  fake.stop=async slot=>{if(slot==='A')throw Error('Docker timeout');};
  await assert.rejects(r.rotate('A',true,3),/timeout/);
  assert.equal(d.pool.owners.get(1),'A');assert.equal(d.pool.owners.get(3),'A');
- assert.equal(r.failures.get('A').retryable,false);
+ assert.equal(r.failures.get('A').retryable,true);
  assert.equal(await r.reconcile('A'),false);
  assert.equal((await r.rotate('B',true,4)).account,4);
 });
@@ -176,8 +176,9 @@ test('recovery of B is independent of a rotation in A and a late readiness succe
  const d=fixture(),fake=driver(),r=new RotationController(d,fake),scheduler={executing:new Set(),closed:false};
  r.running.add('A');let running=true,recovered=false;
  const containerId='b'.repeat(64);
- fake.describe=async()=>({Id:containerId,Config:{Labels:{'operit.account':'2'}},State:{Running:running,Pid:running?42:0}});
+ fake.describe=async()=>({Id:containerId,Config:{Labels:{'operit.account':'2'}},State:{Running:running,Pid:running?42:0,Status:running?'running':'exited'}});
  fake.stop=async()=>{running=false;};fake.run=async()=>{running=true;};
+ fake.restartStopped=async()=>{running=true;};
  const client={status:async()=>recovered?ready(2):{account:2,hardQuarantine:true,pendingCompletions:0,quarantined:true,busy:false,activeRequests:0},
   waitReady:async()=>{throw Error('Readiness timeout');}};
  const recovery=new QuarantineRecovery(d,scheduler,client,fake,r);

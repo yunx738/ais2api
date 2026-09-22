@@ -25,7 +25,7 @@ class CatalogRouting {
   const s=this.snapshot(slot,account);
   return Boolean(s?.models.some(m=>m.id===id && Array.isArray(m.methods) && m.methods.includes("generateContent")));
  }
- resolve(route,body){
+ resolve(route,body,{allowUnavailable=false}={}){
   let request;
   try{request=parseRequestModel(route,body);}
   catch{throw Object.assign(Error("Invalid request model"),{statusCode:400});}
@@ -34,7 +34,7 @@ class CatalogRouting {
   if(request.antiTruncation && !policy.antiTruncation)
    throw Object.assign(Error("Anti-truncation unsupported for this model"),{statusCode:422});
   const eligible=(slot,account)=>this.eligible(slot,account,request.upstreamId);
-  if(![...this.dispatch.pool.slots].some(([slot,owner])=>eligible(slot,owner.current)))
+  if(!allowUnavailable&&![...this.dispatch.pool.slots].some(([slot,owner])=>eligible(slot,owner.current)))
    throw Error("Model unavailable in a fresh synchronized account catalog");
   return {model:request.upstreamId,quotaFamily:policy.quotaFamily,eligible};
  }

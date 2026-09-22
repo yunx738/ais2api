@@ -1,5 +1,6 @@
 'use strict';
 const express=require('express'),http=require('http');
+const {requireSession,rotationPayload,createControlCall}=require('./management-control');
 const {ProxyServerSystem}=require('./unified-server');
 async function main(){
  const system=new ProxyServerSystem();
@@ -40,36 +41,12 @@ async function main(){
  const index=router.stack.findIndex(layer=>layer.route?.path==='/');
  if(index<0)throw Error('Dashboard route missing');
  const dashboard=express.Router();
- dashboard.use((req,res,next)=>{
-  if(!req.session?.isAuthenticated)return res.redirect('/login');
-  next();
- });
+ dashboard.use(requireSession);
 require('./console-routes').install(dashboard);
- dashboard.get('/api/status',(req,res)=>{
-  const upstream=http.get({hostname:'127.0.0.1',port:8890,path:'/internal/coordinator-status',headers:{Authorization:'Bearer '+system.config.apiKeys[0]},agent:false},reply=>{
-   let body='',size=0;
-   reply.on('data',chunk=>{size+=chunk.length;if(size>8388608)upstream.destroy();else body+=chunk;});
-   reply.on('end',()=>{
-    if(res.writableEnded)return;
-    try{if(reply.statusCode!==200)throw Error();res.json(JSON.parse(body));}
-    catch{res.status(503).json({error:'Coordinator status unavailable'});}
-   });
-   reply.on('error',()=>{if(!res.writableEnded)res.status(503).json({error:'Coordinator status unavailable'});});
-  });
-  upstream.setTimeout(5000,()=>upstream.destroy());
-  upstream.on('error',()=>{if(!res.writableEnded)res.status(503).json({error:'Coordinator status unavailable'});});
- });
- const call=(method,actionPath,body)=>new Promise((resolve)=>{
-  const payload=body?JSON.stringify(body):'';
-  const upstream=http.request({hostname:'127.0.0.1',port:8890,path:actionPath,method,headers:{Authorization:'Bearer '+system.config.apiKeys[0],'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)},agent:false,timeout:60000},reply=>{
-   let data='';let size=0;
-   reply.on('data',chunk=>{size+=chunk.length;if(size>8388608)return upstream.destroy();data+=chunk;});
-   reply.on('end',()=>{try{resolve({status:reply.statusCode,body:JSON.parse(data)});}catch{resolve({status:reply.statusCode,body:{error:String(data).slice(0,200)}});}});
-   reply.on('error',()=>resolve({status:503,body:{error:'Coordinator unavailable'}}));
-  });
-  upstream.on('timeout',()=>upstream.destroy(Error('timeout')));
-  upstream.on('error',()=>resolve({status:503,body:{error:'Coordinator unavailable'}}));
-  upstream.end(payload);
+ const call=createControlCall(system.config.apiKeys[0]);
+ dashboard.get('/api/status',async(req,res)=>{
+  const result=await call('GET','/internal/coordinator-status');
+  if(!res.destroyed)res.status(result.status).json(result.body);
  });
  for(const [publicPath,internalPath] of [['/api/requests','/internal/requests'],['/api/usage','/internal/usage']]){
   dashboard.get(publicPath,async(req,res)=>{
@@ -122,15 +99,11 @@ require('./console-routes').install(dashboard);
   res.status(r.status).json(r.body);
  });
  dashboard.post('/api/rotate',async(req,res)=>{
-  const slot=req.body?.slot;
-  const target=req.body?.targetAccount;
-  if(slot!==undefined&&slot!==null&&['A','B'].includes(slot)===false)return res.status(400).json({error:'slot must be A or B'});
-  if(target!==undefined&&target!==null&&Number.isSafeInteger(target)===false)return res.status(400).json({error:'targetAccount must be an integer'});
-  const payload={};
-  if(slot)payload.slot=slot;
-  if(target!==undefined&&target!==null)payload.targetAccount=target;
+  let payload;
+  try{payload=rotationPayload(req.body);}
+  catch(error){return res.status(400).json({error:error.message});}
   const r=await call('POST','/internal/rotate',payload);
-  res.status(r.status).json(r.body);
+  if(!res.destroyed)res.status(r.status).json(r.body);
  });
  dashboard.post('/api/sync-accounts',async(req,res)=>{
   const r=await call('POST','/internal/sync-accounts',{});
