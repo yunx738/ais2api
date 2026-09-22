@@ -2,7 +2,7 @@
 // Analytics never owns admission, quota deduction or execution reconciliation.
 function createRecordedForward({history,forward,priceFor=()=>void 0,clock=Date.now}){
  const health={beginFailures:0,finishFailures:0,lastFailureAt:null};
- async function recorded(ticket,route,body,res,credentials){
+ async function recorded(ticket,route,body,res,credentials,options){
   let started=false,continuationPossible=false;
   try{
    let parsed={};try{parsed=JSON.parse(body.toString('utf8'));}catch{}
@@ -21,7 +21,7 @@ function createRecordedForward({history,forward,priceFor=()=>void 0,clock=Date.n
   }
   let result;
   try{
-   result=await forward(ticket,route,body,res,credentials);
+   result=await forward(ticket,route,body,res,credentials,options);
    return result;
   }finally{
    if(started){

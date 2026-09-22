@@ -20,7 +20,7 @@ class DispatchCore {
    hardQuarantine:status.hardQuarantine===true,
    pendingCompletions:Number.isSafeInteger(status.pendingCompletions)?status.pendingCompletions:null};
   const records=Object.values(s.executions||{});
-  const unresolved=Object.keys(s.retirements||{}).length>0 || records.length!==s.requests.size || records.some(t=>t.phase!=="running"||t.workerEpoch!==s.workerEpoch);
+  const unresolved=Boolean(s.rotation||s.recovery)||Object.keys(s.retirements||{}).length>0 || records.length!==s.requests.size || records.some(t=>t.phase!=="running"||t.workerEpoch!==s.workerEpoch);
   s.ready=validEpoch && !unresolved && !this.operations.has(slot) && status.account===owner?.current && status.ready===true && status.busy===false && status.browserOperations===0 && status.quarantined===false;
  }
  acquire(id,plan,eligible=()=>true){
@@ -28,7 +28,10 @@ class DispatchCore {
   if(!plan||typeof plan.model!=="string"||!["flash","pro"].includes(plan.quotaFamily))throw Error("Explicit model quota required");
   const {model,quotaFamily:kind}=plan;
   if([...this.slots.values()].some(s=>s.requests.has(id)||Object.hasOwn(s.retirements||{},id)))throw Error("Duplicate request");
-  if(this.halted||this.globalUntil>Date.now())return;
+  // Older coordinators persisted an account's 429 backoff as globalUntil.
+  // Keep that legacy field for checkpoint compatibility; only the durable
+  // account/model restrictions below govern admission now.
+  if(this.halted)return;
   const now=Date.now();
   for(let n=0;n<2;n++){
    const pos=(this.cursor+n)%2,slot=['A','B'][pos],s=this.slots.get(slot),owner=this.pool.slots.get(slot);
@@ -62,11 +65,31 @@ class DispatchCore {
   this.checkpoint();return true;
  }
  retire(ticket){ const s=this.slots.get(ticket.slot),r=s?.retirements?.[ticket.id]; if(!r||r.account!==ticket.account||r.workerEpoch!==ticket.workerEpoch)throw Error("Stale retirement"); delete s.retirements[ticket.id];this.checkpoint(); }
- reserveRotation(slot,manual,target){
+ rotationCandidate(target,plan){
+  const now=Date.now();
+  const excluded=new Set(plan?.excludedAccounts||[]);
+  const available=id=>!this.pool.owners.has(id)&&(this.pool.cooldowns.get(id)||0)<=now&&
+   !excluded.has(id)&&(!plan||this.quotas.view(id,plan.model,plan.quotaFamily,now).allowed);
+  if(target!==undefined){
+   if(!this.pool.ids.includes(target))throw Error('Unknown account');
+   // Explicit account selection must never fall through to another account.
+   if(!available(target))throw Error('Target account unavailable');
+  }else{
+   for(let i=0;i<this.pool.ids.length;i++){
+    const id=this.pool.ids[(this.pool.cursor+i)%this.pool.ids.length];
+    if(available(id)){target=id;break;}
+   }
+   if(target===undefined)return undefined;
+  }
+  return target;
+ }
+ reserveRotation(slot,manual,target,plan){
   if(this.halted)throw Error('Coordinator halted');
   const s=this.slots.get(slot);
-  if(s===undefined||s.active>0||Object.keys(s.retirements||{}).length>0||s.ready===false)throw Error('Slot not safe to rotate');
-  if(manual!==true&&!this.quotaExhausted(slot))throw Error('Model quotas not exhausted');
+  if(s===undefined||s.active>0||s.requests.size||Object.keys(s.executions||{}).length||Object.keys(s.retirements||{}).length>0||s.ready===false)throw Error('Slot not safe to rotate');
+  if(manual!==true&&!this.quotaExhausted(slot,plan))throw Error('Model quotas not exhausted');
+  target=this.rotationCandidate(target,plan);
+  if(target===undefined)return null;
   const ticket=this.pool.reserve(slot,target);
   if(ticket){s.ready=false;this.checkpoint();}
   return ticket;
@@ -74,6 +97,10 @@ class DispatchCore {
  commitRotation(ticket,oldClosed){
   this.pool.commit(ticket,oldClosed);
   const s=this.slots.get(ticket.slot);s.ready=false;
+  // Ownership and the end of the rotation transaction must share one durable
+  // checkpoint; retaining the marker after commit would strand the new owner
+  // following a crash between checkpoints.
+  delete s.rotation;
   // Keep all account quota ledgers when ownership changes.
   this.checkpoint();
  }

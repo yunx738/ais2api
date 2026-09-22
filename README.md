@@ -14,6 +14,10 @@ Dual-worker AI Studio proxy with OpenAI-compatible responses and an authenticate
 ## Private runtime data
 Account credentials, environment files, coordinator configuration, quota/execution state, request history, model policies and price configuration are local deployment data and must not be committed. Model policies and prices require explicit configuration on a new installation; they are not reconstructed from repository history.
 
+## Coordinator resilience and console
+Slot health checks, rotation and recovery progress independently. Rejected requests can safely move to another account after execution settlement; per-model cooldowns do not stop healthy accounts. The management console includes a compact mobile layout, searchable account table, quota details and expandable request diagnostics.
+See [behavior, verification and rollout notes](dual-runtime/refactor/RESILIENCE.md). Run `npm test` for the offline coordinator regressions; `npm run test:ui` runs the fixture-based Playwright checks after installing its Chromium browser.
+
 ## Verification and limitations
 The usage adapter passed 102 offline tests on Node 18.20.8 and Node 22. Completion-state handling subsequently passed 93 regression tests and UI rendering checks on both versions.
 These tests do not replace live end-to-end acceptance. Missing cache/reasoning counts, incomplete transport and anti-truncation continuation totals can leave cost unknown.
