@@ -15,9 +15,7 @@ async function main(){
  allowed.add('GET /api/usage');
  allowed.add('GET /api/prices');
  allowed.add('POST /api/prices');
- allowed.add('GET /console-assets/prices.js');
- allowed.add('GET /console-assets/analytics.js');
- allowed.add('GET /console-assets/analytics.css');
+ for(const name of require('./console-routes').assets)allowed.add('GET /console-assets/'+name);
  const outer=express();
  outer.use((req,res,next)=>{
   res.setHeader("X-Frame-Options","DENY");

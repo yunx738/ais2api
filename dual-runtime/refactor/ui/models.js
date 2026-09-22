@@ -83,10 +83,15 @@
       const item=data?.slots?.[slot],snapshot=item?.catalog?.snapshot;
       for(const model of snapshot?.models||[]){
         if(typeof model.id!=='string'||!model.id.toLowerCase().includes(filter))continue;
-        const row=el('tr');
-        for(const value of [model.id,slot+' / #'+item.account,
-          Array.isArray(model.methods)?model.methods.join(' · '):'未知',
-          date(snapshot.updatedAt)])row.append(el('td',value));
+        const row=el('tr'),identity=el('td'),modelName=el('div',undefined,'catalog-model-name');
+        modelName.append(el('span','G','catalog-model-avatar'),el('strong',model.id));identity.append(modelName);
+        const owner=el('td'),ownerLabel=el('span','实例 '+slot,'badge');
+        owner.append(ownerLabel,el('small','账号 #'+item.account,'catalog-account'));
+        const methods=el('td'),methodList=el('div',undefined,'catalog-methods');
+        for(const method of Array.isArray(model.methods)&&model.methods.length?model.methods:['未知']){
+          methodList.append(el('span',method==='generateContent'?'文本生成':method==='countTokens'?'Token 计数':method,'catalog-method'));
+        }
+        methods.append(methodList);row.append(identity,owner,methods,el('td',date(snapshot.updatedAt),'catalog-updated'));
         fragment.append(row);count++;
       }
     }
@@ -97,17 +102,20 @@
     $('catalog-workers').replaceChildren();buttons.clear();
     for(const slot of ['A','B']){
       const item=data.slots[slot]||{},c=item.catalog,snapshot=c?.snapshot;
-      const box=el('article',undefined,'card worker'),head=el('div',undefined,'worker-head');
+      const box=el('article',undefined,'card worker catalog-worker'),head=el('div',undefined,'worker-head');
       const phase=data.errors?.[slot]?'状态不可读':item.operation?
         explain(item.operation.phase):c?.syncing?'同步中':c?.error?'同步失败':
         snapshot?(snapshot.stale?'历史目录':'已有目录'):'未同步';
-      head.append(el('h2','实例 '+slot+' · 账号 #'+(item.account??'—')),el('span',phase,'badge'));
-      box.append(head,el('p','最近成功更新 '+date(snapshot?.updatedAt),'muted'),
-        el('p','模型数量 '+(snapshot?.models?.length??0),'muted'));
+      const identity=el('div',undefined,'catalog-worker-identity'),title=el('div');
+      title.append(el('h2','实例 '+slot),el('small','账号 #'+(item.account??'—'),'muted'));
+      identity.append(el('span',slot,'catalog-slot-icon'),title);
+      head.append(identity,el('span',phase,'badge '+(snapshot&&!snapshot.stale&&!c?.error&&!data.errors?.[slot]?'good':'warn')));
+      const metric=el('div',undefined,'catalog-count');metric.append(el('strong',snapshot?.models?.length??'—'),el('span','已同步模型','muted'));
+      box.append(head,metric,el('p','最近更新 '+date(snapshot?.updatedAt),'catalog-timestamp'));
       const error=data.errors?.[slot]||item.operation?.error||c?.error;
       if(error)box.append(el('p',explain(error),'warn'));
       if(data.errors?.[slot]&&snapshot)box.append(el('p','下方保留历史目录，不代表当前状态。','warn'));
-      const button=el('button','同步此实例目录','primary');
+      const button=el('button','同步目录','catalog-sync');button.type='button';
       button.addEventListener('click',() => sync(slot));buttons.set(slot,button);
       box.append(button);$('catalog-workers').append(box);
     }
@@ -119,7 +127,7 @@
       const result=await api('/api/models');
       if(!result||typeof result.slots!=='object'||!result.slots)throw Error('目录接口格式错误');
       data=result;available=true;renderCatalog();
-      $('catalog-message').textContent='状态读取于 '+new Date().toLocaleTimeString('zh-CN')+' · 读取状态不会触发上游同步';
+      $('catalog-message').textContent='更新于 '+new Date().toLocaleTimeString('zh-CN');
     }catch(e){
       available=false;
       $('catalog-message').textContent='目录状态读取失败，保留的内容为旧数据。'+e.message;
