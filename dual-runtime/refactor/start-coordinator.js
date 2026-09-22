@@ -36,6 +36,10 @@ async function main(){
  scheduler.resolveModel=(route,body,options)=>routing.resolve(route,body,options);
  dispatch.quotaExhausted=(slot,plan)=>routing.exhausted(slot,plan);
  let stopping=false;
+ const {RetiredResourceCleanup}=require('./retired-resource-cleanup');
+ const cleanup=new RetiredResourceCleanup({dispatch,driver,root,options:cfg.retiredCleanup===undefined?{}:cfg.retiredCleanup,
+  isStopping:()=>stopping,hasWaiting:()=>scheduler.queue.length>0});
+ rotation.onRetired=(slot,marker)=>cleanup.record(slot,marker);
  const {CoordinatorMonitor}=require('./coordinator-monitor');
  const monitor=new CoordinatorMonitor({dispatch,client,catalogs,recovery,rotation,routing,scheduler});
  let lastMode='unknown';
@@ -43,6 +47,7 @@ async function main(){
   halted:dispatch.halted,queue:scheduler.queue.length,scheduling:scheduler.status(),
   streamingMode:lastMode,
   analytics:recordedForward.status(),
+  retiredCleanup:cleanup.status(),
   quotaMode:"per-account-per-model",quotaLimits:{flash:100,pro:10},
   slots:Object.fromEntries([...dispatch.slots].map(([slot,s])=>[slot,{
    account:dispatch.pool.slots.get(slot)?.current,
@@ -149,9 +154,10 @@ async function main(){
   server.once('error',reject);server.listen(8890,'127.0.0.1',resolve);
  });
  const timer=setInterval(()=>monitor.tick(),2000);
+ const cleanupTimer=setInterval(()=>cleanup.tick(),60000);cleanupTimer.unref();
  console.log('[Coordinator] loopback 8890; protocol v2; per-slot concurrency 2; explicit model quotas');
  async function shutdown(){
-  if(stopping)return;stopping=true;clearInterval(timer);monitor.close();scheduler.close();
+  if(stopping)return;stopping=true;clearInterval(timer);clearInterval(cleanupTimer);cleanup.close();monitor.close();scheduler.close();
   server.close();
   const deadline=Date.now()+620000;
   while(Date.now()<deadline && ([...dispatch.slots.values()].some(s=>s.active>0||Object.keys(s.retirements||{}).length>0)||rotation.running.size||catalogs.jobs.size)){

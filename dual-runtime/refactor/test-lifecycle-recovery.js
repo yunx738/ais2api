@@ -189,3 +189,34 @@ test('legacy already-canonical target without predecessor closure proof remains 
  assert.equal(restored.pool.slots.get('A').current,1);assert.equal(restored.pool.slots.get('A').pending.id,3);
  assert.equal(f.engine.commands.some(args=>['stop','start','create','rename'].includes(args[0])),false);
 });
+test('retirement housekeeping is recorded only after the successful ownership checkpoint',async t=>{
+ const f=fixture(t),rotation=new RotationController(f.dispatch,f.worker());
+ const {RetiredResourceCleanup}=require('./retired-resource-cleanup');
+ const cleanup=new RetiredResourceCleanup({dispatch:f.dispatch,driver:f.worker(),root:f.root});
+ let recorded=0;
+ rotation.onRetired=(slot,marker)=>{
+  const persisted=restore(f.file);
+  assert.equal(persisted.pool.slots.get(slot).current,3);
+  assert.equal(persisted.pool.slots.get(slot).pending,null);
+  assert.equal(persisted.slots.get(slot).rotation,undefined);
+  assert.equal(cleanup.record(slot,marker),true);recorded++;
+ };
+ f.engine.fail=args=>args[0]==='create';
+ await assert.rejects(rotation.rotate('A',true,3));
+ assert.equal(recorded,0);assert.equal(fs.existsSync(path.join(f.root,'retired-resources')),false);
+ rotation.failures.get('A').retryAt=0;assert.equal(await rotation.reconcile('A'),true);
+ assert.equal(recorded,1);
+ const receipts=cleanup.store.list();assert.equal(receipts.length,1);
+ assert.equal(receipts[0].containerId,'a'.repeat(64));assert.equal(receipts[0].account,1);
+});
+test('unavailable retirement journal does not fail or undo a successful rotation',async t=>{
+ const f=fixture(t),rotation=new RotationController(f.dispatch,f.worker());
+ const {RetiredResourceCleanup}=require('./retired-resource-cleanup');
+ const cleanup=new RetiredResourceCleanup({dispatch:f.dispatch,driver:f.worker(),root:f.root,store:{record(){throw Error('ENOSPC');}}});
+ rotation.onRetired=(slot,marker)=>cleanup.record(slot,marker);
+ assert.deepEqual(await rotation.rotate('A',true,3),{slot:'A',account:3});
+ assert.equal(f.dispatch.halted,false);assert.equal(restore(f.file).pool.slots.get('A').current,3);
+ assert.equal(cleanup.status().recordError,'retirement_receipt_unavailable');
+ assert.equal(f.engine.containers.get('a'.repeat(64)).State.Running,false);
+ assert(fs.readdirSync(path.join(f.root,'slots','A')).some(name=>name.startsWith('auth-retired-')));
+});

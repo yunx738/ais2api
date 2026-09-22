@@ -123,6 +123,9 @@ class RotationController {
   if(!this.ready(status,ticket.id))throw Error('Target readiness unconfirmed');
   this.dispatch.commitRotation(ticket,true);
   this.failures.delete(slot);this.dispatch.update(slot,status);this.dispatch.checkpoint();
+  // Optional housekeeping records are separate from the critical checkpoint.
+  // A full disk or unavailable journal must not roll back a successful switch.
+  try{this.onRetired?.(slot,marker);}catch{}
   return true;
  }
  async reconcile(slot){

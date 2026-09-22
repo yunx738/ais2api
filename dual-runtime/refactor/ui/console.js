@@ -57,7 +57,7 @@ function render(d){
   const health=s.workerHealth,healthFresh=health?.account===s.account && health?.workerEpoch===s.workerEpoch && Date.now()-health.observedAt<15000;
    const pending=(s.pendingExecutions||[]).filter(t=>t.phase==="reconciling").length;
    const label=s.legacyUnresolved?"历史请求待核实":healthFresh && health.hardQuarantine?"严重故障，已隔离":
-    healthFresh && health.pendingCompletions>0?"等待浏览器完成回执":pending?"请求完成待核实":s.pendingRetirements?"完成记录清理待确认":s.operation?({catalog:'模型同步',rotation:'账号轮换',recovery:'安全恢复'}[s.operation.kind]||'实例操作中'):s.rotationBlocked?'轮换受阻':s.pending?'轮换中':s.ready?(s.active?'请求处理中':'已就绪'):'未就绪';
+    healthFresh && health.pendingCompletions>0?"等待浏览器完成回执":pending?"请求完成待核实":s.pendingRetirements?"完成记录清理待确认":s.operation?({catalog:'模型同步',rotation:'账号轮换',recovery:'安全恢复',cleanup:'退役资源清理'}[s.operation.kind]||'实例操作中'):s.rotationBlocked?'轮换受阻':s.pending?'轮换中':s.ready?(s.active?'请求处理中':'已就绪'):'未就绪';
   head.append(title,el('span',label,'badge '+(s.ready&&!s.healthCheck?.error?'good':'warn')));box.append(head);
    if(s.healthCheck?.error)box.append(el('p','健康检查异常 · 连续 '+(s.healthCheck.failureCount||1)+' 次失败','warn'));
    if(s.recoveryBlocked)box.append(el('p','实例恢复受阻，请检查实例服务与账号状态。','warn'));
@@ -82,6 +82,15 @@ function render(d){
   }
   if(s.quota?.legacy)box.append(el('p','保留历史汇总证据；未将无法归属的用量伪装成模型精确计数。','muted'));
   box.append(el('div','调度占用 '+(s.active??0)+' · 每账号、每模型独立额度','worker-foot'));workers.append(box);
+ }
+ let cleanupNote=$('cleanup-status');
+ if(!cleanupNote){cleanupNote=el('p',undefined,'note');cleanupNote.id='cleanup-status';workers.insertAdjacentElement('afterend',cleanupNote);}
+ const cleanup=d.retiredCleanup;cleanupNote.hidden=!cleanup;
+ if(cleanup){
+  const scans=Object.values(cleanup.slots||{}),issue=cleanup.error||scans.some(s=>s.error);
+  cleanupNote.textContent='退役清理 · '+(cleanup.enabled?'保留 '+cleanup.retentionDays+' 天，每实例至少 '+cleanup.keepPerSlot+' 份':'已关闭')+
+   (issue?' · 部分资源未清理，已保留备份':scans.some(s=>s.running)?' · 检查中':'')+' · 原始凭据与运行数据保留';
+  cleanupNote.className='note'+(issue?' warn':'');
  }
  renderAccountRows(d);
  const selected=$('target').value;$('target').replaceChildren(new Option('自动选择下一账号',''));

@@ -51,6 +51,37 @@ Use the existing admission pause and drain process before replacing the coordina
 
 These source changes and offline checks do not constitute a production deployment or live provider acceptance.
 
-## Remaining operational risk
+## Conservative retired-resource cleanup
 
-Retired containers and credential directories are retained as recovery/rollback evidence. There is no automatic retention cleanup policy, so repeated rotations can accumulate disk or inode usage. Monitor free space and arrange deliberate cleanup of confirmed obsolete predecessors; do not delete active mounts, unresolved transaction evidence or source account credentials. This change does not add automatic deletion.
+Successful rotations now write a separate, private retirement receipt under `retired-resources/` **after** the new account ownership is checkpointed. It records the exact predecessor ID, account, reservation token, retirement time and credential inode/hash. A failed receipt write does not fail the rotation or halt generation; that unregistered backup remains untouched.
+
+The coordinator checks hourly, when a slot is idle and no request is queued. The default policy retains every backup for at least **7 days** and always keeps the **two newest registered retirements per slot**. At most 10 candidates per slot are considered each pass, with a cursor so protected backups do not starve other candidates. Read-only Docker inventory happens outside the slot lease; a bounded container removal owns only that slot's lease. Cleanup runs on only one slot at a time, leaving the other available for admission. Waiting requests, shutdown, active executions, pending completion records, catalog operations, rotation or recovery stop cleanup.
+
+Every candidate must pass all of these checks:
+
+- A valid, committed retirement receipt matches the exact retired name, full container ID and project/slot/account labels. The container is stopped, has PID 0 and is neither paused nor restarting. Removal uses the exact ID with plain `docker rm`; **no force, volume deletion or prune** is used.
+- The retired directory and its sole `auth-{account}.json` have the recorded identities and hash. The original account file still exists, has valid credential structure and is **byte-for-byte identical** to the backup. Different or unique login credentials are retained, even after the retention period.
+- No other container, including a stopped one, mounts the directory, a parent or a child path. Symlinks, path aliases, unexpected files and changed identities prohibit cleanup.
+- A complete subsequent Docker inventory confirms removal before the duplicate credential file is unlinked and the empty directory is removed. A timeout or lost command response is not absence. The receipt and retention conditions are revalidated before each deletion. Credential unlink uses a verified directory FD via Linux `/proc/self/fd` so a parent-path replacement cannot redirect it to the primary file. Interrupted cleanup resumes from the receipt and repeats the checks; it never recursively removes credential directories.
+
+Primary `/opt/ais2api/auth/` credentials, current `slots/*/auth`, staging `auth-next-*`, configuration, model policies, prices, quota/execution checkpoints, history, images, networks and volumes are outside the cleanup targets. **Old resources without a retirement receipt are preserved**, including resources created before this feature or during a crash before receipt persistence. Unique or uncertain backups may therefore still accumulate; this policy does not promise a hard disk-space cap.
+
+Optional `coordinator.json` configuration (the values below are the defaults):
+
+```json
+{
+  "retiredCleanup": {
+    "enabled": true,
+    "retentionDays": 7,
+    "keepPerSlot": 2,
+    "intervalMinutes": 60,
+    "maxPerSweep": 10
+  }
+}
+```
+
+Set `enabled` to `false` to disable deletion while continuing to record future retirements. `retentionDays` accepts 7–3650, `keepPerSlot` 2–100, `intervalMinutes` 5–1440 and `maxPerSweep` 1–10. Invalid cleanup settings disable cleanup and surface an error without stopping generation. Deploy both `retired-resource-cleanup.js` and `retired-resource-store.js` with the coordinator changes. Keep the new receipt directory when upgrading; restoring a receipt alone is never enough to authorize deletion of a different file or container.
+
+The management status response exposes the effective policy and per-slot last scan, protected/removed counts and errors in `retiredCleanup`. The overview shows a compact retention/error notice. Cleanup and journal errors stay separate from the critical dispatch checkpoint.
+
+Cleanup regression tests use real credential copies and journals with simulated Docker inventories, including unique credentials, foreign mounts, shutdown, concurrent admission/rotation, revoked receipts, parent-path replacement at unlink, lost remove replies and interrupted journal removal. They assert that primary/current credentials, configuration, checkpoint and history sentinels remain unchanged. The full suite now passes **244 tests** (75 added for cleanup), and the real-browser check covers the retention/error notice. No production cleanup has been executed.

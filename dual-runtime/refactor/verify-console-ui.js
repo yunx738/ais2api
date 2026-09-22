@@ -23,7 +23,8 @@ const quota=i=>{
 };
 const accounts=Array.from({length:28},(_,i)=>({id:i+1,name:(names[i%names.length])+' '+(i+1),owner:i===0?'A':i===1?'B':null,cooldownUntil:i===3||i===5?now+60000:0,quota:quota(i)}));
 const slots=Object.fromEntries(['A','B'].map((slot,i)=>[slot,{ready:true,active:i,account:i+1,quota:quota(i),workerEpoch:'epoch-'+slot,workerHealth:{account:i+1,workerEpoch:'epoch-'+slot,observedAt:now,pendingCompletions:0}}]));
-const status={halted:false,queue:2,accounts,slots};
+const cleanupStatus=new (require('./retired-resource-cleanup').RetiredResourceCleanup)({dispatch:{},driver:{root:'/unused'},root:'/unused'}).status();
+const status={halted:false,queue:2,accounts,slots,retiredCleanup:cleanupStatus};
 const makeHistory=(model='gemini-3.7-flash',count=20)=>Array.from({length:count},(_,i)=>({id:'example-request-'+i,createdAt:now-i*75000,requestedModel:model,model,account:i%8+1,slot:i%2?'B':'A',stream:true,outcome:i===1?'http_error':'success',httpStatus:i===1?429:200,metrics:{durationMs:4534+i*342,firstContentMs:1940,usage:{input:26350+i*21,output:497,cached:25000,reasoning:783,source:'response-reported-unverified'},usageComplete:i!==1},cost:{amount:i===1?null:0.0749,reason:'usage_incomplete'}}));
 const server=http.createServer((req,res)=>{
  const url=new URL(req.url,'http://local');const send=(data,code=200,delay=0)=>setTimeout(()=>{if(!res.destroyed){res.writeHead(code,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}},delay);
@@ -64,6 +65,11 @@ const server=http.createServer((req,res)=>{
   await page.locator('#history-refresh').click();await page.waitForTimeout(100);assert.equal(await page.locator('.request-card').first().locator('details').evaluate(e=>e.open),true);
   delayUsage=true;await page.locator('.mobile-nav [data-page="usage"]').click();await page.locator('#usage-range').selectOption('all');await page.waitForTimeout(450);assert.equal(await page.locator('#usage-cards .stat').first().locator('strong').textContent(),'401');
   await page.locator('.mobile-nav [data-page="overview"]').click();await page.screenshot({path:out+'/mobile-overview.png',fullPage:true});
+  assert.match(await page.locator('#cleanup-status').textContent(),/保留 7 天，每实例至少 2 份/);
+  status.retiredCleanup.slots.A.error='cleanup_candidate_retained';await page.locator('#refresh').click();
+  await page.waitForFunction(()=>document.getElementById('cleanup-status').textContent.includes('部分资源未清理'));
+  assert.match(await page.locator('#cleanup-status').textContent(),/原始凭据与运行数据保留/);
+  status.retiredCleanup.slots.A.error=null;
   statusFailure=true;await page.locator('#refresh').click();await page.waitForTimeout(150);assert.equal(await page.locator('body').evaluate(e=>e.classList.contains('stale')),true);assert.equal(await page.locator('#sync').isDisabled(),true);
   statusFailure=false;await page.locator('#refresh').click();await page.waitForTimeout(150);assert.equal(await page.locator('body').evaluate(e=>e.classList.contains('stale')),false);assert.equal(await page.locator('#notice').isHidden(),true);
   await page.locator('.mobile-nav [data-page="accounts"]').click();
@@ -77,6 +83,6 @@ const server=http.createServer((req,res)=>{
   assert.equal(await page.locator('#usage-cards .stat-tokens strong').textContent(),'1.5K');assert.equal(await page.locator('.distribution-row').count(),2);assert.match(await page.locator('#usage-models').textContent(),/gemini-real-flash/);
   await page.locator('.mobile-nav [data-page="history"]').click();await page.waitForFunction(()=>document.querySelectorAll('.request-card').length===3);assert.match(await page.locator('#history-list').textContent(),/等待完成/);assert.match(await page.locator('#history-list').textContent(),/1K \/ 500/);
   await page.locator('#theme').click();await page.screenshot({path:out+'/mobile-dark.png',fullPage:true});
-  assert.deepEqual(errors,[]);console.log('PASS: responsive 360–1440px, real quota/history schemas, 6 stats, accounts pagination/search/status/dialog, filter race, usage range race, disclosure preservation, mutation failure/stale recovery controls, dark theme, zero runtime errors.');
+  assert.deepEqual(errors,[]);console.log('PASS: responsive 360–1440px, real quota/history schemas, 6 stats, accounts pagination/search/status/dialog, filter race, usage range race, disclosure preservation, cleanup retention/error notice, mutation failure/stale recovery controls, dark theme, zero runtime errors.');
  }finally{await browser.close();server.close();fs.rmSync(historyDir,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);server.close();fs.rmSync(historyDir,{recursive:true,force:true});process.exitCode=1});
