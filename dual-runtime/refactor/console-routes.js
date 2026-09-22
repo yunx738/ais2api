@@ -1,5 +1,7 @@
 'use strict';
 const path = require('path');
+const assets=Object.freeze(['console.css','console-panels.css','models.css','analytics.css',
+  'console.js','shell.js','models.js','prices.js','analytics.js']);
 // Install after the existing authenticated dashboard middleware.
 function install(dashboard) {
   const ui = path.join(__dirname, 'ui');
@@ -8,11 +10,6 @@ function install(dashboard) {
     res.sendFile(path.join(ui,name),err => {if(err) next(err);});
   };
   dashboard.get('/',serve('index.html'));
-  dashboard.get('/console-assets/prices.js',serve('prices.js'));
-  dashboard.get('/console-assets/analytics.js',serve('analytics.js'));
-  dashboard.get('/console-assets/analytics.css',serve('analytics.css'));
-  dashboard.get('/console-assets/console.css',serve('console.css'));
-  dashboard.get('/console-assets/console.js',serve('console.js'));
-  dashboard.get('/console-assets/models.js',serve('models.js'));
+  for(const name of assets)dashboard.get('/console-assets/'+name,serve(name));
 }
-module.exports = {install};
+module.exports = {install,assets};

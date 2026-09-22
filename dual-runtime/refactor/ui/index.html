@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>AIS 控制台</title><link rel="stylesheet" href="/console-assets/console.css"><script src="/console-assets/console.js" defer></script><script src="/console-assets/models.js" defer></script><link rel="stylesheet" href="/console-assets/analytics.css"><script src="/console-assets/analytics.js" defer></script><script src="/console-assets/prices.js" defer></script></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>AIS2API 管理后台</title><link rel="stylesheet" href="/console-assets/console.css"><link rel="stylesheet" href="/console-assets/console-panels.css"><link rel="stylesheet" href="/console-assets/models.css"><script src="/console-assets/console.js" defer></script><script src="/console-assets/shell.js" defer></script><script src="/console-assets/models.js" defer></script><link rel="stylesheet" href="/console-assets/analytics.css"><script src="/console-assets/analytics.js" defer></script><script src="/console-assets/prices.js" defer></script></head>
 <body>
 <svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
 <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
@@ -10,24 +10,48 @@
 <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="8" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="10" cy="18" r="2"/></symbol>
 <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 14 6M4 12a8 8 0 0 0 14 6"/></symbol>
 <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+<symbol id="i-chevron" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+<symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01M11 6.5h6M11 17.5h6"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-activity" viewBox="0 0 24 24"><path d="M2 12h4l3-9 6 18 3-9h4"/></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24"><path d="M20.8 13a9 9 0 0 1-9.8-9.8A9 9 0 1 0 20.8 13Z"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+<symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
+<symbol id="i-columns" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18"/></symbol>
+<symbol id="i-dollar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 8.5h-4.5a2 2 0 0 0 0 4H13a2 2 0 0 1 0 4H8.5M12 6v12"/></symbol>
+<symbol id="i-zap" viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 10-12h-7l1-8Z"/></symbol>
 </defs></svg>
-<aside><a class="brand" href="#overview"><b class="logo"><svg class="icon"><use href="#i-model"/></svg></b><span>AIS Console<small>模型与实例管理</small></span></a>
-<div class="nav-label">工作空间</div><nav aria-label="主导航">
-<a href="#overview" data-page="overview"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span>运行总览</span></a><a href="#accounts" data-page="accounts"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg><span>账号管理</span></a><a href="#models" data-page="models"><svg class="icon" aria-hidden="true"><use href="#i-model"/></svg><span>模型目录</span></a><a href="#usage" data-page="usage"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><span>使用统计</span></a><a href="#history" data-page="history"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg><span>请求记录</span></a><a href="#settings" data-page="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span>运行设置</span></a></nav>
-<div class="aside-bottom"><span class="badge good"><i class="status-dot"></i> 双实例调度</span><p>每账号、每模型独立额度</p></div></aside>
-<main><header><div><div class="eyebrow">控制台 / 工作空间</div><h1 id="page-title">运行总览</h1></div><div class="tools"><span id="updated" class="muted">尚未同步</span><button id="theme" class="icon-button" aria-label="切换深浅主题" title="切换深浅主题"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button><button id="refresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg><span>刷新</span></button></div></header>
+<aside class="sidebar" aria-label="控制台侧栏">
+  <a class="brand" href="#overview" aria-label="AIS2API 仪表盘"><span class="logo" aria-hidden="true"><svg class="icon"><use href="#i-model"/></svg></span><span class="brand-copy"><strong>AIS2API</strong><small>管理控制台</small></span></a>
+  <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="收起侧栏" aria-expanded="true" title="收起侧栏"><svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg><span>收起侧栏</span></button>
+  <nav class="sidebar-nav" aria-label="主导航">
+    <span class="nav-label">控制台</span>
+    <a href="#overview" data-page="overview" title="仪表盘"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span>仪表盘</span></a>
+    <a href="#accounts" data-page="accounts" title="账号管理"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg><span>账号管理</span></a>
+    <a href="#usage" data-page="usage" title="使用统计"><svg class="icon" aria-hidden="true"><use href="#i-activity"/></svg><span>使用统计</span></a>
+    <a href="#history" data-page="history" title="请求记录"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg><span>请求记录</span></a>
+    <a href="#models" data-page="models" title="模型目录"><svg class="icon" aria-hidden="true"><use href="#i-model"/></svg><span>模型目录</span></a>
+    <a href="#settings" data-page="settings" title="系统运维"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg><span>系统运维</span></a>
+  </nav>
+  <div class="aside-bottom"><span class="sidebar-caption">AIS2API</span><button class="icon-button ghost" type="button" data-theme-toggle aria-label="切换深浅主题" title="切换深浅主题"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button><a class="icon-button ghost" href="https://github.com/yunx738/ais2api" target="_blank" rel="noopener noreferrer" aria-label="项目 GitHub" title="项目 GitHub"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4 1-4-2-6-2m12 5v-4a3.5 3.5 0 0 0-1-2.8c3.4-.4 7-1.7 7-7.5A5.8 5.8 0 0 0 19.5 4 5.4 5.4 0 0 0 19.4.2S18.1-.2 15 1.8a13.4 13.4 0 0 0-7 0C4.9-.2 3.6.2 3.6.2A5.4 5.4 0 0 0 3.5 4 5.8 5.8 0 0 0 2 7.7c0 5.8 3.6 7.1 7 7.5A3.5 3.5 0 0 0 8 18v4" transform="translate(1 1) scale(.9)"/></svg></a></div>
+</aside>
+<main>
+  <div class="mobile-topbar"><button class="icon-button ghost menu-trigger" type="button" data-more-open aria-label="打开更多菜单" aria-haspopup="dialog" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg></button><a class="mobile-brand" href="#overview"><span class="logo" aria-hidden="true"><svg class="icon"><use href="#i-model"/></svg></span><strong>AIS2API</strong></a><span class="console-tag">控制台</span><button class="icon-button ghost" type="button" data-theme-toggle aria-label="切换深浅主题" title="切换深浅主题"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button></div>
+  <header class="page-header"><div><h1 id="page-title">仪表盘</h1><p id="page-description" class="page-description">系统概览</p></div><div class="tools"><span id="updated" class="muted">尚未同步</span><button id="theme" class="icon-button desktop-theme" aria-label="切换深浅主题" title="切换深浅主题"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button><button id="refresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg><span>刷新</span></button></div></header>
 <div id="notice" role="status" aria-live="polite" hidden></div>
-<section id="overview" class="page"><p class="subtitle">查看调度状态、实例占用和独立额度窗口。</p>
-<div class="stats"><article class="card stat"><span>调度服务</span><strong id="service">—</strong><small id="service-note">等待状态数据</small></article><article class="card stat"><span>排队请求</span><strong id="queued">—</strong><small>等待分配到实例</small></article><article class="card stat"><span>调度占用</span><strong id="active">—</strong><small>包含尚未确认收尾的请求</small></article><article class="card stat"><span>账号总数</span><strong id="account-count">—</strong><small>已加入调度池</small></article></div>
-<div class="section-head"><h2>工作实例</h2><span class="muted">每 5 秒读取状态</span></div><div id="workers" class="workers"><div class="card empty">正在读取实例状态…</div></div>
+<section id="overview" class="page">
+<div class="stats"><article class="card stat"><i class="stat-icon success-icon" aria-hidden="true"><svg class="icon"><use href="#i-server"/></svg></i><span>调度服务</span><strong id="service">—</strong><small id="service-note">等待状态数据</small></article><article class="card stat"><i class="stat-icon warning-icon" aria-hidden="true"><svg class="icon"><use href="#i-clock"/></svg></i><span>排队请求</span><strong id="queued">—</strong><small>等待分配到实例</small></article><article class="card stat"><i class="stat-icon" aria-hidden="true"><svg class="icon"><use href="#i-activity"/></svg></i><span>调度占用</span><strong id="active">—</strong><small>包含尚未确认收尾的请求</small></article><article class="card stat"><i class="stat-icon info-icon" aria-hidden="true"><svg class="icon"><use href="#i-users"/></svg></i><span>账号总数</span><strong id="account-count">—</strong><small>已加入调度池</small></article></div>
+<div class="section-head"><div><h2>工作实例</h2><p class="muted">实例状态与模型额度</p></div><span class="section-meta"><i class="status-dot"></i>每 5 秒更新</span></div><div id="workers" class="workers"><div class="card empty">正在读取实例状态…</div></div>
 <details class="card note"><summary>如何理解运行状态</summary><p>Running 仅代表协调器未停调度，不等于所有实例可用。请求是否结束以执行记录和浏览器回执为准；历史额度待核实不等于用量为零。</p></details></section>
-<section id="accounts" class="page" hidden><div class="section-head"><div><h2>账号池</h2><p class="subtitle">查看账号归属、冷却时间和轮换目标。</p></div><div class="tools"><a class="button" href="/import">导入账号</a><button id="sync">同步账号池</button></div></div>
+<section id="accounts" class="page" hidden><div class="page-actions"><div class="section-tabs"><span class="selected"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>账号池</span></div><div class="tools"><a class="button primary" href="/import"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>导入账号</a><button id="sync"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>同步账号</button></div></div>
 <div id="account-summary" class="account-summary" aria-label="账号概览"></div>
-<div class="card account-toolbar"><label class="search-field"><span class="sr-only">搜索账号</span><input id="quota-search" type="search" maxlength="200" placeholder="搜索账号名称、ID…"></label><label><span class="sr-only">账号状态</span><select id="account-status"><option value="all">全部状态</option><option value="available">可用</option><option value="assigned">已分配</option><option value="cooling">冷却中</option></select></label><span class="muted">本地额度</span></div>
+<div class="card account-toolbar"><label class="search-field"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span class="sr-only">搜索账号</span><input id="quota-search" type="search" maxlength="200" placeholder="搜索账号名称、ID…"></label><label><span class="sr-only">账号状态</span><select id="account-status"><option value="all">全部状态</option><option value="available">备用账号</option><option value="assigned">已分配</option><option value="cooling">冷却中</option></select></label><span class="muted">本地额度</span></div>
 <div class="card table-wrap"><table class="account-table"><thead><tr><th>账号</th><th>实例</th><th>模型额度</th><th>状态</th><th>冷却结束</th><th><span class="sr-only">操作</span></th></tr></thead><tbody id="account-rows"><tr><td colspan="6">等待状态数据</td></tr></tbody></table></div>
 <div class="pager account-pager"><span id="account-page" class="muted"></span><div class="tools"><label><span class="sr-only">每页条数</span><select id="account-page-size"><option value="20">20 条 / 页</option><option value="50">50 条 / 页</option><option value="100">100 条 / 页</option></select></label><button id="account-prev" disabled>上一页</button><button id="account-next" disabled>下一页</button></div></div>
 <dialog id="account-dialog" aria-labelledby="account-dialog-title"><div class="dialog-head"><div><h2 id="account-dialog-title">账号详情</h2><span id="account-dialog-subtitle" class="muted"></span></div><button id="account-dialog-close" class="icon-button" aria-label="关闭账号详情">×</button></div><div class="dialog-body"><p class="subtitle">本地次数额度，不代表上游余额；每个模型独立计数。</p><div id="quota-accounts" class="quota-accounts"></div></div></dialog>
-<div class="card form-card"><h2>单实例账号轮换</h2><p class="subtitle">只提交所选实例。接收操作不代表轮换已完成，请观察实例状态。</p><div class="form-row"><label>实例<select id="slot"><option value="A">实例 A</option><option value="B">实例 B</option></select></label><label>目标账号<select id="target"><option value="">自动选择下一账号</option></select></label><button id="rotate" class="primary">提交轮换</button></div></div></section>
+<details class="card form-card rotation-panel"><summary><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg><span>手动切换账号</span><span class="muted">按实例操作</span></summary><p class="subtitle">只提交所选实例。接收操作不代表轮换已完成，请观察实例状态。</p><div class="form-row"><label>实例<select id="slot"><option value="A">实例 A</option><option value="B">实例 B</option></select></label><label>目标账号<select id="target"><option value="">自动选择下一账号</option></select></label><button id="rotate" class="primary">提交轮换</button></div></details></section>
 <section id="models" class="page" hidden>
 <div class="section-head"><div><h2>上游模型目录</h2><p class="subtitle">按实例所属账号展示最近一次同步结果。</p></div><button id="catalog-read">刷新目录状态</button></div>
 <div class="card note">生成路由仅接受有效同步目录和明确额度策略；目录同步成功不等于生成请求已验收。当前目录保存在内存中，worker 重启后需要重新同步。</div>
@@ -49,8 +73,8 @@
  <div class="usage-toolbar"><label><span class="sr-only">时间范围</span><select id="usage-range"><option value="today">今日</option><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="all">全部记录</option></select></label><button id="usage-refresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>刷新统计</button></div>
  <p id="usage-message" class="muted" role="status">等待读取</p>
  <div id="usage-cards" class="stats"></div>
- <details class="card note"><summary>统计范围与计量说明</summary><p>仅包含启用记录后的派单请求，不包含派单前拒绝或旧历史。今日按浏览器时区计算。费用按参考单价估算；响应报告的 Token 尚未核实为上游原始计量，缺失数据不按零处理。RPM 为最近一分钟派单数；TPM 按响应结束时间归属，受所选范围限制。</p></details>
  <div class="card distribution-card"><div class="section-head"><div class="heading-icon"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><div><h2>模型统计</h2><p class="muted">主要模型的请求与已知 Token 分布</p></div></div></div><div id="usage-models"></div></div>
+ <details class="card note"><summary>统计范围与计量说明</summary><p>仅包含启用记录后的派单请求，不包含派单前拒绝或旧历史。今日按浏览器时区计算。费用按参考单价估算；响应报告的 Token 尚未核实为上游原始计量，缺失数据不按零处理。RPM 为最近一分钟派单数；TPM 按响应结束时间归属，受所选范围限制。</p></details>
  </section>
  <section id="history" class="page" hidden>
  <form id="history-filter" class="card form-row">
@@ -61,7 +85,7 @@
  <p id="history-message" class="muted" role="status">等待读取</p><div id="history-list" class="history-list"></div>
  <div class="pager"><button id="history-prev" disabled>上一页</button><span id="history-page">第 1 页</span><button id="history-next" disabled>下一页</button></div>
  </section>
- <section id="settings"  class="page" hidden><h2>运行设置</h2><p class="subtitle">修改流式响应方式，不修改账号额度和窗口。</p><div class="card form-card"><h2>流式模式</h2><p>协调器记录的模式 <span id="mode-current" class="badge">—</span></p><p class="subtitle">该值不是各 worker 的独立读回结果。unknown 表示协调器尚未记录模式。</p><div class="form-row"><label>响应方式<select id="mode"><option value="fake">Fake · 缓冲后发送</option><option value="real">Real · 流式转发</option></select></label><button id="save-mode" class="primary">应用到 A / B</button></div></div><div class="card form-card">
+ <section id="settings"  class="page" hidden><div class="card form-card"><h2>流式模式</h2><p>协调器记录的模式 <span id="mode-current" class="badge">—</span></p><p class="subtitle">该值不是各 worker 的独立读回结果。unknown 表示协调器尚未记录模式。</p><div class="form-row"><label>响应方式<select id="mode"><option value="fake">Fake · 缓冲后发送</option><option value="real">Real · 流式转发</option></select></label><button id="save-mode" class="primary">应用到 A / B</button></div></div><div class="card form-card">
  <div class="section-head"><h2>模型参考单价</h2><button id="price-read" type="button">重新读取</button></div>
  <p class="subtitle">单位 USD / 百万 Token。留空代表未知，0 代表明确免费。仅影响之后派单请求的估算费用；不会改变次数额度或重算历史费用。这里没有预填官方价格，请填写你采用的参考价格。</p>
  <p id="price-message" role="status">尚未读取价格</p>
@@ -76,6 +100,23 @@
  </form>
  <p class="muted">OpenAI 格式中思考 Token 已包含于输出 Token，不会重复计费。防截断别名沿用原模型单价；若续传用量无法确认完整，估价可能不完整。</p>
  </div></section>
-<footer><span>AIS Console</span><span>仅查询状态与记录，不发起生成请求</span></footer></main><nav class="mobile-nav" aria-label="手机主导航">
- <a href="#overview" data-page="overview"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span>总览</span></a><a href="#accounts" data-page="accounts"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg><span>账号</span></a><a href="#usage" data-page="usage"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><span>统计</span></a><a href="#history" data-page="history"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg><span>记录</span></a><a href="#models" data-page="models"><svg class="icon" aria-hidden="true"><use href="#i-model"/></svg><span>模型</span></a><a href="#settings" data-page="settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span>设置</span></a>
- </nav></body></html>
+<footer><span>AIS2API</span><span>状态监控与账号管理</span></footer>
+</main>
+<nav class="mobile-nav" aria-label="手机主导航">
+  <a href="#overview" data-page="overview"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span>仪表盘</span></a>
+  <a href="#accounts" data-page="accounts"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg><span>账号管理</span></a>
+  <a href="#usage" data-page="usage"><svg class="icon" aria-hidden="true"><use href="#i-activity"/></svg><span>使用统计</span></a>
+  <a href="#settings" data-page="settings"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg><span>系统运维</span></a>
+  <button id="mobile-more" type="button" data-more-open aria-haspopup="dialog" aria-expanded="false"><svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg><span>更多</span></button>
+</nav>
+<dialog id="more-menu" class="more-sheet" aria-labelledby="more-title">
+  <div class="sheet-handle" aria-hidden="true"></div>
+  <div class="sheet-heading"><div><h2 id="more-title">更多菜单</h2><p class="muted">模型、请求记录与管理工具</p></div><button id="more-close" class="icon-button ghost" type="button" aria-label="关闭更多菜单"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
+  <div class="sheet-grid">
+    <a href="#models" data-page="models"><span class="sheet-icon"><svg class="icon" aria-hidden="true"><use href="#i-model"/></svg></span><span>模型目录</span></a>
+    <a href="#history" data-page="history"><span class="sheet-icon"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg></span><span>请求记录</span></a>
+    <a href="/import"><span class="sheet-icon"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg></span><span>导入账号</span></a>
+  </div>
+  <div class="sheet-footer"><span>AIS2API</span><button class="button ghost" type="button" data-theme-toggle><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg>切换主题</button></div>
+</dialog>
+</body></html>
