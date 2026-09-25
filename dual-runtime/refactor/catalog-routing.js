@@ -72,7 +72,7 @@ class CatalogRouting {
    const excluded=new Set(plan.excludedAccounts||[]);
    for(let i=0;i<pool.ids.length;i++){
     const target=pool.ids[(pool.cursor+i)%pool.ids.length];
-    if(pool.owners.has(target)||excluded.has(target)||(pool.cooldowns.get(target)||0)>now)continue;
+    if(this.dispatch.accountFlags[target]||pool.owners.has(target)||excluded.has(target)||(pool.cooldowns.get(target)||0)>now)continue;
     if(!this.dispatch.quotas.view(target,plan.model,plan.quotaFamily,now).allowed)continue;
     return {model:plan.model,quotaFamily:plan.quotaFamily,target,excludedAccounts:[...excluded]};
    }

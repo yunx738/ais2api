@@ -55,7 +55,7 @@ class WorkerDriver extends DockerLifecycle {
   return description;
  }
  async prepare(slot,account,transaction){
-  const d=transaction?await this.describeId(slot,transaction.oldContainerId,transaction.oldAccount):await this.describe(slot);
+  const d=transaction?await this.describeId(slot,transaction.oldContainerId,transaction.predecessorAccount??transaction.oldAccount):await this.describe(slot);
   if(d.State.Running!==false||d.State.Pid!==0||!['exited','created'].includes(d.State.Status))
    throw Error('Old worker not safely stopped');
   const base=path.join(this.root,'slots',slot),auth=path.join(base,'auth');
@@ -123,6 +123,18 @@ class WorkerDriver extends DockerLifecycle {
      !['created','exited'].includes(d.State?.Status))
    throw Error('Worker restart identity or closure unconfirmed');
   await this.run('docker',['start',id],{timeout:30000,maxBuffer:16384});
+ }
+ async loginFailure(slot,account){
+  const d=await this.describe(slot);
+  if(d.Config?.Labels?.['operit.account']!==String(account)||
+    d.State?.Running!==false||d.State?.Pid!==0||d.State?.Status!=='exited'||d.State?.ExitCode!==1||d.State?.OOMKilled)return null;
+  const result=await this.run('docker',['logs','--since',d.State.StartedAt,'--tail','160',d.Id],{timeout:15000,maxBuffer:262144});
+  const text=String(result.stdout||'')+'\n'+String(result.stderr||'');
+  const exact='Cookie 已失效/过期！浏览器被重定向到了 Google 登录页面。请重新提取 storageState。';
+  if(!text.split('\n').some(l=>l.includes('[System]')&&l.includes('使用账号 #'+account+' 启动失败。原因:')&&l.includes(exact)))return null;
+  const after=await this.describeId(slot,d.Id,account);
+  if(after.State.Running||after.State.Pid!==0||after.State.FinishedAt!==d.State.FinishedAt)throw Error('Failed target changed');
+  return {id:d.Id,account};
  }
  waitReady(slot,account){return this.client.waitReady(slot,account,180000);}
  probeReady(slot,account){return this.client.status(slot,account);}

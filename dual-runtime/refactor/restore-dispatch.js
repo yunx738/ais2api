@@ -28,6 +28,18 @@ function restore(file){
   pool.cooldowns.set(id,until);
  }
  const dispatch=new DispatchCore(pool,x=>save(x,file));
+ dispatch.rotationThrottle=d.rotationThrottle||{lastAt:0};
+ dispatch.authSaves=d.authSaves&&typeof d.authSaves==='object'&&!Array.isArray(d.authSaves)?d.authSaves:{};
+ const rt=dispatch.rotationThrottle;
+ if(!rt||!Number.isSafeInteger(rt.lastAt)||rt.lastAt<0||
+   (rt.slot!==undefined&&(!['A','B'].includes(rt.slot)||!Number.isSafeInteger(rt.token)||rt.token<1)))
+  throw Error('Invalid rotation throttle');
+ dispatch.accountFlags=d.accountFlags||{};
+ if(!dispatch.accountFlags||typeof dispatch.accountFlags!=='object'||Array.isArray(dispatch.accountFlags))throw Error('Invalid account flags');
+ for(const [id,f] of Object.entries(dispatch.accountFlags)){
+  if(!pool.ids.includes(Number(id))||!f||!['invalid','deleting','deleted'].includes(f.status)||
+    !Number.isSafeInteger(f.at)||f.at<1||f.reason!=='login_required')throw Error('Invalid account flag');
+ }
  dispatch.quotas=new (require("./model-quota-ledger").ModelQuotaLedger)(d.quotaLedger);
  for(const id of Object.keys(d.quotaLedger.accounts))if(!pool.ids.includes(Number(id)))throw Error("Unknown quota account");
  for(const id of pool.ids)if(!Object.hasOwn(d.quotaLedger.accounts,String(id)))throw Error("Missing account quota migration");

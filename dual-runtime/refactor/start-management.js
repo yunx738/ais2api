@@ -13,6 +13,10 @@ async function main(){
  allowed.add("POST /api/models/policy");
  allowed.add('GET /api/requests');
  allowed.add('GET /api/usage');
+ allowed.add('POST /api/accounts/delete');
+ allowed.add('GET /api/proxies');
+ allowed.add('POST /api/proxies');
+ allowed.add('POST /api/proxies/apply');
  allowed.add('GET /api/prices');
  allowed.add('POST /api/prices');
  for(const name of require('./console-routes').assets)allowed.add('GET /console-assets/'+name);
@@ -54,6 +58,25 @@ require('./console-routes').install(dashboard);
    res.status(result.status).json(result.body);
   });
  }
+ dashboard.post('/api/accounts/delete',async(req,res)=>{
+  try{const o=new URL(req.headers.origin);if(!['https:','http:'].includes(o.protocol)||o.host!==req.headers.host)throw Error();}
+  catch{return res.status(403).json({error:'Same-origin browser request required'});}
+  const {id,confirm}=req.body||{};
+  if(!Number.isSafeInteger(id)||id<1||confirm!=='DELETE '+id)return res.status(400).json({error:'删除确认不匹配'});
+  const r=await call('POST','/internal/accounts/delete',{id,confirm});res.status(r.status).json(r.body);
+ });
+ dashboard.get('/api/proxies',async(req,res)=>{
+  const r=await call('GET','/internal/proxies');res.status(r.status).json(r.body);
+ });
+ for(const suffix of ['','/apply'])dashboard.post('/api/proxies'+suffix,async(req,res)=>{
+  try{const o=new URL(req.headers.origin);if(!['http:','https:'].includes(o.protocol)||o.host!==req.headers.host)throw Error();}
+  catch{return res.status(403).json({error:'Same-origin browser request required'});}
+  const b=req.body;
+  if(!b||typeof b!=='object'||Array.isArray(b)||!['A','B'].includes(b.slot))return res.status(400).json({error:'Invalid proxy configuration'});
+  const payload=suffix?{slot:b.slot,revision:b.revision,action:b.action}:
+   {slot:b.slot,revision:b.revision,host:b.host,port:b.port,username:b.username,password:b.password};
+  const r=await call('POST','/internal/proxies'+suffix,payload);res.status(r.status).json(r.body);
+ });
  dashboard.get('/api/prices',async(req,res)=>{
   const result=await call('GET','/internal/prices');
   res.status(result.status).json(result.body);

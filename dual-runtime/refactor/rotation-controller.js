@@ -6,6 +6,28 @@ class RotationController {
   this.running=new Set();
   this.failures=new Map();
  }
+ gate(slot,token){
+  const g=this.dispatch.rotationThrottle||{lastAt:0};
+  if(g.slot!==undefined)return g.slot===slot&&g.token===token ? null : 'Waiting for previous rotation result';
+  if([...this.running].some(s=>s!==slot))return 'Another rotation is running';
+  if(Date.now()-g.lastAt<300000)return 'Global rotation interval: wait at least 5 minutes';
+  return null;
+ }
+ claim(slot,token){
+  if(this.gate(slot,token))return false;
+  const g=this.dispatch.rotationThrottle||{lastAt:0};
+  if(g.slot===undefined){
+   this.dispatch.rotationThrottle={lastAt:Date.now(),slot,token};
+   this.dispatch.checkpoint();
+  }
+  return true;
+ }
+ releaseGate(slot,token){
+  const g=this.dispatch.rotationThrottle;
+  if(g?.slot===slot&&g.token===token){
+   delete g.slot;delete g.token;this.dispatch.checkpoint();
+  }
+ }
  ready(status,account){
   return status?.account===account && /^[a-f0-9-]{36}$/.test(status.workerEpoch||'') &&
    status.ready===true && status.busy===false && status.browserOperations===0 &&
@@ -16,6 +38,7 @@ class RotationController {
  preflight(slot,target,plan){
   const state=this.dispatch.slots.get(slot),owner=this.dispatch.pool.slots.get(slot);
   if(this.dispatch.halted)return {available:false,reason:'Coordinator halted'};
+  const gate=this.gate(slot);if(gate)return {available:false,reason:gate};
   if(!state||!owner||owner.pending||!state.ready||state.active||state.requests.size||
      Object.keys(state.executions||{}).length||Object.keys(state.retirements||{}).length||
      this.running.has(slot)||this.dispatch.operations.has(slot)||this.failures.has(slot))
@@ -29,6 +52,7 @@ class RotationController {
   }catch(error){return {available:false,reason:error.message};}
  }
  async rotate(slot,manual,target,plan){
+  const gate=this.gate(slot);if(gate)throw Error(gate);
   if(this.running.has(slot))throw Error('Slot rotation or recovery is running');
   if(this.failures.has(slot))throw Error('Manual reconciliation required');
   const lease=this.dispatch.operations.acquire(slot,'rotation');
@@ -47,7 +71,7 @@ class RotationController {
    }
    ticket=this.dispatch.reserveRotation(slot,manual===true,candidate,plan);
    if(!ticket)return {waiting:true};
-   await this.advance(slot,ticket,false);
+   if(!await this.advance(slot,ticket,false))return {waiting:true,slot};
    return {slot,account:ticket.id};
   }catch(error){
    if(ticket){
@@ -64,6 +88,36 @@ class RotationController {
    this.dispatch.operations.release(lease);
   }
  }
+ async skipInvalid(slot,ticket,marker,description){
+  const d=this.dispatch,s=d.slots.get(slot),owner=d.pool.slots.get(slot);
+  if(d.halted||s.rotation!==marker||owner?.pending?.id!==ticket.id||owner.pending.token!==ticket.token||
+     s.active||s.requests.size||Object.keys(s.executions||{}).length||Object.keys(s.retirements||{}).length)
+   throw Error('Invalid target transition blocked');
+  if(description.Id===marker.oldContainerId||description.Config?.Labels?.['operit.account']!==String(ticket.id)||
+     description.State?.Running!==false||description.State?.Pid!==0||description.State?.Status!=='exited')
+   throw Error('Failed target closure unconfirmed');
+  d.accountFlags[ticket.id]||={status:'invalid',reason:'login_required',at:Date.now()};
+  d.checkpoint();
+  this.releaseGate(slot,ticket.token);
+  if(this.gate(slot))return false;
+  let next=d.rotationCandidate();
+  while(next!==undefined){
+   try{this.driver.validateAccount(next);break;}
+   catch{d.pool.cooldown(next,Date.now()+300000);d.checkpoint();next=d.rotationCandidate();}
+  }
+  if(next===undefined)throw Error('No available account; failed login target excluded');
+  const nextToken=d.pool.sequence+1;
+  if(!Number.isSafeInteger(nextToken))throw Error('Account sequence exhausted');
+  // No await between ownership transfer and durable checkpoint. Old logical
+  // owner remains reserved until a replacement has positively become ready.
+  d.pool.owners.delete(ticket.id);d.pool.owners.set(next,slot);
+  owner.pending={id:next,token:nextToken};d.pool.sequence=nextToken;
+  d.pool.cursor=(d.pool.ids.indexOf(next)+1)%d.pool.ids.length;
+  s.rotation={account:next,token:nextToken,oldAccount:owner.current,
+   predecessorAccount:ticket.id,oldContainerId:description.Id,phase:'old_closed'};
+  s.ready=false;d.checkpoint();this.failures.delete(slot);
+  return false;
+ }
  async advance(slot,ticket,reconciling){
   const state=this.dispatch.slots.get(slot),owner=this.dispatch.pool.slots.get(slot),marker=state.rotation;
   const unchanged=()=>{
@@ -72,6 +126,8 @@ class RotationController {
     throw Error('Pending rotation ownership changed');
   };
   unchanged();
+  const knownInvalid=this.dispatch.accountFlags[ticket.id]?.reason==='login_required';
+  if(!knownInvalid && !this.claim(slot,ticket.token))return false;
   if(marker.phase==='reserved'){
    const before=await this.driver.describe(slot);unchanged();
    if(!/^[a-f0-9]{64}$/.test(before.Id||'')||before.Config?.Labels?.['operit.account']!==String(owner.current))
@@ -100,6 +156,7 @@ class RotationController {
     if(attempts.length>=3||attempts.some(t=>now-t<300000))return false;
     marker.restartAttempts=[...attempts,now];this.dispatch.checkpoint();
    }
+   this.dispatch.rotationThrottle.lastAt=Date.now();this.dispatch.checkpoint();
    await this.driver.start(slot,ticket.id,marker);unchanged();
    marker.phase='started';this.dispatch.checkpoint();
   }
@@ -112,15 +169,24 @@ class RotationController {
     if(description.State?.Running!==false||description.State?.Pid!==0||
        !['created','exited'].includes(description.State?.Status))
      throw Error('Pending target closure unconfirmed');
+    const login=await this.driver.loginFailure?.(slot,marker.account);unchanged();
+    if(login||this.dispatch.accountFlags[marker.account]?.reason==='login_required'){
+     const failed=await this.driver.describe(slot);unchanged();
+     return this.skipInvalid(slot,ticket,marker,failed);
+    }
     const now=Date.now(),attempts=(marker.restartAttempts||[]).filter(t=>now-t<3600000);
     if(attempts.length>=3||attempts.some(t=>now-t<300000))return false;
+    if(Date.now()-this.dispatch.rotationThrottle.lastAt<300000)return false;
     marker.restartAttempts=[...attempts,now];this.dispatch.checkpoint();
+    this.dispatch.rotationThrottle.lastAt=Date.now();this.dispatch.checkpoint();
     await this.driver.restartStopped(slot,marker.account,description.Id);unchanged();
    }
   }
   const status=await (reconciling?this.driver.probeReady(slot,ticket.id):this.driver.waitReady(slot,ticket.id));
   unchanged();
   if(!this.ready(status,ticket.id))throw Error('Target readiness unconfirmed');
+  const g=this.dispatch.rotationThrottle;
+  if(g?.slot===slot && g.token===ticket.token){delete g.slot;delete g.token;}
   this.dispatch.commitRotation(ticket,true);
   this.failures.delete(slot);this.dispatch.update(slot,status);this.dispatch.checkpoint();
   // Optional housekeeping records are separate from the critical checkpoint.

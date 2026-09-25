@@ -3,9 +3,9 @@ const $=id=>document.getElementById(id);
 const titles={overview:'仪表盘',accounts:'账号管理',models:'模型目录',usage:'使用统计',history:'请求记录',settings:'系统运维'};
 let state=null,reading=false,mutating=false,fresh=false,readTask=null,statusError=false;
 let accountPage=1;
-const accountColumns=['账号','实例','模型额度','状态','冷却结束','操作'];
+const accountColumns=['账号','实例','模型额度','状态','Cookie 状态','冷却结束','操作'];
 const hiddenAccountColumns=new Set();
-try{const saved=JSON.parse(localStorage.getItem('ais-account-columns')||'[]');if(Array.isArray(saved))for(const index of saved)if([1,2,3,4].includes(index))hiddenAccountColumns.add(index);}catch{}
+try{const saved=JSON.parse(localStorage.getItem('ais-account-columns-v2')||'[]');if(Array.isArray(saved))for(const index of saved)if([1,2,3,4,5].includes(index))hiddenAccountColumns.add(index);}catch{}
 function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text);if(cls)n.className=cls;return n;}
 function consoleIcon(name){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),use=document.createElementNS('http://www.w3.org/2000/svg','use');svg.classList.add('icon');svg.setAttribute('aria-hidden','true');use.setAttribute('href','#i-'+name);svg.append(use);return svg;}
 function statusBadge(label,tone=''){const badge=el('span',undefined,'badge '+tone);badge.append(el('i',undefined,'status-dot'),document.createTextNode(label));return badge;}
@@ -13,17 +13,17 @@ function openAccount(id){document.dispatchEvent(new CustomEvent('ais-account-det
 function quotaFraction(q){return !q?.legacyBlocked&&Number.isFinite(q?.used)&&Number.isFinite(q?.limit)&&q.limit>0?Math.max(0,Math.min(1,(q.limit-q.used)/q.limit)):null;}
 function quotaTone(fraction){return fraction===null?'unknown':fraction<=.1?'low':fraction<=.25?'limited':'healthy';}
 function applyAccountColumns(){
- document.querySelectorAll('.account-table tr').forEach(row=>{if(row.children.length===6)[...row.children].forEach((cell,index)=>{cell.hidden=hiddenAccountColumns.has(index);});else if(row.children[0])row.children[0].colSpan=6-hiddenAccountColumns.size;});
- const table=document.querySelector('.account-table');if(table)table.style.minWidth=hiddenAccountColumns.size?[220,90,170,90,130,50].reduce((total,width,index)=>total+(hiddenAccountColumns.has(index)?0:width),0)+'px':'';
- if($('account-columns-count'))$('account-columns-count').textContent=(6-hiddenAccountColumns.size)+'/6';
+ document.querySelectorAll('.account-table tr').forEach(row=>{if(row.children.length===7)[...row.children].forEach((cell,index)=>{cell.hidden=hiddenAccountColumns.has(index);cell.dataset.label=accountColumns[index];});else if(row.children[0])row.children[0].colSpan=7-hiddenAccountColumns.size;});
+ const table=document.querySelector('.account-table');if(table)table.style.minWidth=hiddenAccountColumns.size?[220,90,170,90,200,130,50].reduce((total,width,index)=>total+(hiddenAccountColumns.has(index)?0:width),0)+'px':'';
+ if($('account-columns-count'))$('account-columns-count').textContent=(7-hiddenAccountColumns.size)+'/7';
 }
 function setupAccountColumns(){
  const toolbar=document.querySelector('.account-toolbar');if(!toolbar)return;
  const details=el('details',undefined,'column-control'),summary=el('summary'),count=el('span',undefined,'column-count');
  count.id='account-columns-count';summary.append(consoleIcon('columns'),document.createTextNode('列设置'),count);
  const options=el('div',undefined,'column-options');options.append(el('strong','显示列'));
- accountColumns.forEach((name,index)=>{const label=el('label'),input=el('input');input.type='checkbox';input.checked=!hiddenAccountColumns.has(index);input.disabled=index===0||index===5;
-  input.addEventListener('change',()=>{if(input.checked)hiddenAccountColumns.delete(index);else hiddenAccountColumns.add(index);try{localStorage.setItem('ais-account-columns',JSON.stringify([...hiddenAccountColumns]));}catch{}applyAccountColumns();});label.append(input,document.createTextNode(name));options.append(label);});
+ accountColumns.forEach((name,index)=>{const label=el('label'),input=el('input');input.type='checkbox';input.checked=!hiddenAccountColumns.has(index);input.disabled=index===0||index===6;
+  input.addEventListener('change',()=>{if(input.checked)hiddenAccountColumns.delete(index);else hiddenAccountColumns.add(index);try{localStorage.setItem('ais-account-columns-v2',JSON.stringify([...hiddenAccountColumns]));}catch{}applyAccountColumns();});label.append(input,document.createTextNode(name));options.append(label);});
  details.append(summary,options);toolbar.append(details);applyAccountColumns();
  document.addEventListener('click',event=>{if(!details.contains(event.target))details.open=false;});details.addEventListener('keydown',event=>{if(event.key==='Escape'){details.open=false;summary.focus();}});
 }
@@ -40,7 +40,43 @@ async function api(path,body){
  const d=await r.json();if(!r.ok)throw Error(typeof d.error==='string'?d.error:'接口请求失败');return d;
  }catch(e){if(e.name==='AbortError')throw Error('请求超时，操作可能仍在执行，请刷新核实后再操作');throw e;}finally{clearTimeout(timer);}
 }
-function accountState(a){return a.cooldownUntil>Date.now()?'cooling':a.owner?'assigned':'available';}
+function accountState(a){if(['invalid','deleting'].includes(a.authStatus))return 'invalid';return a.cooldownUntil>Date.now()?'cooling':a.owner?'assigned':'available';}
+function cookieDay(v){return Number.isFinite(v)&&v>0?new Date(v).toLocaleDateString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit'}):'—';}
+function cookieStamp(v){return Number.isFinite(v)&&v>0?new Date(v).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'—';}
+const cookieSaveLabels={saved:'已保存',scheduled:'等待首次保存',saving:'正在保存',auth_file_changed:'认证文件已更换，未覆盖',worker_upgrade_pending:'等待实例加载保存功能',snapshot_unavailable:'未取得空闲快照',snapshot_timeout:'快照超时',identity_changed:'实例状态变化，未保存',snapshot_invalid:'快照缺少登录 Cookie',save_failed:'保存失败'};
+function cookieFacts(a){
+ const c=a?.cookie||{},save=c.save||{},now=Date.now(),soon=7*86400000;
+ const login=c.login==='invalid'?['已失效，需重新导入','bad']:c.login==='online'?['在线有效','good']:c.login==='unconfirmed'?['实例未就绪，待确认','warn']:['未验证（备用账号）','muted'];
+ let expiry;
+ if(c.file==='missing')expiry=['认证文件缺失','bad'];
+ else if(c.file&&c.file!=='ok')expiry=['认证文件无法读取','bad'];
+ else if(!c.keyCookies)expiry=['缺少关键登录 Cookie','bad'];
+ else if(Number.isFinite(c.expiresAt))expiry=c.expiresAt<=now?['已过期 · '+cookieDay(c.expiresAt),'bad']:c.expiresAt-now<soon?['即将过期 · '+cookieDay(c.expiresAt),'warn']:['未过期 · '+cookieDay(c.expiresAt),'good'];
+ else expiry=['会话 Cookie，无固定到期时间','warn'];
+ let renew;
+ if(save.savedAt){
+  renew=[(save.extended?'已续期（到期已延长）':'已保存（到期未变化）')+' · '+cookieStamp(save.savedAt),save.extended?'good':'muted'];
+  if(save.lastResult&&save.lastResult!=='saved')renew=[renew[0]+'；最近一次'+(cookieSaveLabels[save.lastResult]||'失败'),'warn'];
+ }else if(save.lastResult&&save.lastResult!=='saved')renew=[(cookieSaveLabels[save.lastResult]||'保存失败')+' · '+cookieStamp(save.lastAttemptAt),'warn'];
+ else renew=['尚未续期','muted'];
+ return {login,expiry,renew};
+}
+function cookieCell(a){
+ const td=el('td',undefined,'cookie-cell'),f=cookieFacts(a);
+ td.append(statusBadge(f.login[0],f.login[1]));
+ td.append(el('small','到期：'+f.expiry[0],'cookie-line '+f.expiry[1]),el('small','续期：'+f.renew[0],'cookie-line '+f.renew[1]));
+ td.title='到期时间取自认证文件记录，Google 可能提前撤销；页面不显示 Cookie 内容';
+ return td;
+}
+function workerCookie(s,a){
+ const box=el('div',undefined,'worker-cookie'),f=cookieFacts(a),am=s.authMaintenance||{},head=el('div',undefined,'worker-cookie-head');
+ head.append(el('span','Cookie 状态'),el('small','每 6 小时空闲时保存','muted'));box.append(head);
+ const next=am.running?['正在保存','warn']:[Number.isFinite(am.nextAt)?cookieStamp(am.nextAt):'—','muted'];
+ for(const [k,v] of [['登录状态',f.login],['文件到期',f.expiry],['续期结果',f.renew],['下次保存',next]]){
+  const line=el('div',undefined,'cookie-row');line.append(el('span',k),el('strong',v[0],v[1]));box.append(line);
+ }
+ return box;
+}
 let overviewUsageRead=null,overviewUsageReadAt=0,overviewUsageDay=0;
 const overviewMetrics=[['今日请求','requests','chart'],['已知 Token','tokens','model'],['估算费用','cost','dollar'],['RPM','rpm','clock'],['已知 TPM','tpm','zap'],['平均耗时','duration','activity']];
 function overviewUsagePanel(){
@@ -87,11 +123,21 @@ function renderAccountRows(d=state){
   else quotaBox.append(el('span',undefined,'quota-unknown-track'));
   quotaBox.append(el('small',models.some(q=>q.legacyBlocked)?'含待核实模型':models.some(q=>q.cooldownUntil>Date.now())?'部分模型冷却中':fraction===null?'本地余量未知':'最低已知本地余量'));
   quotaCell.append(quotaBox);row.append(quotaCell);
-  const statusCell=el('td'),kind=accountState(a);statusCell.append(statusBadge(kind==='cooling'?'冷却中':kind==='assigned'?'已分配':'备用',kind==='cooling'?'warn':kind==='available'?'good':'assigned'));row.append(statusCell);
+  const statusCell=el('td'),kind=accountState(a);statusCell.append(statusBadge(kind==='invalid'?'登录失效':kind==='cooling'?'冷却中':kind==='assigned'?'已分配':'备用',kind==='invalid'?'warn':kind==='cooling'?'warn':kind==='available'?'good':'assigned'));row.append(statusCell);
+  row.append(cookieCell(a));
   const cooldown=el('td',a.cooldownUntil>Date.now()?date(a.cooldownUntil):'—','cooldown-cell');row.append(cooldown);
-  const actions=el('td'),details=el('button',undefined,'account-detail-button');details.type='button';details.title='查看账号详情';details.setAttribute('aria-label','查看账号 '+a.id+' 的额度详情');details.append(consoleIcon('chart'));details.addEventListener('click',()=>openAccount(a.id));actions.append(details);row.append(actions);rows.append(row);
+  const actions=el('td'),details=el('button',undefined,'account-detail-button');details.type='button';details.title='查看账号详情';details.setAttribute('aria-label','查看账号 '+a.id+' 的额度详情');details.append(consoleIcon('chart'));details.addEventListener('click',()=>openAccount(a.id));actions.append(details);
+  if(['invalid','deleting'].includes(a.authStatus)){
+   const remove=el('button','删除');remove.type='button';remove.disabled=!a.canDelete||mutating||!fresh;
+   remove.title=a.canDelete?'删除主认证文件，保留历史及旧容器副本':'仍被实例或轮换占用';
+   remove.addEventListener('click',()=>action('/api/accounts/delete',{id:a.id,confirm:'DELETE '+a.id},
+    '删除失效账号 #'+a.id+' 的主认证文件并从列表移除？历史及旧容器认证副本保留。',
+    r=>'账号 #'+r.id+' 已删除，历史记录保留。'));
+   actions.append(remove);statusCell.title='登录失效，已排除自动轮换';
+  }
+  row.append(actions);rows.append(row);
  }
- if(!accounts.length){const row=el('tr'),cell=el('td',d.accounts.length?'没有匹配的账号，请调整筛选条件':'暂无账号，导入后点击同步账号池。','empty');cell.colSpan=6;row.append(cell);rows.append(row);}
+ if(!accounts.length){const row=el('tr'),cell=el('td',d.accounts.length?'没有匹配的账号，请调整筛选条件':'暂无账号，导入后点击同步账号池。','empty');cell.colSpan=7;row.append(cell);rows.append(row);}
  $('account-page').textContent=accounts.length?'显示 '+((accountPage-1)*size+1)+'–'+Math.min(accountPage*size,accounts.length)+' / 共 '+accounts.length+' 条':'共 0 条';
  $('account-prev').disabled=accountPage<=1;$('account-next').disabled=accountPage*size>=accounts.length;
  let pageNumber=$('account-page-number');if(!pageNumber){pageNumber=el('span',undefined,'page-number');pageNumber.id='account-page-number';pageNumber.setAttribute('aria-label','当前页');$('account-prev').insertAdjacentElement('afterend',pageNumber);}pageNumber.textContent=accountPage;
@@ -118,7 +164,7 @@ function render(d){
   const health=s.workerHealth,healthFresh=health?.account===s.account && health?.workerEpoch===s.workerEpoch && Date.now()-health.observedAt<15000;
   const pending=(s.pendingExecutions||[]).filter(t=>t.phase==='reconciling').length;
   const label=s.legacyUnresolved?'历史请求待核实':healthFresh&&health.hardQuarantine?'故障隔离':
-   healthFresh&&health.pendingCompletions>0?'等待完成回执':pending?'请求待核实':s.pendingRetirements?'等待清理确认':s.operation?({catalog:'模型同步',rotation:'账号轮换',recovery:'安全恢复',cleanup:'资源清理'}[s.operation.kind]||'操作中'):s.rotationBlocked?'轮换受阻':s.pending?'轮换中':s.ready?(s.active?'处理中':'已就绪'):'未就绪';
+   healthFresh&&health.pendingCompletions>0?'等待完成回执':pending?'请求待核实':s.pendingRetirements?'等待清理确认':s.operation?({auth:'保存登录态',catalog:'模型同步',rotation:'账号轮换',recovery:'安全恢复',cleanup:'资源清理'}[s.operation.kind]||'操作中'):s.rotationBlocked?'轮换受阻':s.pending?'轮换中':s.ready?(s.active?'处理中':'已就绪'):'未就绪';
   const unhealthy=s.healthCheck?.error||s.legacyUnresolved||s.rotationBlocked||s.recoveryBlocked||(healthFresh&&health.hardQuarantine);
   head.append(identity,statusBadge(label,unhealthy||!s.ready?'warn':s.active?'assigned':'good'));box.append(head);
   const metrics=el('div',undefined,'worker-metrics');
@@ -133,6 +179,7 @@ function render(d){
   if(pending)alerts.push(pending+' 个执行等待完成证据，占用已保留');
   if(s.quota?.legacy)alerts.push('历史汇总用量已保留，未归入模型精确计数');
   if(alerts.length){const area=el('div',undefined,'worker-alerts');for(const message of alerts)area.append(el('p',message));box.append(area);}
+   box.append(workerCookie(s,account));
   const quotaHeader=el('div',undefined,'worker-quota-heading');quotaHeader.append(el('span','模型额度'),el('small','本地剩余次数'));box.append(quotaHeader);
   if(!s.quota)box.append(el('div','额度状态暂不可用','worker-empty warn'));
   else if(!quotas.length)box.append(el('div','尚未配置模型额度','worker-empty muted'));
@@ -147,7 +194,7 @@ function render(d){
    else q.append(el('small',item.windowEnd?'窗口结束 '+date(item.windowEnd):'窗口未启用','muted'));
    if(index<3)quotaList.append(q);else extra.append(q);
   });box.append(quotaList);if(extra)box.append(extra);
-  const foot=el('div',undefined,'worker-foot');foot.append(el('span','账号 #'+(s.account??'—')),el('span','每模型独立计数'));box.append(foot);workers.append(box);
+  const foot=el('div',undefined,'worker-foot');foot.append(el('span','账号 #'+(s.account??'—')),el('span','最近检查 '+cookieStamp(s.healthCheck?.checkedAt)));box.append(foot);workers.append(box);
  }
  let cleanupNote=$('cleanup-status');
  if(!cleanupNote){cleanupNote=el('p',undefined,'note');cleanupNote.id='cleanup-status';workers.insertAdjacentElement('afterend',cleanupNote);}
@@ -160,7 +207,7 @@ function render(d){
  }
  renderAccountRows(d);
  const selected=$('target').value;$('target').replaceChildren(new Option('自动选择下一账号',''));
- for(const a of d.accounts){const option=new Option('#'+a.id+' · '+(a.name||'未命名'),String(a.id));option.disabled=!!a.owner||a.cooldownUntil>Date.now();$('target').add(option);}
+ for(const a of d.accounts){const option=new Option('#'+a.id+' · '+(a.name||'未命名'),String(a.id));option.disabled=!!a.owner||['invalid','deleting','deleted'].includes(a.authStatus)||a.cooldownUntil>Date.now();$('target').add(option);}
  if([...$('target').options].some(o=>o.value===selected&&!o.disabled))$('target').value=selected;
 }
 function refresh(){

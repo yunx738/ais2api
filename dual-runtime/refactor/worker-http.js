@@ -3,7 +3,40 @@ const crypto=require('crypto');
 const express=require('express');
 function install(system,secret){
  if(typeof secret !== 'string'||secret.length<32)throw Error('Worker control key required');
+ const fs=require('fs'),path=require('path');
+ const account=Number(process.env.WORKER_ACCOUNT),slot=process.env.WORKER_SLOT;
+ const authBaseHash=crypto.createHash('sha256').update(fs.readFileSync(path.join(__dirname,'auth','auth-'+account+'.json'))).digest('hex');
  const original=system._createExpressApp.bind(system);
+ let exporting=false,lastExportAt=0;
+ const idle=()=>{
+  const s=system.workerStatus(),b=system.browserManager;
+  let url;try{url=new URL(b.page.url());}catch{return false;}
+  return s.account===account && s.ready===true && s.busy===false &&
+   s.quarantined===false && !s.hardQuarantine && s.activeRequests===0 &&
+   s.browserOperations===0 && s.pendingCompletions===0 &&
+   b.currentAuthIndex===account && b.context && !b.page.isClosed() &&
+   url.protocol==='https:' && url.hostname==='aistudio.google.com';
+ };
+ system.exportAuth=async(expectedAccount,expectedEpoch)=>{
+  if(expectedAccount!==account||expectedEpoch!==system.executions?.epoch||exporting||
+    Date.now()-lastExportAt<21600000||!idle())throw Error('Snapshot unavailable');
+  exporting=true;lastExportAt=Date.now();
+  const context=system.browserManager.context,page=system.browserManager.page;
+  try{
+   // Playwright reads existing state; no goto/reload, no network keepalive.
+   const state=await context.storageState();
+   if(context!==system.browserManager.context||page!==system.browserManager.page||!idle()||
+     !Array.isArray(state.cookies)||!state.cookies.length||!Array.isArray(state.origins))
+    throw Error('Snapshot unsafe');
+   if(!state.cookies.some(c=>['SID','__Secure-1PSID','__Secure-3PSID'].includes(c.name)&&
+     /(^|\.)google\.com$/.test(c.domain)&&(c.expires===-1||c.expires>Date.now()/1000)))
+    throw Error('Login cookies unavailable');
+   const data={account,slot,workerEpoch:system.executions.epoch,authBaseHash,state};
+   if(Buffer.byteLength(JSON.stringify(data))>300000)throw Error('Snapshot too large');
+   return data;
+  }finally{exporting=false;}
+ };
+
  system._createExpressApp=()=>{
   const outer=express();
   outer.disable('x-powered-by');
@@ -13,7 +46,13 @@ function install(system,secret){
    const a=Buffer.from(typeof supplied==='string'?supplied:''),b=Buffer.from(secret);
    if(a.length !== b.length)return res.setHeader('X-AIS-Worker-Rejection','control_auth').status(401).json({error:'Unauthorized worker access'});
    if(crypto.timingSafeEqual(a,b)===false)return res.setHeader('X-AIS-Worker-Rejection','control_auth').status(401).json({error:'Unauthorized worker access'});
-   if(req.method==='GET' && req.path==='/internal/status')return res.json(system.workerStatus());
+    if(req.method==='POST' && req.path==='/internal/auth/snapshot'){
+     system.exportAuth(Number(req.headers['x-auth-account']),req.headers['x-worker-epoch'])
+      .then(data=>{if(!res.destroyed)res.json(data);})
+      .catch(()=>{if(!res.destroyed)res.status(409).json({error:'Auth snapshot unavailable'});});
+     return;
+    }
+   if(req.method==='GET' && req.path==='/internal/status')return res.json({...system.workerStatus(),authSnapshotProtocol:1});
    if(req.method==='POST' && req.path==='/internal/set-mode'){
     let size=0;const chunks=[];
     req.on('data',chunk=>{size+=chunk.length;if(size>1024){req.destroy();return;}chunks.push(chunk);});

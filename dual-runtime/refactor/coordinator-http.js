@@ -35,6 +35,17 @@ function createServer({keys,models,scheduler,status,actions}){
     if(!body||typeof body!=='object'||Array.isArray(body))throw Object.assign(Error('JSON object required'),{statusCode:400});
     return body;
    };
+   if(url.pathname==='/internal/proxies'&&req.method==='GET')
+    return json(res,200,await actions.proxies());
+   if(['/internal/proxies','/internal/proxies/apply'].includes(url.pathname)&&req.method==='POST'){
+    if(!/^application\/json(?:\s*;|$)/i.test(String(req.headers['content-type']||'')))return json(res,415,{error:'JSON required'});
+    try{
+     const body=await readBody();
+     const result=await (url.pathname.endsWith('/apply')?actions.applyProxy(body):actions.saveProxy(body));
+     return json(res,result.accepted?202:200,result);
+    }catch(e){const code=[400,409,413].includes(e.statusCode)?e.statusCode:503;
+     return json(res,code,{error:code===503?'代理操作未确认，请重新读取状态':e.message});}
+   }
    if(req.method==="POST" && url.pathname==="/internal/models/policy"){
     const body=await readBody();
     if(!body||typeof body.model!=="string"||!Number.isSafeInteger(body.revision)||body.revision<0||
@@ -89,6 +100,12 @@ function createServer({keys,models,scheduler,status,actions}){
     if(target!==undefined&&target!==null&&slot===undefined)return json(res,400,{error:'Target account requires a slot'});
     const result=await actions.rotate(slot,target===undefined?undefined:target===null?undefined:target);
     return json(res,Array.isArray(result.started)&&result.started.length>0?202:409,result);
+   }
+   if(req.method==='POST' && url.pathname==='/internal/accounts/delete'){
+    if(!/^application\/json(?:\s*;|$)/i.test(String(req.headers['content-type']||'')))return json(res,415,{error:'JSON required'});
+    try{return json(res,200,await actions.deleteAccount(await readBody()));}
+    catch(e){const code=[400,409,413].includes(e.statusCode)?e.statusCode:503;
+     return json(res,code,{error:code===503?'删除未确认，请刷新状态后核对':e.message});}
    }
    if(req.method==='POST' && url.pathname==='/internal/sync-accounts')
     return json(res,200,await actions.syncAccounts());

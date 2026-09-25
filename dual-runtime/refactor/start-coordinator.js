@@ -7,6 +7,7 @@ const {RotationController}=require('./rotation-controller');
 const {RequestScheduler}=require('./request-scheduler');
 const {forwardWorker}=require('./forward-worker');
 const {createServer}=require('./coordinator-http');
+const {authFileInfo}=require('./auth-maintenance');
 async function main(){
  const root=process.env.DUAL_ROOT||'/opt/ais2api/dual-runtime';
  const cfg=JSON.parse(fs.readFileSync(path.join(root,'coordinator.json'),'utf8'));
@@ -43,16 +44,29 @@ async function main(){
  const {CoordinatorMonitor}=require('./coordinator-monitor');
  const monitor=new CoordinatorMonitor({dispatch,client,catalogs,recovery,rotation,routing,scheduler});
  let lastMode='unknown';
+ const accountOccupied=id=>dispatch.pool.owners.has(id)||[...dispatch.slots.values()].some(s=>
+  [s.rotation?.account,s.rotation?.oldAccount,s.rotation?.predecessorAccount,s.recovery?.account,s.proxyApply?.account].includes(id)||
+  Object.values(s.executions||{}).some(x=>x.account===id)||Object.values(s.retirements||{}).some(x=>x.account===id));
+ const cookieStatus=(id,owner,flag)=>{
+  const info=authFileInfo(path.join(driver.authSource,'auth-'+id+'.json'));
+  const slot=owner?dispatch.pool.slots.get(owner):undefined,s=owner?dispatch.slots.get(owner):undefined;
+  const login=flag&&['invalid','deleting','deleted'].includes(flag.status)?'invalid':
+   slot?.current===id?((s?.ready||s?.active>0)&&!monitor.status(owner).error?'online':'unconfirmed'):'unverified';
+  return {login,file:info.state,keyCookies:info.keyCookies||0,
+   expiresAt:Number.isFinite(info.expiresAt)?info.expiresAt:null,session:info.session===true,
+   expired:Number.isFinite(info.expiresAt)&&info.expiresAt<=Date.now(),
+   modifiedAt:info.modifiedAt||null,save:dispatch.authSaves?.[id]||null};
+ };
  const status=()=>({
   halted:dispatch.halted,queue:scheduler.queue.length,scheduling:scheduler.status(),
-  streamingMode:lastMode,
+  streamingMode:lastMode,rotationThrottle:{...dispatch.rotationThrottle,intervalMs:300000},
   analytics:recordedForward.status(),
   retiredCleanup:cleanup.status(),
   quotaMode:"per-account-per-model",quotaLimits:{flash:100,pro:10},
   slots:Object.fromEntries([...dispatch.slots].map(([slot,s])=>[slot,{
    account:dispatch.pool.slots.get(slot)?.current,
    pending:dispatch.pool.slots.get(slot)?.pending?.id,
-   active:s.active,ready:s.ready,
+   active:s.active,ready:s.ready,authMaintenance:authMaintenance.status(slot),
    quota:Number.isSafeInteger(dispatch.pool.slots.get(slot)?.current)?dispatch.quotas.summary(dispatch.pool.slots.get(slot).current,policyStore.policies):undefined,
    healthCheck:monitor.status(slot),workerEpoch:s.workerEpoch,workerHealth:s.workerHealth,pendingRetirements:Object.keys(s.retirements||{}).length,
    pendingExecutions:Object.values(s.executions||{}).map(t=>({id:t.id,phase:t.phase,createdAt:t.createdAt})),
@@ -63,16 +77,45 @@ async function main(){
     retryAt:rotation.failures.get(slot).retryAt||null
    }:undefined
   }])),
-  accounts:dispatch.pool.ids.map(id=>{
+  accounts:dispatch.pool.ids.filter(id=>dispatch.accountFlags[id]?.status!=='deleted').map(id=>{
    let name='N/A (未命名)';
    try{const d=JSON.parse(fs.readFileSync('/opt/ais2api/auth/auth-'+id+'.json','utf8'));if(typeof d.accountName==='string'&&d.accountName)name=d.accountName;}catch{}
    const owner=dispatch.pool.owners.get(id);
    const cooldownUntil=dispatch.pool.cooldowns.get(id)||0;
-   return {id,name,owner:owner||null,cooldownUntil,quota:dispatch.quotas.summary(id,policyStore.policies)};
+   const flag=dispatch.accountFlags[id];
+   return {cookie:cookieStatus(id,owner,flag),authStatus:flag?.status||'unknown',invalidReason:flag?.reason,
+    invalidAt:flag?.at,canDelete:!!flag&&flag.status!=='deleted'&&!accountOccupied(id),
+    id,name,owner:owner||null,cooldownUntil,quota:dispatch.quotas.summary(id,policyStore.policies)};
   })
  });
+ const {ProxySettings}=require('./proxy-settings');
+ const proxies=new ProxySettings({root,dispatch,driver,client,rotation,scheduler,isStopping:()=>stopping});
+ const {AuthMaintenance}=require('./auth-maintenance');
+ const authMaintenance=new AuthMaintenance({dispatch,driver,client,scheduler,isStopping:()=>stopping});
  monitor.tick();
  const actions={
+  async deleteAccount(body){
+   const id=body?.id,flag=dispatch.accountFlags[id];
+   const error=(statusCode,message)=>Object.assign(Error(message),{statusCode});
+   if(!Number.isSafeInteger(id)||id<1||body.confirm!=='DELETE '+id)throw error(400,'删除确认不匹配');
+   if(!flag||!['invalid','deleting','deleted'].includes(flag.status))throw error(409,'仅允许删除已标记失效账号');
+   if(stopping||dispatch.halted||accountOccupied(id))throw error(409,'账号仍被实例或未完成轮换占用');
+   if(flag.status==='deleted')return {deleted:true,id};
+   flag.status='deleting';dispatch.checkpoint();
+   const q=await driver.run('docker',['ps','--filter','label=operit.project=ais2api-dual','--filter','label=operit.account='+id,'--format','{{.ID}}'],{timeout:15000,maxBuffer:16384});
+   if(q.stdout.trim()||accountOccupied(id))throw error(409,'账号仍被运行容器占用');
+   const file=path.join(driver.authSource,'auth-'+id+'.json');
+   try{
+    const st=fs.lstatSync(file);
+    if(!st.isFile()||st.isSymbolicLink())throw error(409,'认证文件类型异常，拒绝删除');
+    fs.unlinkSync(file);driver.syncDirectory(driver.authSource);
+   }catch(e){if(e.code!=='ENOENT')throw e;}
+   flag.status='deleted';flag.deletedAt=Date.now();dispatch.checkpoint();
+   return {deleted:true,id,historyPreserved:true,retiredCopiesPreserved:true};
+  },
+  proxies:()=>proxies.snapshot(),
+  saveProxy:body=>proxies.save(body),
+  applyProxy:body=>proxies.start(body),
   prices(){return {...priceStore.snapshot(),models:[...routing.policies.keys()].sort()};},
   savePrice(body){
    if(!body || !routing.policies.has(body.model))throw Object.assign(Error('Configured canonical model required'),{statusCode:400});
@@ -153,14 +196,15 @@ async function main(){
  await new Promise((resolve,reject)=>{
   server.once('error',reject);server.listen(8890,'127.0.0.1',resolve);
  });
+ const authTimer=setInterval(()=>authMaintenance.tick(),60000);authTimer.unref();
  const timer=setInterval(()=>monitor.tick(),2000);
  const cleanupTimer=setInterval(()=>cleanup.tick(),60000);cleanupTimer.unref();
  console.log('[Coordinator] loopback 8890; protocol v2; per-slot concurrency 2; explicit model quotas');
  async function shutdown(){
-  if(stopping)return;stopping=true;clearInterval(timer);clearInterval(cleanupTimer);cleanup.close();monitor.close();scheduler.close();
+  if(stopping)return;stopping=true;clearInterval(timer);clearInterval(authTimer);clearInterval(cleanupTimer);cleanup.close();monitor.close();scheduler.close();
   server.close();
   const deadline=Date.now()+620000;
-  while(Date.now()<deadline && ([...dispatch.slots.values()].some(s=>s.active>0||Object.keys(s.retirements||{}).length>0)||rotation.running.size||catalogs.jobs.size)){
+  while(Date.now()<deadline && ([...dispatch.slots.values()].some(s=>s.active>0||Object.keys(s.retirements||{}).length>0)||[...rotation.running].some(slot=>!dispatch.slots.get(slot).proxyApply)||catalogs.jobs.size||proxies.jobs.size||authMaintenance.jobs.size)){
    await scheduler.reconcile();
    await Promise.all(["A","B"].map(slot=>catalogs.reconcile(slot)));
    await new Promise(r=>setTimeout(r,500));

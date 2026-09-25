@@ -3,7 +3,7 @@ const fs=require('fs'),path=require('path'),crypto=require('crypto');
 function save(dispatch,file){
  const pool=dispatch.pool;
  const slots=[...dispatch.slots].map(([slot,st])=>[slot,{...st,requests:[...(st.requests||[])]}]);
- const data={version:2,quotaLedger:dispatch.quotas.snapshot(),pool:{ids:pool.ids,cursor:pool.cursor,sequence:pool.sequence,slots:[...pool.slots],cooldowns:[...pool.cooldowns]},dispatch:{slots,cursor:dispatch.cursor,globalUntil:dispatch.globalUntil,halted:dispatch.halted}};
+ const data={version:2,rotationThrottle:dispatch.rotationThrottle||{lastAt:0},authSaves:dispatch.authSaves||{},accountFlags:dispatch.accountFlags||{},quotaLedger:dispatch.quotas.snapshot(),pool:{ids:pool.ids,cursor:pool.cursor,sequence:pool.sequence,slots:[...pool.slots],cooldowns:[...pool.cooldowns]},dispatch:{slots,cursor:dispatch.cursor,globalUntil:dispatch.globalUntil,halted:dispatch.halted}};
  const temp=file+'.'+crypto.randomBytes(8).toString('hex')+'.tmp';
  let fd;
  try{
@@ -74,6 +74,15 @@ function read(file){
   const timestamps=value=>Array.isArray(value)&&value.length<=1000&&value.every(t=>Number.isSafeInteger(t)&&t>=0);
   if(state.recoveryAttempts!==undefined&&!timestamps(state.recoveryAttempts))throw Error('Invalid recovery attempts');
   const rotation=state.rotation,recovery=state.recovery;
+  const proxy=state.proxyApply;
+  if(proxy!==undefined){
+   if(!proxy||typeof proxy!=='object'||!Number.isSafeInteger(proxy.account)||proxy.account<1||
+    !['inspect','stopping','creating','starting','waiting','rollback','rollback_waiting'].includes(proxy.phase)||
+    !/^[a-f0-9]{64}$/.test(proxy.envHash||'')||
+    [proxy.oldId,proxy.newId].some(id=>id!==undefined&&!/^[a-f0-9]{64}$/.test(id))||
+    rotation||recovery||state.catalogTask||state.active||Object.keys(records).length||Object.keys(retired).length)
+     throw Error('Invalid proxy operation intent');
+  }
   if(rotation!==undefined){
    if(!rotation||typeof rotation!=='object'||Array.isArray(rotation)||
       !Number.isSafeInteger(rotation.account)||rotation.account<1||
@@ -81,6 +90,7 @@ function read(file){
       !['reserved','stopping','old_closed','prepared','started'].includes(rotation.phase)||
       (rotation.phase!=='reserved'&&!/^[a-f0-9]{64}$/.test(rotation.oldContainerId||''))||
       (rotation.oldAccount!==undefined&&(!Number.isSafeInteger(rotation.oldAccount)||rotation.oldAccount<1))||
+      (rotation.predecessorAccount!==undefined&&(!Number.isSafeInteger(rotation.predecessorAccount)||rotation.predecessorAccount<1))||
       (rotation.restartAttempts!==undefined&&!timestamps(rotation.restartAttempts)))throw Error('Invalid rotation intent');
   }
   if(recovery!==undefined){
