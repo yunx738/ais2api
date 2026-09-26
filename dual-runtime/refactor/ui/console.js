@@ -44,9 +44,10 @@ function accountState(a){if(['invalid','deleting'].includes(a.authStatus))return
 function cookieDay(v){return Number.isFinite(v)&&v>0?new Date(v).toLocaleDateString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit'}):'—';}
 function cookieStamp(v){return Number.isFinite(v)&&v>0?new Date(v).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'—';}
 const cookieSaveLabels={saved:'已保存',scheduled:'等待首次保存',saving:'正在保存',auth_file_changed:'认证文件已更换，未覆盖',worker_upgrade_pending:'等待实例加载保存功能',snapshot_unavailable:'未取得空闲快照',snapshot_timeout:'快照超时',identity_changed:'实例状态变化，未保存',snapshot_invalid:'快照缺少登录 Cookie',save_failed:'保存失败'};
+const keepLabels={ok:'成功',login_required:'跳转登录页，已标记失效',region_blocked:'地区受限',proxy_error:'代理/网络失败',timeout:'超时',unexpected_page:'页面异常',no_cookies:'未取得登录 Cookie',request_failed:'实例通信失败',auth_file_changed:'文件已更换未覆盖',too_large:'状态过大',failed:'失败'};
 function cookieFacts(a){
  const c=a?.cookie||{},save=c.save||{},now=Date.now(),soon=7*86400000;
- const login=c.login==='invalid'?['已失效，需重新导入','bad']:c.login==='online'?['在线有效','good']:c.login==='unconfirmed'?['实例未就绪，待确认','warn']:['未验证（备用账号）','muted'];
+ const login=c.login==='invalid'?['已失效，需重新导入','bad']:c.login==='online'?['在线有效','good']:c.login==='keepalive'?['保活确认有效 · '+cookieStamp(save.keepaliveAt),'good']:c.login==='unconfirmed'?['实例未就绪，待确认','warn']:['未验证（备用账号）','muted'];
  let expiry;
  if(c.file==='missing')expiry=['认证文件缺失','bad'];
  else if(c.file&&c.file!=='ok')expiry=['认证文件无法读取','bad'];
@@ -59,12 +60,18 @@ function cookieFacts(a){
   if(save.lastResult&&save.lastResult!=='saved')renew=[renew[0]+'；最近一次'+(cookieSaveLabels[save.lastResult]||'失败'),'warn'];
  }else if(save.lastResult&&save.lastResult!=='saved')renew=[(cookieSaveLabels[save.lastResult]||'保存失败')+' · '+cookieStamp(save.lastAttemptAt),'warn'];
  else renew=['尚未续期','muted'];
- return {login,expiry,renew};
+ let keep=null;
+ if(Number.isFinite(c.keepaliveNextAt)){
+  const r=save.keepaliveResult,last=save.keepaliveAttemptAt?'上次'+(keepLabels[r]||'失败')+' '+cookieStamp(save.keepaliveAttemptAt)+'；':'尚未保活；';
+  keep=[last+'下次 '+(c.keepaliveNextAt<=now?'排队中（每 30 分钟最多 1 个）':cookieStamp(c.keepaliveNextAt)),r&&r!=='ok'?'warn':'muted'];
+ }
+ return {login,expiry,renew,keep};
 }
 function cookieCell(a){
  const td=el('td',undefined,'cookie-cell'),f=cookieFacts(a);
  td.append(statusBadge(f.login[0],f.login[1]));
  td.append(el('small','到期：'+f.expiry[0],'cookie-line '+f.expiry[1]),el('small','续期：'+f.renew[0],'cookie-line '+f.renew[1]));
+ if(f.keep)td.append(el('small','保活：'+f.keep[0],'cookie-line '+f.keep[1]));
  td.title='到期时间取自认证文件记录，Google 可能提前撤销；页面不显示 Cookie 内容';
  return td;
 }

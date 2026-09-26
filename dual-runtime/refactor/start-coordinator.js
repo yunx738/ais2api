@@ -51,15 +51,17 @@ async function main(){
   const info=authFileInfo(path.join(driver.authSource,'auth-'+id+'.json'));
   const slot=owner?dispatch.pool.slots.get(owner):undefined,s=owner?dispatch.slots.get(owner):undefined;
   const login=flag&&['invalid','deleting','deleted'].includes(flag.status)?'invalid':
-   slot?.current===id?((s?.ready||s?.active>0)&&!monitor.status(owner).error?'online':'unconfirmed'):'unverified';
+   slot?.current===id?((s?.ready||s?.active>0)&&!monitor.status(owner).error?'online':'unconfirmed'):
+   (dispatch.authSaves?.[id]?.keepaliveResult==='ok'&&Date.now()-(dispatch.authSaves[id].keepaliveAt||0)<4*86400000?'keepalive':'unverified');
   return {login,file:info.state,keyCookies:info.keyCookies||0,
    expiresAt:Number.isFinite(info.expiresAt)?info.expiresAt:null,session:info.session===true,
    expired:Number.isFinite(info.expiresAt)&&info.expiresAt<=Date.now(),
-   modifiedAt:info.modifiedAt||null,save:dispatch.authSaves?.[id]||null};
+   modifiedAt:info.modifiedAt||null,save:dispatch.authSaves?.[id]||null,
+   keepaliveNextAt:owner||login==='invalid'?null:keepalive.dueAt(id)};
  };
  const status=()=>({
   halted:dispatch.halted,queue:scheduler.queue.length,scheduling:scheduler.status(),
-  streamingMode:lastMode,rotationThrottle:{...dispatch.rotationThrottle,intervalMs:300000},
+  streamingMode:lastMode,rotationThrottle:{...dispatch.rotationThrottle,intervalMs:300000},keepalive:keepalive.status(),
   analytics:recordedForward.status(),
   retiredCleanup:cleanup.status(),
   quotaMode:"per-account-per-model",quotaLimits:{flash:100,pro:10},
@@ -92,6 +94,8 @@ async function main(){
  const proxies=new ProxySettings({root,dispatch,driver,client,rotation,scheduler,isStopping:()=>stopping});
  const {AuthMaintenance}=require('./auth-maintenance');
  const authMaintenance=new AuthMaintenance({dispatch,driver,client,scheduler,isStopping:()=>stopping});
+ const {SpareKeepalive}=require('./spare-keepalive');
+ const keepalive=new SpareKeepalive({dispatch,driver,client,scheduler,rotation,occupied:accountOccupied,isStopping:()=>stopping});
  monitor.tick();
  const actions={
   async deleteAccount(body){
@@ -196,7 +200,7 @@ async function main(){
  await new Promise((resolve,reject)=>{
   server.once('error',reject);server.listen(8890,'127.0.0.1',resolve);
  });
- const authTimer=setInterval(()=>authMaintenance.tick(),60000);authTimer.unref();
+ const authTimer=setInterval(()=>{authMaintenance.tick();keepalive.tick();},60000);authTimer.unref();
  const timer=setInterval(()=>monitor.tick(),2000);
  const cleanupTimer=setInterval(()=>cleanup.tick(),60000);cleanupTimer.unref();
  console.log('[Coordinator] loopback 8890; protocol v2; per-slot concurrency 2; explicit model quotas');
