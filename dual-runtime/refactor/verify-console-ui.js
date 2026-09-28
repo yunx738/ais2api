@@ -86,7 +86,7 @@ const server=http.createServer((req,res)=>{
   assert.equal(await page.locator('.sidebar').evaluate(e=>e.getBoundingClientRect().width),264,'expanded sidebar width');await assertFrame('expanded');
   await go('accounts');await page.locator('#account-rows tr').first().waitFor();await page.screenshot({path:out+'/desktop-accounts.png',fullPage:true});
   await page.locator('[data-account-filter="available"]').click();assert.match(await page.locator('#account-page').textContent(),/共 24 条/);await page.locator('[data-account-filter="all"]').click();
-  await page.locator('.column-control summary').click();await page.locator('.column-options label').filter({hasText:'冷却结束'}).locator('input').uncheck();assert.equal(await page.locator('.account-table th').nth(4).isHidden(),true);await page.locator('#refresh').click();await page.waitForTimeout(150);assert.equal(await page.locator('.account-table th').nth(4).isHidden(),true);await page.locator('.column-control summary').click();await page.locator('.column-options label').filter({hasText:'冷却结束'}).locator('input').check();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'desktop column popover must not overflow');await page.locator('.column-control summary').click();
+  await page.locator('.column-control summary').click();await page.locator('.column-options label').filter({hasText:'冷却结束'}).locator('input').uncheck();assert.equal(await page.locator('.account-table th').nth(5).isHidden(),true);await page.locator('#refresh').click();await page.waitForTimeout(150);assert.equal(await page.locator('.account-table th').nth(5).isHidden(),true);await page.locator('.column-control summary').click();await page.locator('.column-options label').filter({hasText:'冷却结束'}).locator('input').check();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'desktop column popover must not overflow');await page.locator('.column-control summary').click();
   await go('history');await page.locator('.request-card').first().waitFor();await page.screenshot({path:out+'/desktop-history.png',fullPage:true});await assertFrame('history after full-page screenshot');
   await go('overview');await page.waitForFunction(()=>document.getElementById('overview-requests')?.textContent==='303');assert.equal(await page.locator('#overview-tokens').textContent(),'28.1M');assert.equal(await page.locator('#overview-cost').textContent(),'$53.91');
   usageFailure=true;await page.locator('#refresh').click();await page.waitForFunction(()=>document.getElementById('overview-usage-note').textContent.includes('统计暂不可用'));assert.equal(await page.locator('#sync').isDisabled(),false,'statistics failure must not disable account controls');usageFailure=false;await page.locator('#refresh').click();await page.waitForFunction(()=>document.getElementById('overview-requests').textContent==='303');
@@ -106,10 +106,10 @@ const server=http.createServer((req,res)=>{
   await page.locator('#history-refresh').click();await page.waitForTimeout(100);assert.equal(await page.locator('.request-card').first().locator('details').evaluate(e=>e.open),true);
   delayUsage=true;await page.locator('.mobile-nav [data-page="usage"]').click();await page.locator('#usage-range').selectOption('all');await page.waitForTimeout(450);assert.equal(await page.locator('#usage-cards .stat').first().locator('strong').textContent(),'401');
   await page.locator('.mobile-nav [data-page="overview"]').click();await page.screenshot({path:out+'/mobile-overview.png',fullPage:true});
-  assert.match(await page.locator('#cleanup-status').textContent(),/保留 7 天，每实例至少 2 份/);
+  assert.equal(await page.locator('#cleanup-status').isHidden(),true);
   status.retiredCleanup.slots.A.error='cleanup_candidate_retained';await page.locator('#refresh').click();
-  await page.waitForFunction(()=>document.getElementById('cleanup-status').textContent.includes('部分资源未清理'));
-  assert.match(await page.locator('#cleanup-status').textContent(),/原始凭据与运行数据保留/);
+  await page.waitForFunction(()=>document.getElementById('cleanup-status').textContent.includes('退役资源未清理'));
+  
   status.retiredCleanup.slots.A.error=null;
   statusFailure=true;await page.locator('#refresh').click();await page.waitForTimeout(150);assert.equal(await page.locator('body').evaluate(e=>e.classList.contains('stale')),true);assert.equal(await page.locator('#sync').isDisabled(),true);
   statusFailure=false;await page.locator('#refresh').click();await page.waitForTimeout(150);assert.equal(await page.locator('body').evaluate(e=>e.classList.contains('stale')),false);assert.equal(await page.locator('#notice').isHidden(),true);
@@ -118,7 +118,7 @@ const server=http.createServer((req,res)=>{
   assert.match(await page.locator('#notice').textContent(),/状态读取失败/);assert.doesNotMatch(await page.locator('#notice').textContent(),/新增/);assert.equal(await page.locator('#sync').isDisabled(),true);
   failAfterSync=false;statusFailure=false;await page.locator('#refresh').click();await page.waitForFunction(()=>!document.getElementById('sync').disabled);
   syncFailure=true;page.once('dialog',dialog=>dialog.accept());await page.locator('#sync').click();await page.waitForFunction(()=>document.getElementById('updated').textContent==='操作后状态待核实');
-  assert.match(await page.locator('#notice').textContent(),/请刷新状态后再操作/);assert.equal(await page.locator('#sync').isDisabled(),true);
+  assert.match(await page.locator('#notice').textContent(),/请刷新后再操作/);assert.equal(await page.locator('#sync').isDisabled(),true);
   syncFailure=false;await page.locator('#refresh').click();await page.waitForFunction(()=>!document.getElementById('sync').disabled);
   realHistory=true;await page.locator('.mobile-nav [data-page="usage"]').click();await page.waitForFunction(()=>document.querySelector('#usage-cards .stat strong')?.textContent==='3');
   assert.equal(await page.locator('#usage-cards .stat-tokens strong').textContent(),'1.5K');assert.equal(await page.locator('.distribution-row').count(),2);assert.match(await page.locator('#usage-models').textContent(),/gemini-real-flash/);
@@ -133,8 +133,8 @@ const server=http.createServer((req,res)=>{
    await page.setViewportSize({width,height:1000});
    for(const name of ['overview','accounts','usage','history','models','settings']){await go(name);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,name+' overflow at '+width);}
   }
-  await page.setViewportSize({width:430,height:932});await go('history');await page.locator('.mobile-topbar [data-theme-toggle]').click();await page.screenshot({path:out+'/mobile-dark.png',fullPage:true});
-  assert.equal(await page.locator('html').evaluate(e=>e.classList.contains('dark')),true);
+  await page.setViewportSize({width:430,height:932});await go('history');const darkBefore=await page.locator('html').evaluate(e=>e.classList.contains('dark'));await page.locator('.mobile-topbar [data-theme-toggle]').click();await page.screenshot({path:out+'/mobile-dark.png',fullPage:true});
+  assert.equal(await page.locator('html').evaluate(e=>e.classList.contains('dark')),!darkBefore);
   assert.deepEqual(errors,[]);assert.deepEqual(assetErrors,[]);console.log('PASS: all 6 pages 360–1440px, collapsed sidebar/mobile sheet, real quota/history, accounts/filter/dialog, catalog sync/search, price save with unknown values, stale/error/race controls, cleanup notice, dark theme, authenticated asset manifest, zero runtime errors.');
  }finally{await browser.close();server.close();fs.rmSync(historyDir,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);server.close();fs.rmSync(historyDir,{recursive:true,force:true});process.exitCode=1});

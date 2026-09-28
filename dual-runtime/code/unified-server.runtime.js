@@ -2873,13 +2873,12 @@ class ProxyServerSystem extends EventEmitter {
       if (req.session.isAuthenticated) {
         return res.redirect("/");
       }
-      const loginHtml = `
-      <!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>登录</title>
-      <style>body{display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#f0f2f5}form{background:white;padding:40px;border-radius:10px;box-shadow:0 4px 8px rgba(0,0,0,0.1);text-align:center}input{width:250px;padding:10px;margin-top:10px;border:1px solid #ccc;border-radius:5px}button{width:100%;padding:10px;background-color:#007bff;color:white;border:none;border-radius:5px;margin-top:20px;cursor:pointer}.error{color:red;margin-top:10px}</style>
-      </head><body><form action="/login" method="post"><h2>请输入 API Key</h2>
-      <input type="password" name="apiKey" placeholder="API Key" required autofocus><button type="submit">登录</button>
+      const loginHtml = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>登录 · AIS2API</title>
+      <style>:root{--bg:#f6f7f9;--panel:#fff;--border:#e3e6eb;--text:#161a21;--muted:#6b7280;--accent:#4f5bd5;--bad:#dc2626}@media (prefers-color-scheme:dark){:root{--bg:#0d0f13;--panel:#15181e;--border:#262b34;--text:#e6e8ec;--muted:#8b93a1;--accent:#7c86ff;--bad:#f87171}}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}form{width:100%;max-width:340px;display:flex;flex-direction:column;gap:14px;padding:28px;background:var(--panel);border:1px solid var(--border);border-radius:14px}.brand{display:flex;align-items:center;gap:10px}.logo{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:var(--accent);color:#fff;font-weight:700}h1{margin:0;font-size:18px;font-weight:600}input,button{height:40px;border-radius:8px;font:inherit}input{padding:0 12px;border:1px solid var(--border);background:var(--panel);color:var(--text)}input:focus{outline:2px solid var(--accent);outline-offset:1px}button{border:0;background:var(--accent);color:#fff;font-weight:500;cursor:pointer}button:hover{filter:brightness(1.08)}.error{margin:0;color:var(--bad);font-size:13px}</style>
+      </head><body><form action="/login" method="post"><div class="brand"><span class="logo">A</span><h1>AIS2API</h1></div>
+      <input type="password" name="apiKey" placeholder="API Key" aria-label="API Key" required autofocus autocomplete="current-password"><button type="submit">登录</button>
       ${
-        req.query.error ? '<p class="error">API Key 错误!</p>' : ""
+        req.query.error ? '<p class="error">API Key 错误</p>' : ""
       }</form></body></html>`;
       res.send(loginHtml);
     });

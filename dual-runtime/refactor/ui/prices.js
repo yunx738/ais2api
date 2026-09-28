@@ -40,7 +40,7 @@
   reading=true;controls();
   try{
    render(await call());
-   message(snapshot.blocked?'价格写入已阻止，需要检查持久化状态':'当前价格版本 '+snapshot.revision+'；未配置的模型费用显示未知');
+   message(snapshot.blocked?'价格写入已阻止，需要检查持久化状态':'');
   }catch(e){valid=false;message('读取失败：'+e.message);}
   finally{reading=false;controls();}
  }
@@ -55,10 +55,10 @@
     message('单价必须为非负有限数值，或留空表示未知');return;
    }
   }
-  if(!confirm('保存 '+$('price-model').value+' 的参考单价？只影响之后请求，不修改历史费用和次数额度。'))return;
+  if(!confirm('保存 '+$('price-model').value+' 的单价？'))return;
   const body={model:$('price-model').value,revision:snapshot.revision,price};
   saving=true;controls();
-  try{render(await call(body));message('已保存价格版本 '+snapshot.revision+'；历史请求费用保持原价格。');}
+  try{render(await call(body));message('已保存');}
   catch(e){valid=false;message('保存未完成或未确认：'+e.message+'。请点击重新读取。');}
   finally{saving=false;controls();}
  });

@@ -34,18 +34,18 @@
     if(ids.has(selected))$("policy-model").value=selected;
     selectPolicy();
     $("policy-message").textContent=data?.policyState?.blocked?
-      "策略存储状态待核实，暂不能保存。":"规则版本 "+(data?.policyState?.revision??"未知")+" · 未配置模型不会自动分配额度类别";
+      "策略存储状态待核实，暂不能保存。":"";
   }
   async function savePolicy(){
     policyGate();if($("policy-save").disabled)return;
     const body={model:$("policy-model").value,quotaFamily:$("policy-bucket").value,
       antiTruncation:$("policy-anti").checked,revision:editRevision};
-    if(!confirm("保存 "+body.model+" 的额度规则？仅影响后续派单，不重置已用额度。"))return;
+    if(!confirm("保存 "+body.model+" 的额度规则？"))return;
     submitting=true;gate();
     try{
       const result=await api("/api/models/policy",body);
       if(result.saved!==true)throw Error("规则未保存，请刷新状态");
-      policyDirty=false;notice("规则已保存；可用性仍取决于同步目录与实例状态。");
+      policyDirty=false;notice("规则已保存");
     }catch(e){notice("保存未确认："+e.message+"。请先核实版本，不要连续重复提交。");}
     finally{submitting=false;await refresh();await readCatalog();gate();}
   }
@@ -114,7 +114,7 @@
       box.append(head,metric,el('p','最近更新 '+date(snapshot?.updatedAt),'catalog-timestamp'));
       const error=data.errors?.[slot]||item.operation?.error||c?.error;
       if(error)box.append(el('p',explain(error),'warn'));
-      if(data.errors?.[slot]&&snapshot)box.append(el('p','下方保留历史目录，不代表当前状态。','warn'));
+      if(data.errors?.[slot]&&snapshot)box.append(el('p','显示的是旧目录','warn'));
       const button=el('button','同步目录','catalog-sync');button.type='button';
       button.addEventListener('click',() => sync(slot));buttons.set(slot,button);
       box.append(button);$('catalog-workers').append(box);
@@ -127,7 +127,7 @@
       const result=await api('/api/models');
       if(!result||typeof result.slots!=='object'||!result.slots)throw Error('目录接口格式错误');
       data=result;available=true;renderCatalog();
-      $('catalog-message').textContent='更新于 '+new Date().toLocaleTimeString('zh-CN');
+      $('catalog-message').textContent='';
     }catch(e){
       available=false;
       $('catalog-message').textContent='目录状态读取失败，保留的内容为旧数据。'+e.message;
@@ -135,12 +135,12 @@
   }
   async function sync(slot) {
     gate();if(buttons.get(slot)?.disabled)return;
-    if(!confirm('确认同步实例 '+slot+' 的上游模型目录？同步期间暂停该实例派单，不发送生成请求。'))return;
+    if(!confirm('同步实例 '+slot+' 的模型目录？'))return;
     submitting=true;gate();
     try{
       const result=await api('/api/models/refresh',{slot});
-      notice(result.pending?'同步启动结果尚未确认，请观察任务状态，不要重复提交。':
-        result.accepted?'已接受同步任务，不代表已同步成功。':'未启动同步。'+explain(result.reason));
+      notice(result.pending?'同步状态待确认，请勿重复提交':
+        result.accepted?'同步中':'未启动：'+explain(result.reason));
     }catch(e){notice('同步提交未确认。'+e.message+'。请先刷新任务状态，避免重复提交。');}
     finally{submitting=false;await refresh();await readCatalog();gate();}
   }

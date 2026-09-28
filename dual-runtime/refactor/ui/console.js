@@ -47,39 +47,39 @@ const cookieSaveLabels={saved:'已保存',scheduled:'等待首次保存',saving:
 const keepLabels={ok:'成功',login_required:'跳转登录页，已标记失效',region_blocked:'地区受限',proxy_error:'代理/网络失败',timeout:'超时',unexpected_page:'页面异常',no_cookies:'未取得登录 Cookie',request_failed:'实例通信失败',auth_file_changed:'文件已更换未覆盖',too_large:'状态过大',failed:'失败'};
 function cookieFacts(a){
  const c=a?.cookie||{},save=c.save||{},now=Date.now(),soon=7*86400000;
- const login=c.login==='invalid'?['已失效，需重新导入','bad']:c.login==='online'?['在线有效','good']:c.login==='keepalive'?['保活确认有效 · '+cookieStamp(save.keepaliveAt),'good']:c.login==='unconfirmed'?['实例未就绪，待确认','warn']:['未验证（备用账号）','muted'];
+ const login=c.login==='invalid'?['已失效','bad']:c.login==='online'?['在线','good']:c.login==='keepalive'?['保活正常','good']:c.login==='unconfirmed'?['待确认','warn']:['未验证','muted'];
  let expiry;
- if(c.file==='missing')expiry=['认证文件缺失','bad'];
- else if(c.file&&c.file!=='ok')expiry=['认证文件无法读取','bad'];
- else if(!c.keyCookies)expiry=['缺少关键登录 Cookie','bad'];
- else if(Number.isFinite(c.expiresAt))expiry=c.expiresAt<=now?['已过期 · '+cookieDay(c.expiresAt),'bad']:c.expiresAt-now<soon?['即将过期 · '+cookieDay(c.expiresAt),'warn']:['未过期 · '+cookieDay(c.expiresAt),'good'];
- else expiry=['会话 Cookie，无固定到期时间','warn'];
+ if(c.file==='missing')expiry=['文件缺失','bad'];
+ else if(c.file&&c.file!=='ok')expiry=['文件损坏','bad'];
+ else if(!c.keyCookies)expiry=['缺少登录Cookie','bad'];
+ else if(Number.isFinite(c.expiresAt))expiry=c.expiresAt<=now?['已过期','bad']:c.expiresAt-now<soon?[cookieDay(c.expiresAt),'warn']:[cookieDay(c.expiresAt),'good'];
+ else expiry=['会话级','warn'];
  let renew;
  if(save.savedAt){
-  renew=[(save.extended?'已续期（到期已延长）':'已保存（到期未变化）')+' · '+cookieStamp(save.savedAt),save.extended?'good':'muted'];
-  if(save.lastResult&&save.lastResult!=='saved')renew=[renew[0]+'；最近一次'+(cookieSaveLabels[save.lastResult]||'失败'),'warn'];
+  renew=[(save.extended?'已续期 ':'已保存 ')+cookieStamp(save.savedAt),save.extended?'good':'muted'];
+  if(save.lastResult&&save.lastResult!=='saved')renew=[renew[0]+' · '+(cookieSaveLabels[save.lastResult]||'失败'),'warn'];
  }else if(save.lastResult&&save.lastResult!=='saved')renew=[(cookieSaveLabels[save.lastResult]||'保存失败')+' · '+cookieStamp(save.lastAttemptAt),'warn'];
- else renew=['尚未续期','muted'];
+ else renew=['—','muted'];
  let keep=null;
  if(Number.isFinite(c.keepaliveNextAt)){
-  const r=save.keepaliveResult,last=save.keepaliveAttemptAt?'上次'+(keepLabels[r]||'失败')+' '+cookieStamp(save.keepaliveAttemptAt)+'；':'尚未保活；';
-  keep=[last+'下次 '+(c.keepaliveNextAt<=now?'排队中（每 30 分钟最多 1 个）':cookieStamp(c.keepaliveNextAt)),r&&r!=='ok'?'warn':'muted'];
+  const r=save.keepaliveResult,last=save.keepaliveAttemptAt&&r!=='ok'?(keepLabels[r]||'失败')+' · ':'';
+  keep=[last+'下次 '+(c.keepaliveNextAt<=now?'排队中':cookieStamp(c.keepaliveNextAt)),r&&r!=='ok'?'warn':'muted'];
  }
  return {login,expiry,renew,keep};
 }
 function cookieCell(a){
  const td=el('td',undefined,'cookie-cell'),f=cookieFacts(a);
  td.append(statusBadge(f.login[0],f.login[1]));
- td.append(el('small','到期：'+f.expiry[0],'cookie-line '+f.expiry[1]),el('small','续期：'+f.renew[0],'cookie-line '+f.renew[1]));
- if(f.keep)td.append(el('small','保活：'+f.keep[0],'cookie-line '+f.keep[1]));
- td.title='到期时间取自认证文件记录，Google 可能提前撤销；页面不显示 Cookie 内容';
+ td.append(el('small','到期 '+f.expiry[0],'cookie-line '+f.expiry[1]));
+ if(f.keep)td.append(el('small','保活 '+f.keep[0],'cookie-line '+f.keep[1]));
+ td.title='续期：'+f.renew[0];
  return td;
 }
 function workerCookie(s,a){
  const box=el('div',undefined,'worker-cookie'),f=cookieFacts(a),am=s.authMaintenance||{},head=el('div',undefined,'worker-cookie-head');
- head.append(el('span','Cookie 状态'),el('small','每 6 小时空闲时保存','muted'));box.append(head);
+ box.append(head);
  const next=am.running?['正在保存','warn']:[Number.isFinite(am.nextAt)?cookieStamp(am.nextAt):'—','muted'];
- for(const [k,v] of [['登录状态',f.login],['文件到期',f.expiry],['续期结果',f.renew],['下次保存',next]]){
+ for(const [k,v] of [['登录',f.login],['到期',f.expiry],['续期',f.renew],['下次保存',next]]){
   const line=el('div',undefined,'cookie-row');line.append(el('span',k),el('strong',v[0],v[1]));box.append(line);
  }
  return box;
@@ -88,9 +88,9 @@ let overviewUsageRead=null,overviewUsageReadAt=0,overviewUsageDay=0;
 const overviewMetrics=[['今日请求','requests','chart'],['已知 Token','tokens','model'],['估算费用','cost','dollar'],['RPM','rpm','clock'],['已知 TPM','tpm','zap'],['平均耗时','duration','activity']];
 function overviewUsagePanel(){
  let panel=$('overview-usage');if(panel)return panel;
- panel=el('article',undefined,'card overview-usage');panel.id='overview-usage';const head=el('div',undefined,'overview-usage-head'),title=el('div'),link=el('a','查看统计 →');link.href='#usage';title.append(el('h2','使用统计'),el('span','今日 · 浏览器本地时间','muted'));head.append(title,link);
+ panel=el('article',undefined,'card overview-usage');panel.id='overview-usage';const head=el('div',undefined,'overview-usage-head'),title=el('div'),link=el('a','详情 →');link.href='#usage';title.append(el('h2','今日'));head.append(title,link);
  const metrics=el('div',undefined,'overview-usage-grid');for(const [title,key,icon] of overviewMetrics){const item=el('div',undefined,'overview-metric overview-metric-'+key),mark=el('span',undefined,'overview-metric-icon'),copy=el('div'),value=el('strong','—');mark.append(consoleIcon(icon));value.id='overview-'+key;copy.append(el('span',title),value);item.append(mark,copy);metrics.append(item);}
- const note=el('p','正在读取今日数据…','overview-usage-note');note.id='overview-usage-note';note.setAttribute('role','status');panel.append(head,metrics,note);document.querySelector('#overview>.stats').after(panel);return panel;
+ const note=el('p','','overview-usage-note');note.id='overview-usage-note';note.setAttribute('role','status');panel.append(head,metrics,note);document.querySelector('#overview>.stats').after(panel);return panel;
 }
 async function loadOverviewUsage(force=false){
  if($('overview').hidden)return;
@@ -106,7 +106,7 @@ async function loadOverviewUsage(force=false){
    const values={requests:compact(d.requests),tokens:d.tokenKnownRequests>0?compact(d.knownTokenTotal):'未知',cost:d.pricedRequests>0&&Number.isFinite(d.estimatedCostKnownSubtotal)?'$'+d.estimatedCostKnownSubtotal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'未知',rpm:compact(d.rpm),tpm:compact(d.tpmKnown),duration:Number.isFinite(d.averageDurationMs)?(d.averageDurationMs>=1000?(d.averageDurationMs/1000).toLocaleString('en-US',{maximumFractionDigits:1})+'s':Math.round(d.averageDurationMs)+'ms'):'未知'};
    for(const [,key] of overviewMetrics)$('overview-'+key).textContent=values[key];
    const health=d.recording?.history||d.health,recordingIssue=health?.degraded||health?.ready===false||(d.recording?.beginFailures||0)+(d.recording?.finishFailures||0)>0;
-   $('overview-usage-note').textContent=recordingIssue?'记录系统存在异常，统计可能不完整':'仅计已记录请求 · Token 与费用仅汇总已知部分';panel.classList.remove('overview-usage-unavailable');
+   $('overview-usage-note').textContent=recordingIssue?'记录异常，统计可能不完整':'';panel.classList.remove('overview-usage-unavailable');
   }catch(error){for(const [,key] of overviewMetrics)$('overview-'+key).textContent='未获取';$('overview-usage-note').textContent='统计暂不可用 · '+error.message;panel.classList.add('overview-usage-unavailable');}
   finally{panel.removeAttribute('aria-busy');overviewUsageRead=null;}
  })();return overviewUsageRead;
@@ -136,15 +136,15 @@ function renderAccountRows(d=state){
   const actions=el('td'),details=el('button',undefined,'account-detail-button');details.type='button';details.title='查看账号详情';details.setAttribute('aria-label','查看账号 '+a.id+' 的额度详情');details.append(consoleIcon('chart'));details.addEventListener('click',()=>openAccount(a.id));actions.append(details);
   if(['invalid','deleting'].includes(a.authStatus)){
    const remove=el('button','删除');remove.type='button';remove.disabled=!a.canDelete||mutating||!fresh;
-   remove.title=a.canDelete?'删除主认证文件，保留历史及旧容器副本':'仍被实例或轮换占用';
+   remove.title=a.canDelete?'删除认证文件':'占用中';
    remove.addEventListener('click',()=>action('/api/accounts/delete',{id:a.id,confirm:'DELETE '+a.id},
-    '删除失效账号 #'+a.id+' 的主认证文件并从列表移除？历史及旧容器认证副本保留。',
-    r=>'账号 #'+r.id+' 已删除，历史记录保留。'));
+    '删除失效账号 #'+a.id+'？',
+    r=>'账号 #'+r.id+' 已删除'));
    actions.append(remove);statusCell.title='登录失效，已排除自动轮换';
   }
   row.append(actions);rows.append(row);
  }
- if(!accounts.length){const row=el('tr'),cell=el('td',d.accounts.length?'没有匹配的账号，请调整筛选条件':'暂无账号，导入后点击同步账号池。','empty');cell.colSpan=7;row.append(cell);rows.append(row);}
+ if(!accounts.length){const row=el('tr'),cell=el('td',d.accounts.length?'无匹配账号':'暂无账号','empty');cell.colSpan=7;row.append(cell);rows.append(row);}
  $('account-page').textContent=accounts.length?'显示 '+((accountPage-1)*size+1)+'–'+Math.min(accountPage*size,accounts.length)+' / 共 '+accounts.length+' 条':'共 0 条';
  $('account-prev').disabled=accountPage<=1;$('account-next').disabled=accountPage*size>=accounts.length;
  let pageNumber=$('account-page-number');if(!pageNumber){pageNumber=el('span',undefined,'page-number');pageNumber.id='account-page-number';pageNumber.setAttribute('aria-label','当前页');$('account-prev').insertAdjacentElement('afterend',pageNumber);}pageNumber.textContent=accountPage;
@@ -208,8 +208,7 @@ function render(d){
  const cleanup=d.retiredCleanup;cleanupNote.hidden=!cleanup;
  if(cleanup){
   const scans=Object.values(cleanup.slots||{}),issue=cleanup.error||scans.some(s=>s.error);
-  cleanupNote.textContent='退役清理 · '+(cleanup.enabled?'保留 '+cleanup.retentionDays+' 天，每实例至少 '+cleanup.keepPerSlot+' 份':'已关闭')+
-   (issue?' · 部分资源未清理，已保留备份':scans.some(s=>s.running)?' · 检查中':'')+' · 原始凭据与运行数据保留';
+  cleanupNote.textContent=issue?'部分退役资源未清理':'';cleanupNote.hidden=!issue;
   cleanupNote.className='note'+(issue?' warn':'');
  }
  renderAccountRows(d);
@@ -224,7 +223,7 @@ function refresh(){
   try{const d=await api('/api/status');if(typeof d.halted!=='boolean'||!Number.isInteger(d.queue)||!d.slots||!Array.isArray(d.accounts))throw Error('状态数据格式不完整');
    state=d;render(d);fresh=true;document.dispatchEvent(new CustomEvent('ais-status',{detail:d}));document.body.classList.remove('stale');$('updated').textContent='更新于 '+new Date().toLocaleTimeString('zh-CN');
    if(statusError){notice('');statusError=false;}return true;
-  }catch(e){fresh=false;statusError=true;document.body.classList.add('stale');$('updated').textContent='状态已过期';notice('状态读取失败，已保留上次数据。'+e.message);return false;}
+  }catch(e){fresh=false;statusError=true;document.body.classList.add('stale');$('updated').textContent='状态已过期';notice('状态读取失败：'+e.message);return false;}
   finally{reading=false;$('refresh').disabled=false;$('refresh').removeAttribute('aria-busy');controls();}
  })();return readTask;
 }
@@ -235,17 +234,17 @@ async function action(path,body,message,format){
   if(await refresh()){notice(format(result));statusError=false;}
  }catch(e){
   fresh=false;document.body.classList.add('stale');$('updated').textContent='操作后状态待核实';
-  notice(e.message+'；请刷新状态后再操作。');
+  notice(e.message+'，请刷新后再操作');
  }finally{mutating=false;controls();}
 }
 $('rotate').addEventListener('click',()=>{
  const slot=$('slot').value,s=state?.slots?.[slot];
- if(!s?.ready||s.active>0||s.operation||s.pending||s.rotationBlocked){notice('所选实例当前不满足安全轮换条件。');return;}
+ if(!s?.ready||s.active>0||s.operation||s.pending||s.rotationBlocked){notice('实例忙，暂不能轮换');return;}
  const body={slot};if($('target').value)body.targetAccount=Number($('target').value);
- action('/api/rotate',body,'确认仅轮换实例 '+slot+' 的账号？该实例轮换期间暂停接收新请求。',r=>Array.isArray(r.started)&&r.started.includes(slot)?'实例 '+slot+' 已接受轮换，请观察状态确认完成。':'未启动轮换。'+JSON.stringify(r.skipped||r));
+ action('/api/rotate',body,'轮换实例 '+slot+'？',r=>Array.isArray(r.started)&&r.started.includes(slot)?'实例 '+slot+' 轮换中':'未启动：'+JSON.stringify(r.skipped||r));
 });
-$('sync').addEventListener('click',()=>action('/api/sync-accounts',{},'将已导入的账号加入调度池？',r=>'账号同步返回，新增 '+(Array.isArray(r.added)?r.added.length:'未知')+' 个账号。'));
-$('save-mode').addEventListener('click',()=>action('/api/set-mode',{mode:$('mode').value},'确认向 A / B 应用所选流模式？',r=>['A','B'].map(s=>'实例 '+s+' '+(r.results?.[s]||'未返回结果')).join('\n')));
+$('sync').addEventListener('click',()=>action('/api/sync-accounts',{},'同步账号池？',r=>'新增 '+(Array.isArray(r.added)?r.added.length:'?')+' 个账号'));
+$('save-mode').addEventListener('click',()=>action('/api/set-mode',{mode:$('mode').value},'应用流模式？',r=>['A','B'].map(s=>'实例 '+s+' '+(r.results?.[s]||'未返回结果')).join('\n')));
 $('refresh').addEventListener('click',()=>{refresh();document.dispatchEvent(new Event('ais-refresh'));});
 document.addEventListener('ais-refresh',()=>loadOverviewUsage(true));
 for(const id of ['quota-search','account-status','account-page-size'])$(id).addEventListener(id==='quota-search'?'input':'change',()=>{accountPage=1;renderAccountRows();});
