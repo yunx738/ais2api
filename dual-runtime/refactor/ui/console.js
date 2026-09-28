@@ -130,7 +130,7 @@ function renderAccountRows(d=state){
   else quotaBox.append(el('span',undefined,'quota-unknown-track'));
   quotaBox.append(el('small',models.some(q=>q.legacyBlocked)?'含待核实模型':models.some(q=>q.cooldownUntil>Date.now())?'部分模型冷却中':fraction===null?'本地余量未知':'最低已知本地余量'));
   quotaCell.append(quotaBox);row.append(quotaCell);
-  const statusCell=el('td'),kind=accountState(a);statusCell.append(statusBadge(kind==='invalid'?'登录失效':kind==='cooling'?'冷却中':kind==='assigned'?'已分配':'备用',kind==='invalid'?'warn':kind==='cooling'?'warn':kind==='available'?'good':'assigned'));row.append(statusCell);
+  const statusCell=el('td'),kind=accountState(a);statusCell.append(statusBadge(kind==='invalid'?'登录失效':kind==='cooling'?'冷却中':kind==='assigned'?'使用中':'备用',kind==='invalid'?'warn':kind==='cooling'?'warn':kind==='available'?'good':'assigned'));row.append(statusCell);
   row.append(cookieCell(a));
   const cooldown=el('td',a.cooldownUntil>Date.now()?date(a.cooldownUntil):'—','cooldown-cell');row.append(cooldown);
   const actions=el('td'),details=el('button',undefined,'account-detail-button');details.type='button';details.title='查看账号详情';details.setAttribute('aria-label','查看账号 '+a.id+' 的额度详情');details.append(consoleIcon('chart'));details.addEventListener('click',()=>openAccount(a.id));actions.append(details);
@@ -149,7 +149,7 @@ function renderAccountRows(d=state){
  $('account-prev').disabled=accountPage<=1;$('account-next').disabled=accountPage*size>=accounts.length;
  let pageNumber=$('account-page-number');if(!pageNumber){pageNumber=el('span',undefined,'page-number');pageNumber.id='account-page-number';pageNumber.setAttribute('aria-label','当前页');$('account-prev').insertAdjacentElement('afterend',pageNumber);}pageNumber.textContent=accountPage;
  const summary=$('account-summary');
- for(const [key,title,count,label,tone] of [['all','账号总数',d.accounts.length,'全部',''],['available','备用账号',d.accounts.filter(a=>accountState(a)==='available').length,'备用','good'],['assigned','已分配',d.accounts.filter(a=>accountState(a)==='assigned').length,'分配','assigned'],['cooling','冷却账号',d.accounts.filter(a=>accountState(a)==='cooling').length,'冷却','warn']]){
+ for(const [key,title,count,label,tone] of [['all','全部',d.accounts.length,'全部',''],['available','备用',d.accounts.filter(a=>accountState(a)==='available').length,'备用','good'],['assigned','使用中',d.accounts.filter(a=>accountState(a)==='assigned').length,'分配','assigned'],['cooling','冷却',d.accounts.filter(a=>accountState(a)==='cooling').length,'冷却','warn']]){
   let box=summary.querySelector('[data-account-filter="'+key+'"]');
   if(!box){box=el('button',undefined,'card account-summary-card summary-'+key);box.type='button';box.dataset.accountFilter=key;const copy=el('div');copy.append(el('span',title),el('strong',count));box.append(copy,statusBadge(label,tone));box.addEventListener('click',()=>{$('account-status').value=key;accountPage=1;renderAccountRows();});summary.append(box);}
   box.querySelector('strong').textContent=count;box.classList.toggle('selected',status===key);box.setAttribute('aria-pressed',String(status===key));
