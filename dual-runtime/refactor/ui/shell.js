@@ -78,7 +78,6 @@
     if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
   });
   sheet.querySelectorAll('a').forEach(link => link.addEventListener('click', closeMenu));
-  document.querySelectorAll('[data-refresh]').forEach(button => button.addEventListener('click', () => document.getElementById('refresh').click()));
   document.querySelectorAll('[data-theme-toggle]').forEach(button => {
     button.addEventListener('click', () => document.getElementById('theme').click());
   });

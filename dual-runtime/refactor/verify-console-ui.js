@@ -65,7 +65,7 @@ const server=http.createServer((req,res)=>{
   page.on('response',r=>{if(r.url().includes('/console-assets/')&&r.status()!==200)assetErrors.push(r.url());});
   async function assertFrame(label){
    const frame=await page.evaluate(()=>{const main=document.querySelector('main').getBoundingClientRect(),sidebar=document.querySelector('.sidebar').getBoundingClientRect();return {mainLeft:main.left,sidebarRight:sidebar.right,sidebarWidth:sidebar.width,viewport:innerWidth};});
-   if(frame.viewport>=1024)assert.ok(frame.mainLeft>=0,label);
+   if(frame.viewport>=1024)assert.ok(frame.mainLeft>=frame.sidebarRight-1,label+' main must clear sidebar '+JSON.stringify(frame));
    else assert.equal(frame.mainLeft,0,label+' mobile main starts at viewport edge');
   }
   async function go(name){
@@ -79,17 +79,22 @@ const server=http.createServer((req,res)=>{
   await page.goto(address+'/#usage');await page.locator('#usage-cards .stat').first().waitFor();assert.equal(await page.locator('#usage-cards .stat').count(),6);await page.screenshot({path:out+'/desktop-usage.png',fullPage:true});
   assert.equal(await page.locator('#usage-cards .stat').evaluateAll(items=>new Set(items.map(e=>Math.round(e.getBoundingClientRect().top))).size),1,'desktop metric cards share one row');
   await page.locator('[data-metric="tokens"]').click();assert.match(await page.locator('.distribution-center').textContent(),/28.1M/);await page.locator('[data-metric="requests"]').click();assert.match(await page.locator('.distribution-center').textContent(),/303/);
+  const widthBefore=await page.locator('.sidebar').evaluate(e=>e.getBoundingClientRect().width);
+  await page.locator('#sidebar-toggle').click();await page.waitForTimeout(350);assert.ok(await page.locator('.sidebar').evaluate(e=>e.getBoundingClientRect().width)<widthBefore,'sidebar collapses');
+  assert.equal(await page.locator('.sidebar').evaluate(e=>e.getBoundingClientRect().width),64,'collapsed sidebar width');await assertFrame('collapsed');
+  await page.locator('#sidebar-toggle').click();await page.waitForTimeout(350);
+  assert.equal(await page.locator('.sidebar').evaluate(e=>e.getBoundingClientRect().width),264,'expanded sidebar width');await assertFrame('expanded');
   await go('accounts');await page.locator('#account-rows tr').first().waitFor();await page.screenshot({path:out+'/desktop-accounts.png',fullPage:true});
   await page.locator('[data-account-filter="available"]').click();assert.match(await page.locator('#account-page').textContent(),/共 24 条/);await page.locator('[data-account-filter="all"]').click();
-  await page.locator('.column-control summary').click();await page.locator('.column-options label').filter({hasText:'冷却至'}).locator('input').uncheck();assert.equal(await page.locator('.account-table th').nth(5).isHidden(),true);await page.evaluate(()=>document.getElementById('refresh').click());await page.waitForTimeout(150);assert.equal(await page.locator('.account-table th').nth(5).isHidden(),true);await page.locator('.column-control summary').click();await page.locator('.column-options label').filter({hasText:'冷却至'}).locator('input').check();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'desktop column popover must not overflow');await page.locator('.column-control summary').click();
+  await page.locator('.column-control summary').click();await page.locator('.column-options label').filter({hasText:'冷却结束'}).locator('input').uncheck();assert.equal(await page.locator('.account-table th').nth(5).isHidden(),true);await page.locator('#refresh').click();await page.waitForTimeout(150);assert.equal(await page.locator('.account-table th').nth(5).isHidden(),true);await page.locator('.column-control summary').click();await page.locator('.column-options label').filter({hasText:'冷却结束'}).locator('input').check();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'desktop column popover must not overflow');await page.locator('.column-control summary').click();
   await go('history');await page.locator('.request-card').first().waitFor();await page.screenshot({path:out+'/desktop-history.png',fullPage:true});await assertFrame('history after full-page screenshot');
   await go('overview');await page.waitForFunction(()=>document.getElementById('overview-requests')?.textContent==='303');assert.equal(await page.locator('#overview-tokens').textContent(),'28.1M');assert.equal(await page.locator('#overview-cost').textContent(),'$53.91');
-  usageFailure=true;await page.evaluate(()=>document.getElementById('refresh').click());await page.waitForFunction(()=>document.getElementById('overview-usage-note').textContent.includes('统计暂不可用'));assert.equal(await page.locator('#sync').isDisabled(),false,'statistics failure must not disable account controls');usageFailure=false;await page.evaluate(()=>document.getElementById('refresh').click());await page.waitForFunction(()=>document.getElementById('overview-requests').textContent==='303');
+  usageFailure=true;await page.locator('#refresh').click();await page.waitForFunction(()=>document.getElementById('overview-usage-note').textContent.includes('统计暂不可用'));assert.equal(await page.locator('#sync').isDisabled(),false,'statistics failure must not disable account controls');usageFailure=false;await page.locator('#refresh').click();await page.waitForFunction(()=>document.getElementById('overview-requests').textContent==='303');
   await page.screenshot({path:out+'/desktop-overview.png',fullPage:true});await go('usage');
   await page.setViewportSize({width:430,height:932});await page.screenshot({path:out+'/mobile-usage.png',fullPage:true});assert.equal(await page.locator('main').evaluate(e=>e.getBoundingClientRect().left),0,'mobile main starts at viewport edge');assert.equal(await page.locator('#usage-cards .stat').evaluateAll(items=>new Set(items.map(e=>Math.round(e.getBoundingClientRect().top))).size),3,'mobile metric cards use three rows');
   for(const width of [360,390,430,760,1100]){await page.setViewportSize({width,height:932});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false,'page overflow at '+width);}
   await page.setViewportSize({width:430,height:932});await page.locator('.mobile-nav [data-page="accounts"]').click();await page.locator('#account-rows tr').first().waitFor();assert.equal(await page.locator('#account-rows tr').count(),20);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false,'accounts page must not overflow');await page.screenshot({path:out+'/mobile-accounts.png',fullPage:false});
-  
+  await page.locator('.column-control summary').click();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'mobile column popover must not overflow');await page.locator('.column-control summary').click();
   await page.locator('#account-next').click();assert.equal(await page.locator('#account-rows tr').count(),8);
   await page.locator('#quota-search').fill('27');assert.equal(await page.locator('#account-rows tr').count(),1);assert.match(await page.locator('#account-rows').textContent(),/27/);
   await page.locator('.account-name-button').click();assert.equal(await page.locator('#account-dialog').evaluate(e=>e.open),true);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false,'account dialog must not overflow');await page.screenshot({path:out+'/mobile-account-detail.png',fullPage:true});await page.keyboard.press('Escape');assert.equal(await page.locator('#account-dialog').evaluate(e=>e.open),false);
@@ -102,19 +107,19 @@ const server=http.createServer((req,res)=>{
   delayUsage=true;await page.locator('.mobile-nav [data-page="usage"]').click();await page.locator('#usage-range').selectOption('all');await page.waitForTimeout(450);assert.equal(await page.locator('#usage-cards .stat').first().locator('strong').textContent(),'401');
   await page.locator('.mobile-nav [data-page="overview"]').click();await page.screenshot({path:out+'/mobile-overview.png',fullPage:true});
   assert.equal(await page.locator('#cleanup-status').isHidden(),true);
-  status.retiredCleanup.slots.A.error='cleanup_candidate_retained';await page.evaluate(()=>document.getElementById('refresh').click());
+  status.retiredCleanup.slots.A.error='cleanup_candidate_retained';await page.locator('#refresh').click();
   await page.waitForFunction(()=>document.getElementById('cleanup-status').textContent.includes('退役资源未清理'));
   
   status.retiredCleanup.slots.A.error=null;
-  statusFailure=true;await page.evaluate(()=>document.getElementById('refresh').click());await page.waitForTimeout(150);assert.equal(await page.locator('body').evaluate(e=>e.classList.contains('stale')),true);assert.equal(await page.locator('#sync').isDisabled(),true);
-  statusFailure=false;await page.evaluate(()=>document.getElementById('refresh').click());await page.waitForTimeout(150);assert.equal(await page.locator('body').evaluate(e=>e.classList.contains('stale')),false);assert.equal(await page.locator('#notice').isHidden(),true);
+  statusFailure=true;await page.locator('#refresh').click();await page.waitForTimeout(150);assert.equal(await page.locator('body').evaluate(e=>e.classList.contains('stale')),true);assert.equal(await page.locator('#sync').isDisabled(),true);
+  statusFailure=false;await page.locator('#refresh').click();await page.waitForTimeout(150);assert.equal(await page.locator('body').evaluate(e=>e.classList.contains('stale')),false);assert.equal(await page.locator('#notice').isHidden(),true);
   await page.locator('.mobile-nav [data-page="accounts"]').click();
   failAfterSync=true;page.once('dialog',dialog=>dialog.accept());await page.locator('#sync').click();await page.waitForFunction(()=>document.getElementById('updated').textContent==='状态已过期');
   assert.match(await page.locator('#notice').textContent(),/状态读取失败/);assert.doesNotMatch(await page.locator('#notice').textContent(),/新增/);assert.equal(await page.locator('#sync').isDisabled(),true);
-  failAfterSync=false;statusFailure=false;await page.evaluate(()=>document.getElementById('refresh').click());await page.waitForFunction(()=>!document.getElementById('sync').disabled);
+  failAfterSync=false;statusFailure=false;await page.locator('#refresh').click();await page.waitForFunction(()=>!document.getElementById('sync').disabled);
   syncFailure=true;page.once('dialog',dialog=>dialog.accept());await page.locator('#sync').click();await page.waitForFunction(()=>document.getElementById('updated').textContent==='操作后状态待核实');
   assert.match(await page.locator('#notice').textContent(),/请刷新后再操作/);assert.equal(await page.locator('#sync').isDisabled(),true);
-  syncFailure=false;await page.evaluate(()=>document.getElementById('refresh').click());await page.waitForFunction(()=>!document.getElementById('sync').disabled);
+  syncFailure=false;await page.locator('#refresh').click();await page.waitForFunction(()=>!document.getElementById('sync').disabled);
   realHistory=true;await page.locator('.mobile-nav [data-page="usage"]').click();await page.waitForFunction(()=>document.querySelector('#usage-cards .stat strong')?.textContent==='3');
   assert.equal(await page.locator('#usage-cards .stat-tokens strong').textContent(),'1.5K');assert.equal(await page.locator('.distribution-row').count(),2);assert.match(await page.locator('#usage-models').textContent(),/gemini-real-flash/);
   await go('history');await page.waitForFunction(()=>document.querySelectorAll('.request-card').length===3);assert.match(await page.locator('#history-list').textContent(),/等待完成/);assert.match(await page.locator('#history-list').textContent(),/1K/);assert.match(await page.locator('#history-list').textContent(),/500/);

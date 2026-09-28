@@ -1,147 +1,84 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'"><title>导入账号 · AIS2API</title>
-<style>
-:root{--bg:#f6f7f9;--panel:#fff;--panel-2:#f1f3f6;--border:#e3e6eb;--text:#161a21;--muted:#6b7280;--accent:#4f5bd5;--accent-soft:#eceefe;--good:#16a34a;--good-soft:#e8f6ee;--warn:#d97706;--warn-soft:#fdf3e4;--bad:#dc2626;--bad-soft:#fdecec;color-scheme:light}
-html.dark{--bg:#0d0f13;--panel:#15181e;--panel-2:#1b1f27;--border:#262b34;--text:#e6e8ec;--muted:#8b93a1;--accent:#7c86ff;--accent-soft:#1f2340;--good:#34d399;--good-soft:#11271f;--warn:#fbbf24;--warn-soft:#2a2112;--bad:#f87171;--bad-soft:#2c1616;color-scheme:dark}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
-.wrap{max-width:720px;margin:0 auto;padding:24px 16px 48px}
-header{display:flex;align-items:center;gap:12px;margin-bottom:20px}header a{display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--text);text-decoration:none}h1{margin:0;font-size:20px;font-weight:600}
-.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
-.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:28px 16px;border:1.5px dashed var(--border);border-radius:10px;background:var(--panel-2);cursor:pointer;text-align:center;transition:border-color .15s,background .15s}
-.drop:hover,.drop.over{border-color:var(--accent);background:var(--accent-soft)}.drop svg{width:28px;height:28px;stroke:var(--accent);fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.drop strong{font-weight:600}.drop span{font-size:12px;color:var(--muted)}
-#file{display:none}
-.or{display:flex;align-items:center;gap:10px;margin:14px 0;font-size:12px;color:var(--muted)}.or::before,.or::after{content:"";flex:1;height:1px;background:var(--border)}
-textarea{width:100%;min-height:140px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--text);font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;resize:vertical}
-textarea:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-.list{display:flex;flex-direction:column;gap:6px;margin-top:14px}.list:empty{display:none}
-.item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;background:var(--panel-2);font-size:13px}.item .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.item .meta{color:var(--muted);font-size:12px;white-space:nowrap}
-.tag{padding:1px 8px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap}.tag.ok{background:var(--good-soft);color:var(--good)}.tag.err{background:var(--bad-soft);color:var(--bad)}.tag.wait{background:var(--accent-soft);color:var(--accent)}.tag.warn{background:var(--warn-soft);color:var(--warn)}
-.err-msg{font-size:12px;color:var(--bad)}
-.bar{display:flex;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap}.bar label{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-right:auto}.bar input{accent-color:var(--accent)}
-button{height:36px;padding:0 16px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--text);font:inherit;cursor:pointer}button:hover:not(:disabled){background:var(--panel-2)}button:disabled{opacity:.45;cursor:not-allowed}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}button.primary:hover:not(:disabled){filter:brightness(1.08);background:var(--accent)}
-#status{margin-top:12px;font-size:13px;color:var(--muted);white-space:pre-line}#status:empty{display:none}#status.ok{color:var(--good)}#status.bad{color:var(--bad)}
-</style>
-<script>try{const t=localStorage.getItem('ais-theme');if(t==='dark'||(!t&&matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.classList.add('dark');}catch{}</script>
-</head>
-<body><div class="wrap">
-<header><a href="/#accounts" aria-label="返回" title="返回">←</a><h1>导入账号</h1></header>
-<div class="card">
- <label class="drop" id="drop" for="file"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg><strong>拖入或选择 JSON 文件</strong><span>支持多选 · Cookie 数组或 storageState</span></label>
- <input id="file" type="file" accept=".json,application/json" multiple>
- <div class="or">或粘贴</div>
- <textarea id="raw" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="[ {cookie}, … ]  或  { cookies: [...], origins: [...] }"></textarea>
- <div class="list" id="list"></div>
- <div class="bar"><label><input type="checkbox" id="autosync" checked>导入后同步账号池</label><button id="clear" type="button">清空</button><button id="send" class="primary" type="button" disabled>导入</button></div>
- <p id="status" role="status" aria-live="polite"></p>
-</div>
-</div>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'"><title>转换与导入账号</title>
+<style>body{font-family:system-ui;max-width:720px;margin:24px auto;padding:16px;line-height:1.6}textarea{box-sizing:border-box;width:100%;min-height:220px;font:14px monospace}button{padding:12px;margin:8px 6px 8px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eee;padding:12px}small{color:#555}</style></head>
+<body><a href="/">返回管理页面</a><h2>Cookie 转换与账号导入</h2>
+
+<label for="file">选择 Cookie 导出 JSON 或 Playwright storageState 文件</label><p><input id="file" type="file" accept=".json,application/json"></p>
+<label for="raw">或粘贴 Cookies JSON</label>
+<textarea id="raw" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴 Cookie 数组 […] 或完整的 {cookies: […], origins: […]} JSON"></textarea>
+
+<p><button id="convert">① 本地转换 / 校验</button><button id="send" disabled>② 确认导入</button><button id="clear">清空</button></p>
+<pre id="result" role="status" aria-live="polite"></pre>
 <script>
 "use strict";
 const token="__CSRF_TOKEN__",limit=262144;
 const $=id=>document.getElementById(id);
-let items=[],busy=false,pasteTimer=null;
+let prepared=null,busy=false;
+function reset(){prepared=null;$("send").disabled=true;}
 function convertCookies(text){
- if(new TextEncoder().encode(text).length>limit)throw Error("超过 256 KiB");
- let d;try{d=JSON.parse(text);}catch{throw Error("不是有效的 JSON");}
+ if(new TextEncoder().encode(text).length>limit)throw Error("输入超过256 KiB");
+ let d;try{d=JSON.parse(text);}catch{throw Error("JSON格式无效；请粘贴完整JSON，不是Cookie请求头");}
  const arr=Array.isArray(d)?d:d&&d.cookies;
- if(!Array.isArray(arr)||!arr.length||arr.length>200)throw Error("需要 1–200 个 Cookie");
- let sessions=0;const seen=new Set();
+ if(!Array.isArray(arr)||!arr.length||arr.length>200)throw Error("需要包含1至200个Cookie的数组");
+ let sessions=0,defaults=0;const seen=new Set();
  const cookies=arr.map((c,i)=>{
-  const fail=msg=>{throw Error("Cookie #"+(i+1)+"："+msg);};
+  const fail=msg=>{throw Error("第"+(i+1)+"个Cookie："+msg);};
   if(!c||typeof c!=="object")fail("结构无效");
-  if(typeof c.name!=="string"||!c.name||c.name.length>256||typeof c.value!=="string"||c.value.length>16384)fail("名称或值无效");
-  if(typeof c.domain!=="string"||!/^\.?([a-z0-9-]+\.)*google\.com$/i.test(c.domain))fail("仅支持 google.com 域");
-  if(typeof c.path!=="string"||!c.path.startsWith("/")||c.path.length>2048)fail("path 无效");
-  if(typeof c.httpOnly!=="boolean"||typeof c.secure!=="boolean")fail("缺少 httpOnly/secure");
-  if(c.partitionKey != null ||c.partitioned===true)fail("不支持分区 Cookie");
+  if(typeof c.name!=="string"||!c.name||c.name.length>256||typeof c.value!=="string"||c.value.length>16384)fail("名称或值类型/长度无效");
+  if(typeof c.domain!=="string"||!/^\.?([a-z0-9-]+\.)*google\.com$/i.test(c.domain))fail("缺少或不支持的域名，仅支持google.com及其子域");
+  if(typeof c.path!=="string"||!c.path.startsWith("/")||c.path.length>2048)fail("缺少有效path");
+  if(typeof c.httpOnly!=="boolean"||typeof c.secure!=="boolean")fail("缺少httpOnly或secure布尔属性");
+  if(c.partitionKey != null ||c.partitioned===true)fail("暂不支持分区Cookie，避免转换时丢失属性");
   let expires=c.session===true?-1:(c.expires??c.expirationDate??-1);
-  if(!Number.isFinite(expires)||expires< -1||expires>253402300799)fail("有效期无效");
+  if(!Number.isFinite(expires)||expires< -1||expires>253402300799)fail("有效期必须是Unix秒时间戳或-1");
   if(expires===-1)sessions++;
-  else if(expires<=Date.now()/1000)fail("已过期");
+  else if(expires<=Date.now()/1000)fail("Cookie已过期，请重新导出");
   const ss=c.sameSite == null ?"unspecified":String(c.sameSite).toLowerCase();
   const map={lax:"Lax",strict:"Strict",none:"None",no_restriction:"None",unspecified:"Lax"};
-  if(!Object.hasOwn(map,ss))fail("SameSite 无法识别");
+  if(!Object.hasOwn(map,ss))fail("无法识别SameSite");
+  if(ss==="unspecified")defaults++;
   const sameSite=map[ss];
-  if(sameSite==="None"&&!c.secure)fail("SameSite=None 但未设 secure");
+  if(sameSite==="None"&&!c.secure)fail("SameSite=None但secure=false，请检查原始导出");
   const key=JSON.stringify([c.name,c.domain,c.path]);
-  if(seen.has(key))fail("重复");seen.add(key);
+  if(seen.has(key))fail("名称、域名和路径重复");seen.add(key);
   return {name:c.name,value:c.value,domain:c.domain,path:c.path,expires,httpOnly:c.httpOnly,secure:c.secure,sameSite};
  });
  const origins=Array.isArray(d)?[]:(d.origins??[]);
- if(!Array.isArray(origins)||origins.length>20)throw Error("origins 结构无效");
+ if(!Array.isArray(origins)||origins.length>20)throw Error("origins结构无效");
  const cleanOrigins=origins.map(o=>{
-  if(!o||!["https://aistudio.google.com","https://ai.studio","https://accounts.google.com"].includes(o.origin)||!Array.isArray(o.localStorage)||o.localStorage.length>200)throw Error("不支持的 origin");
-  if(o.indexedDB != null)throw Error("不支持 IndexedDB");
+  if(!o||!["https://aistudio.google.com","https://ai.studio","https://accounts.google.com"].includes(o.origin)||!Array.isArray(o.localStorage)||o.localStorage.length>200)throw Error("不支持的origin或localStorage结构");
+  if(o.indexedDB != null)throw Error("暂不支持含IndexedDB的认证文件，避免丢失状态");
   return {origin:o.origin,localStorage:o.localStorage.map(v=>{
-   if(!v||typeof v.name!=="string"||typeof v.value!=="string"||v.name.length>1024||v.value.length>65536)throw Error("localStorage 无效");
+   if(!v||typeof v.name!=="string"||typeof v.value!=="string"||v.name.length>1024||v.value.length>65536)throw Error("localStorage字段无效");
    return {name:v.name,value:v.value};
   })};
  });
  const data={cookies,origins:cleanOrigins};
- if(new TextEncoder().encode(JSON.stringify(data)).length>limit)throw Error("超过 256 KiB");
- if(!cookies.some(c=>/^(__Secure-[13]P)?SID$|^SAPISID$/.test(c.name)))throw Error("缺少 Google 登录 Cookie");
- return {data,meta:cookies.length+" Cookie"+(sessions?" · "+sessions+" 会话级":"")};
+ if(new TextEncoder().encode(JSON.stringify(data)).length>limit)throw Error("转换结果超过256 KiB");
+ return {data,summary:"本地校验通过："+cookies.length+"个Cookie，"+cleanOrigins.length+"个origin。\n会话Cookie："+sessions+"个。"+(defaults?"\n注意："+defaults+"个未指定SameSite，按Lax转换。":"")+""};
 }
-function setStatus(text,cls){$("status").textContent=text;$("status").className=cls||"";}
-function render(){
- const list=$("list");list.replaceChildren();
- for(const it of items){
-  const row=document.createElement("div");row.className="item";
-  const name=document.createElement("span");name.className="name";name.textContent=it.name;
-  const meta=document.createElement("span");meta.className="meta";meta.textContent=it.error||it.meta||"";if(it.error)meta.className="err-msg";
-  const tag=document.createElement("span");
-  const [t,c]=it.error?["无效","err"]:it.state==="done"?["#"+it.index,"ok"]:it.state==="sending"?["导入中","wait"]:it.state==="failed"?["失败","err"]:it.state==="unknown"?["待核实","warn"]:["就绪","wait"];
-  tag.className="tag "+c;tag.textContent=t;row.append(name,meta,tag);list.append(row);
- }
- $("send").disabled=busy||!items.some(it=>it.data&&!it.state);
- $("send").textContent=busy?"导入中…":"导入"+(items.filter(it=>it.data&&!it.state).length>1?" ("+items.filter(it=>it.data&&!it.state).length+")":"");
-}
-function add(name,text){
- try{const r=convertCookies(text);items.push({name,data:r.data,meta:r.meta});}
- catch(e){items.push({name,error:e.message});}
-}
-async function addFiles(files){
- if(busy)return;items=items.filter(it=>it.name!=="粘贴内容"&&!it.state);setStatus("");
- for(const f of files){if(f.size>limit){items.push({name:f.name,error:"超过 256 KiB"});continue;}add(f.name,await f.text());}
- $("file").value="";render();
-}
-$("file").onchange=()=>addFiles([...$("file").files]);
-const drop=$("drop");
-for(const ev of ["dragenter","dragover"])drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");});
-for(const ev of ["dragleave","drop"])drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");});
-drop.addEventListener("drop",e=>addFiles([...e.dataTransfer.files].filter(f=>/json$/i.test(f.name)||f.type==="application/json")));
-$("raw").addEventListener("input",()=>{clearTimeout(pasteTimer);pasteTimer=setTimeout(()=>{
- if(busy)return;items=items.filter(it=>it.name!=="粘贴内容"||it.state);const text=$("raw").value.trim();
- if(text)add("粘贴内容",text);setStatus("");render();
-},250);});
-$("clear").onclick=()=>{if(busy)return;items=[];$("raw").value="";$("file").value="";setStatus("");render();};
-$("send").onclick=async()=>{
- if(busy)return;const queue=items.filter(it=>it.data&&!it.state);if(!queue.length)return;
- busy=true;$("raw").disabled=true;$("clear").disabled=true;render();
- let ok=0,stop=false;
- for(const it of queue){
-  if(stop)break;it.state="sending";render();
-  try{
-   const r=await fetch("/api/import-account",{method:"POST",credentials:"same-origin",redirect:"error",headers:{"Content-Type":"application/json","X-Import-Token":token},body:JSON.stringify(it.data)});
-   const d=await r.json().catch(()=>({}));
-   if(r.ok&&Number.isSafeInteger(d.index)){it.state="done";it.index=d.index;ok++;}
-   else{it.state="failed";it.meta=d.error||"服务器拒绝";if(r.status===403||r.status===401||r.status===409)stop=true;}
-  }catch{it.state="unknown";it.meta="结果未确认，先检查账号列表";stop=true;}
-  it.data=null;render();
- }
- let msg=ok?"已导入 "+ok+" 个账号":"";
- if(ok&&$("autosync").checked){
-  try{
-   const r=await fetch("/api/sync-accounts",{method:"POST",credentials:"same-origin",redirect:"error",headers:{"Content-Type":"application/json",Accept:"application/json"},body:"{}"});
-   const d=await r.json().catch(()=>({}));
-   msg+=r.ok?"，已同步到账号池":"，同步失败："+(d.error||r.status);
-  }catch{msg+="，同步结果未确认";}
- }
- if(stop)msg+=(msg?"\n":"")+"已停止后续导入";
- setStatus(msg||"导入失败",ok&&!stop?"ok":ok?"":"bad");
- $("raw").value="";busy=false;$("raw").disabled=false;$("clear").disabled=false;render();
+$("raw").oninput=()=>{reset();$("file").value="";$("result").textContent="输入已更改，请重新转换。";};
+$("file").onchange=()=>{reset();$("raw").value="";$("result").textContent="已选择文件，请点击本地转换。";};
+$("convert").onclick=async()=>{
+ if(busy)return;reset();const f=$("file").files[0];
+ try{
+  if(f&&f.size>limit)throw Error("文件超过256 KiB");
+  const text=f?await f.text():$("raw").value;
+  const result=convertCookies(text);prepared=result.data;
+  $("result").textContent=result.summary;$("send").disabled=false;
+ }catch(e){$("result").textContent=e.message;}
 };
-window.addEventListener("pagehide",()=>{items=[];$("raw").value="";$("file").value="";});
-render();
+$("clear").onclick=()=>{reset();$("raw").value="";$("file").value="";$("result").textContent="已清空";};
+$("send").onclick=async()=>{
+ if(!prepared||busy)return;busy=true;
+ for(const id of ["send","convert","raw","file","clear"])$(id).disabled=true;
+ try{
+  const r=await fetch("/api/import-account",{method:"POST",credentials:"same-origin",redirect:"error",headers:{"Content-Type":"application/json","X-Import-Token":token},body:JSON.stringify(prepared)});
+  const d=await r.json();
+  if(r.ok){$("raw").value="";$("file").value="";$("result").textContent="导入成功：账号 #"+d.index;}
+  else $("result").textContent=d.error||"服务器拒绝导入";
+ }catch{$("result").textContent="未能确认导入结果。请先检查首页账号列表，避免重复导入。";}
+ finally{busy=false;reset();for(const id of ["convert","raw","file","clear"])$(id).disabled=false;}
+};
+window.addEventListener("pagehide",()=>{reset();$("raw").value="";$("file").value="";});
 </script></body></html>
