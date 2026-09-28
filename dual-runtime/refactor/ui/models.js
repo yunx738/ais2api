@@ -53,13 +53,13 @@
   const phrases={
     checking:'检查实例',starting:'启动待确认',syncing:'同步中',
     uncertain:'状态待核实',settling:'等待操作收尾',
-    slot_not_idle:'实例当前非空闲',worker_not_idle:'worker 当前非空闲',
+    slot_not_idle:'实例当前非空闲',worker_not_idle:'实例当前非空闲',
     slot_operation_running:'实例有其他操作',
     retry_later:'请等待重试间隔',already_syncing:'已有同步任务',
     catalog_start_unconfirmed:'同步是否启动尚未确认',
     catalog_preflight_failed:'同步前检查失败',
     catalog_status_unavailable:'目录状态暂不可读',
-    upstream_catalog_sync_failed:'上游目录同步失败',
+    upstream_catalog_sync_failed:'目录同步失败',
     catalog_job_identity_unconfirmed:'同步任务标识未确认',
     catalog_reconciliation_unavailable:'无法核实同步任务状态'
   };

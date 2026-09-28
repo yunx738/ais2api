@@ -8,7 +8,7 @@
  const money=v=>Number.isFinite(v)?'$'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:6}):'未知';
  const seconds=v=>Number.isFinite(v)?fmt(v/1000)+'s':'未知';
  const labels={success:'响应正常结束',http_error:'HTTP 错误',application_error:'应用错误',cancelled:'连接取消',uncertain:'结果待核实',pending:'等待完成',rejected:'已拒绝'};
- const sources={'response-reported-unverified':'响应报告（来源待核实）','upstream-reported':'上游报告','local-estimate':'本地估算'};
+ const sources={'response-reported-unverified':'已记录','upstream-reported':'已记录','local-estimate':'估算'};
  const paths={requests:'M3 12h4l3-8 4 16 3-8h4',tokens:'m12 3 9 5-9 5-9-5 9-5Zm-9 5v9l9 5 9-5V8M12 13v9',cost:'M12 8v8m3-7h-4a2 2 0 0 0 0 4h2a2 2 0 0 1 0 4H9M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20',rpm:'M12 7v5l3 2M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20',tpm:'m13 2-10 12h8l-1 8 11-12h-8l1-8',errors:'m10.3 4-8 14a2 2 0 0 0 1.7 3h16a2 2 0 0 0 1.7-3l-8-14a2 2 0 0 0-3.4 0M12 9v4m0 4h.01',chart:'M4 3v18h17M8 15v-4m5 4V7m5 8v-6',info:'M12 11v6m0-10h.01M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20',check:'m6 12 4 4 8-8',chevron:'m9 5 7 7-7 7',account:'M20 21v-2a7 7 0 0 0-14 0v2M13 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8'};
  function icon(name){const e=document.createElementNS('http://www.w3.org/2000/svg','svg'),p=document.createElementNS(e.namespaceURI,'path');e.setAttribute('viewBox','0 0 24 24');e.setAttribute('fill','none');e.setAttribute('stroke','currentColor');e.setAttribute('stroke-width','1.6');e.setAttribute('stroke-linecap','round');e.setAttribute('stroke-linejoin','round');e.setAttribute('aria-hidden','true');p.setAttribute('d',paths[name]||paths.requests);e.append(p);return e;}
  let page=1,total=0,historyBusy=false,accountData=[],selectedAccount=null,historyController=null,usageController=null,modelMetric='requests',latestUsage=null;
@@ -21,7 +21,7 @@
    const data=await response.json();if(!response.ok)throw Error(typeof data.error==='string'?data.error:'接口不可用');return data;
   }catch(e){if(timedOut)throw Error('接口 15 秒未响应，请稍后重试');throw e;}finally{clearTimeout(timer);}
  }
- function recordingWarning(d){const h=d.recording?.history||d.health;return h?.degraded||h?.ready===false||(d.recording?.beginFailures||0)+(d.recording?.finishFailures||0)?' · 记录系统存在异常，统计可能不完整':'';}
+ function recordingWarning(d){const h=d.recording?.history||d.health;return h?.degraded||h?.ready===false||(d.recording?.beginFailures||0)+(d.recording?.finishFailures||0)?' · 统计可能不完整':'';}
  function card(title,value,note,kind){const e=node('article',undefined,'card stat stat-'+kind),head=node('div',undefined,'stat-heading'),mark=node('span',undefined,'stat-mark');mark.append(icon(kind));head.append(node('span',title),mark);e.append(head,node('strong',value),node('small',note));return e;}
  function rangeQuery(){const choice=byId('usage-range').value,params=new URLSearchParams();if(choice!=='all'){let from;if(choice==='today'){const d=new Date();d.setHours(0,0,0,0);from=d.getTime();}else from=Date.now()-Number(choice)*86400000;params.set('from',String(from));}return params.toString();}
  function panelHeader(title,description,name){const h=node('div',undefined,'insight-header'),mark=node('span',undefined,'insight-icon'),label=node('div',undefined,'insight-title');mark.append(icon(name));label.append(node('h2',title),node('p',description));h.append(mark,label);return h;}
@@ -58,7 +58,7 @@
     card(period+'请求数',compact(d.requests),'成功 '+fmt(d.success)+' · 错误 '+fmt(d.errors),'requests'),
     card('已知 TOKEN',d.tokenKnownRequests?compact(d.knownTokenTotal):'未知',fmt(d.tokenUnknownRequests)+' 次用量未知或不完整','tokens'),
     card('估算费用',d.pricedRequests?money(d.estimatedCostKnownSubtotal):'未知',fmt(d.pricedRequests)+' 次已估价 · '+fmt(d.unpricedRequests)+' 次未计价','cost'),
-    card('RPM',fmt(d.rpm),'每分钟派单数','rpm'),
+    card('RPM',fmt(d.rpm),'每分钟请求数','rpm'),
     card('已知 TPM',compact(d.tpmKnown),fmt(d.tpmUnknownRequests)+' 次近期响应用量未知','tpm'),
     card('响应错误率',Number.isFinite(d.errorRate)?fmt(d.errorRate*100)+'%':'未知','平均延迟 '+(Number.isFinite(d.averageDurationMs)?fmt(d.averageDurationMs)+'ms':'未知'),'errors')
    );renderModels(d);renderComposition(d);byId('usage-message').textContent=recordingWarning(d).replace(' · ','');byId('usage').classList.remove('analytics-stale');
@@ -79,14 +79,14 @@
   pair(grid,'估算费用',money(r.cost?.amount),'metric-price');
   const when=node('time',time(r.createdAt),'request-time'),created=new Date(r.createdAt);if(Number.isFinite(r.createdAt)&&Number.isFinite(created.getTime()))when.dateTime=created.toISOString();grid.append(when);
   const more=node('span',undefined,'request-expand');more.append(node('span','详情'),icon('chevron'));grid.append(more);summary.append(grid);detail.append(summary);
-  const body=node('div',undefined,'request-detail-body'),intro=node('div',undefined,'request-detail-intro');intro.append(node('span',outcomeLabel,'badge '+statusKind),node('span',(sources[u?.source]||'用量未提供')+' · '+(r.metrics?.usageComplete?'响应用量采集完整':'用量缺失或采集不完整'),'muted'));body.append(intro);
+  const body=node('div',undefined,'request-detail-body'),intro=node('div',undefined,'request-detail-intro');intro.append(node('span',outcomeLabel,'badge '+statusKind),node('span',(r.metrics?.usageComplete?'用量完整':'用量不完整'),'muted'));body.append(intro);
   if(endedBeforeClose)body.append(node('p','已收到结束标记，连接未正常关闭','warn'));
   if(!Number.isFinite(r.cost?.amount))body.append(node('p','尚未计价：'+(r.cost?.reason||'未记录结束'),'muted'));
   if(r.outcome==='pending')body.append(node('p','可能仍在执行','warn'));
   const exact=node('div',undefined,'exact-metrics');for(const [title,value] of [['输入 Token',u?.input],['输出 Token',u?.output],['缓存 Token',u?.cached],['思考 Token',u?.reasoning]])pair(exact,title,fmt(value));body.append(exact);
   body.append(node('code',r.id,'request-id'));detail.append(body);box.append(detail);return box;
  }
- function tableHead(){const head=node('div',undefined,'request-table-head');head.setAttribute('aria-hidden','true');for(const title of ['状态','模型','来源账号','类型','TOKEN','缓存 / 思考','首内容 / 总耗时','估算费用','时间',''])head.append(node('span',title));return head;}
+ function tableHead(){const head=node('div',undefined,'request-table-head');head.setAttribute('aria-hidden','true');for(const title of ['状态','模型','账号','类型','TOKEN','缓存 / 思考','首内容 / 总耗时','估算费用','时间',''])head.append(node('span',title));return head;}
  function pager(){byId('history-prev').disabled=historyBusy||page<=1;byId('history-next').disabled=historyBusy||page*20>=total;byId('history-page').textContent='第 '+page+' / '+Math.max(1,Math.ceil(total/20))+' 页 · 共 '+total+' 条';}
  async function loadHistory(){
   historyController?.abort();const control=new AbortController();historyController=control;historyBusy=true;pager();byId('history-refresh').disabled=true;byId('history-list').setAttribute('aria-busy','true');
@@ -104,7 +104,7 @@
   const box=byId('quota-accounts'),a=accountData.find(item=>String(item.id)===String(selectedAccount));box.replaceChildren();
   if(!a){box.append(node('div','该账号已不在当前账号池中。','card empty'));return;}
   byId('account-dialog-title').textContent=a.name||'未命名账号';byId('account-dialog-subtitle').textContent='账号 #'+a.id+' · '+(a.owner?'实例 '+a.owner:a.cooldownUntil>Date.now()?'冷却中':'未分配');
-  const overview=node('div',undefined,'account-detail-overview'),title=node('h3','状态与额度'),fields=node('div',undefined,'account-detail-fields');overview.append(title);pair(fields,'当前实例',a.owner||'未分配');pair(fields,'账号状态',a.cooldownUntil>Date.now()?'冷却中':a.owner?'已分配':'备用');pair(fields,'计数来源','本地账本');pair(fields,'额度范围','模型独立');overview.append(fields);box.append(overview);
+  const overview=node('div',undefined,'account-detail-overview'),title=node('h3','状态与额度'),fields=node('div',undefined,'account-detail-fields');overview.append(title);pair(fields,'当前实例',a.owner||'未分配');pair(fields,'账号状态',a.cooldownUntil>Date.now()?'冷却中':a.owner?'已分配':'备用');overview.append(fields);box.append(overview);
   if(a.cooldownUntil>Date.now())box.append(node('div','账号冷却至 '+time(a.cooldownUntil),'note warn'));
   if(!a.quota){box.append(node('div','额度信息不可用','note warn'));return;}
   const models=Object.values(a.quota.models||{});if(!models.length){box.append(node('div','尚未配置模型额度策略','empty'));return;}
@@ -114,7 +114,7 @@
    const row=node('div',undefined,'quota'),line=node('div',undefined,'quota-label'),valid=Number.isFinite(q.used)&&Number.isFinite(q.limit)&&q.limit>0,remaining=valid?Math.max(0,q.limit-q.used):undefined,percent=valid?remaining/q.limit*100:undefined;
    const name=node('div',undefined,'quota-model-name');name.append(node('strong',q.model),node('small',q.legacyBlocked?'历史记录待核实':valid?'已记录 '+fmt(q.used)+' 次 / 上限 '+fmt(q.limit)+' 次':'额度信息未提供'));
    const state=node('div',undefined,'quota-model-state'),reset=q.legacyBlocked?'历史窗口截止 '+time(q.legacyUntil):q.cooldownUntil>Date.now()?'冷却至 '+time(q.cooldownUntil):q.windowEnd?'窗口结束 '+time(q.windowEnd):'额度窗口尚未启用';state.append(node('small',reset,q.cooldownUntil>Date.now()?'warn':''),node('strong',q.legacyBlocked?'待核实':valid?fmt(percent)+'%':'未知',q.legacyBlocked?'warn':''));line.append(name,state);row.append(line);
-   if(valid&&!q.legacyBlocked){const bar=node('progress');bar.max=q.limit;bar.value=remaining;bar.setAttribute('aria-label',q.model+' 本地剩余次数 '+remaining);if(percent<=20)bar.className='quota-low';row.append(bar);}list.append(row);
+   if(valid&&!q.legacyBlocked){const bar=node('progress');bar.max=q.limit;bar.value=remaining;bar.setAttribute('aria-label',q.model+' 剩余次数 '+remaining);if(percent<=20)bar.className='quota-low';row.append(bar);}list.append(row);
   }box.append(list);
  }
  function pageChanged(){if(location.hash==='#usage')loadUsage();if(location.hash==='#history')loadHistory();}

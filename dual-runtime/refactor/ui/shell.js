@@ -12,7 +12,7 @@
     accounts: '管理账号、模型额度与实例分配',
     usage: '请求日志与性能指标',
     history: '查看每次请求的响应结果与用量',
-    models: '查看已同步模型与本地额度规则',
+    models: '模型与额度规则',
     settings: '实例响应设置与模型参考价格',
   };
   let restoreOverflow = '';

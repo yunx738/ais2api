@@ -124,11 +124,11 @@ function renderAccountRows(d=state){
   text.append(nameLine,el('small','账号 #'+a.id));name.append(el('span',String(a.name||a.id).slice(0,1).toUpperCase(),'avatar'),text);identity.append(name);row.append(identity);
   const owner=el('td');owner.append(el('span',a.owner?'实例 '+a.owner:'未分配',a.owner?'instance-chip':'muted'));row.append(owner);
   const quotaCell=el('td'),quotaBox=el('button',undefined,'account-model-quota'),models=Object.values(a.quota?.models||{}),known=models.map(quotaFraction).filter(value=>value!==null);
-  const fraction=known.length?Math.min(...known):null,line=el('div',undefined,'account-quota-line');quotaBox.type='button';quotaBox.title='查看各模型本地次数额度';quotaBox.setAttribute('aria-label','查看账号 '+a.id+' 的模型额度');quotaBox.addEventListener('click',()=>openAccount(a.id));quotaBox.classList.add(quotaTone(fraction));
+  const fraction=known.length?Math.min(...known):null,line=el('div',undefined,'account-quota-line');quotaBox.type='button';quotaBox.title='查看额度';quotaBox.setAttribute('aria-label','查看账号 '+a.id+' 的模型额度');quotaBox.addEventListener('click',()=>openAccount(a.id));quotaBox.classList.add(quotaTone(fraction));
   line.append(el('span',models.length?models.length+' 个模型':'未配置额度'),el('span',fraction===null?'—':Math.round(fraction*100)+'%','quota-percent'));quotaBox.append(line);
-  if(fraction!==null){const bar=el('progress');bar.max=100;bar.value=fraction*100;bar.setAttribute('aria-label','最低已知本地剩余额度 '+Math.round(fraction*100)+'%');quotaBox.append(bar);}
+  if(fraction!==null){const bar=el('progress');bar.max=100;bar.value=fraction*100;bar.setAttribute('aria-label','剩余额度 '+Math.round(fraction*100)+'%');quotaBox.append(bar);}
   else quotaBox.append(el('span',undefined,'quota-unknown-track'));
-  quotaBox.append(el('small',models.some(q=>q.legacyBlocked)?'含待核实模型':models.some(q=>q.cooldownUntil>Date.now())?'部分模型冷却中':fraction===null?'本地余量未知':'最低已知本地余量'));
+  quotaBox.append(el('small',models.some(q=>q.legacyBlocked)?'含待核实模型':models.some(q=>q.cooldownUntil>Date.now())?'部分模型冷却中':fraction===null?'额度未知':'剩余额度'));
   quotaCell.append(quotaBox);row.append(quotaCell);
   const statusCell=el('td'),kind=accountState(a);statusCell.append(statusBadge(kind==='invalid'?'登录失效':kind==='cooling'?'冷却中':kind==='assigned'?'已分配':'备用',kind==='invalid'?'warn':kind==='cooling'?'warn':kind==='available'?'good':'assigned'));row.append(statusCell);
   row.append(cookieCell(a));
@@ -159,7 +159,7 @@ function renderAccountRows(d=state){
 function render(d){
  const ready=Object.values(d.slots).filter(s=>s?.ready&&!s?.rotationBlocked&&!s?.healthCheck?.error).length;
  $('service').textContent=d.halted?'已暂停':ready===2?'运行正常':ready?'部分可用':'暂不可用';$('service').className=d.halted||ready<2?'warn':'good';
- $('service-note').textContent=d.halted?'协调器已停止分配请求':ready+' / 2 实例可调度';
+ $('service-note').textContent=d.halted?'已暂停':ready+' / 2 实例可调度';
  $('queued').textContent=d.queue;$('account-count').textContent=d.accounts.length;
  $('active').textContent=Object.values(d.slots).reduce((n,s)=>n+(s.active||0),0);
  $('mode-current').textContent=d.streamingMode||'unknown';
@@ -171,23 +171,23 @@ function render(d){
   const health=s.workerHealth,healthFresh=health?.account===s.account && health?.workerEpoch===s.workerEpoch && Date.now()-health.observedAt<15000;
   const pending=(s.pendingExecutions||[]).filter(t=>t.phase==='reconciling').length;
   const label=s.legacyUnresolved?'历史请求待核实':healthFresh&&health.hardQuarantine?'故障隔离':
-   healthFresh&&health.pendingCompletions>0?'等待完成回执':pending?'请求待核实':s.pendingRetirements?'等待清理确认':s.operation?({auth:'保存登录态',catalog:'模型同步',rotation:'账号轮换',recovery:'安全恢复',cleanup:'资源清理'}[s.operation.kind]||'操作中'):s.rotationBlocked?'轮换受阻':s.pending?'轮换中':s.ready?(s.active?'处理中':'已就绪'):'未就绪';
+   healthFresh&&health.pendingCompletions>0?'等待完成':pending?'请求待核实':s.pendingRetirements?'等待清理确认':s.operation?({auth:'保存登录态',catalog:'模型同步',rotation:'账号轮换',recovery:'安全恢复',cleanup:'资源清理'}[s.operation.kind]||'操作中'):s.rotationBlocked?'轮换受阻':s.pending?'轮换中':s.ready?(s.active?'处理中':'已就绪'):'未就绪';
   const unhealthy=s.healthCheck?.error||s.legacyUnresolved||s.rotationBlocked||s.recoveryBlocked||(healthFresh&&health.hardQuarantine);
   head.append(identity,statusBadge(label,unhealthy||!s.ready?'warn':s.active?'assigned':'good'));box.append(head);
   const metrics=el('div',undefined,'worker-metrics');
   const quotas=Object.values(s.quota?.models||{});
-  for(const [label,value] of [['调度占用',s.active??0],['本地模型',s.quota?quotas.length:'—'],['待核实执行',pending]]){const metric=el('div');metric.append(el('span',label),el('strong',value));metrics.append(metric);}box.append(metrics);
+  for(const [label,value] of [['调度占用',s.active??0],['模型',s.quota?quotas.length:'—'],['待核实执行',pending]]){const metric=el('div');metric.append(el('span',label),el('strong',value));metrics.append(metric);}box.append(metrics);
   const alerts=[];
   if(s.healthCheck?.error)alerts.push('健康检查失败 '+(s.healthCheck.failureCount||1)+' 次');
   if(s.recoveryBlocked)alerts.push('恢复受阻，请检查实例与登录状态');
   if(s.rotationFailure)alerts.push(s.rotationFailure.retryable?'轮换失败，'+date(s.rotationFailure.retryAt)+' 重试':'轮换失败，请检查实例登录与账号状态');
-  if(!healthFresh)alerts.push('浏览器健康状态待更新');
+  if(!healthFresh)alerts.push('状态待更新');
   if(s.pendingRetirements)alerts.push(s.pendingRetirements+' 个请求等待清理确认，暂不轮换');
   if(pending)alerts.push(pending+' 个执行等待完成证据，占用已保留');
   if(s.quota?.legacy)alerts.push('历史汇总用量已保留，未归入模型精确计数');
   if(alerts.length){const area=el('div',undefined,'worker-alerts');for(const message of alerts)area.append(el('p',message));box.append(area);}
    box.append(workerCookie(s,account));
-  const quotaHeader=el('div',undefined,'worker-quota-heading');quotaHeader.append(el('span','模型额度'),el('small','本地剩余次数'));box.append(quotaHeader);
+  const quotaHeader=el('div',undefined,'worker-quota-heading');quotaHeader.append(el('span','模型额度'),el('small','剩余次数'));box.append(quotaHeader);
   if(!s.quota)box.append(el('div','额度状态暂不可用','worker-empty warn'));
   else if(!quotas.length)box.append(el('div','尚未配置模型额度','worker-empty muted'));
   const quotaList=el('div',undefined,'worker-quota-list');let extra=null;
@@ -195,8 +195,8 @@ function render(d){
   quotas.forEach((item,index)=>{
    const fraction=quotaFraction(item),q=el('div',undefined,'quota worker-model-quota '+quotaTone(fraction)),line=el('div',undefined,'quota-label');
    line.append(el('span',item.model),el('span',item.legacyBlocked?'待核实':fraction===null?'未知':Math.max(0,item.limit-item.used)+' / '+item.limit));q.append(line);
-   if(fraction!==null){const bar=el('progress');bar.max=100;bar.value=fraction*100;bar.setAttribute('aria-label',item.model+' 本地剩余额度 '+Math.round(fraction*100)+'%');q.append(bar);}
-   if(item.legacyBlocked)q.append(el('small','暂停派单 · 历史窗口至 '+date(item.legacyUntil),'warn'));
+   if(fraction!==null){const bar=el('progress');bar.max=100;bar.value=fraction*100;bar.setAttribute('aria-label',item.model+' 剩余额度 '+Math.round(fraction*100)+'%');q.append(bar);}
+   if(item.legacyBlocked)q.append(el('small','暂停使用至 '+date(item.legacyUntil),'warn'));
    else if(item.cooldownUntil>Date.now())q.append(el('small','冷却至 '+date(item.cooldownUntil),'warn'));
    else q.append(el('small',item.windowEnd?'窗口结束 '+date(item.windowEnd):'窗口未启用','muted'));
    if(index<3)quotaList.append(q);else extra.append(q);

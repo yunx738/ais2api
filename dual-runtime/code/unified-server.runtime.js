@@ -1556,7 +1556,7 @@ class RequestHandler {
             if (message.data) fullBody += message.data;
           }
 
-          if (AT.atIsEnabled(model)) { const result = await this._atContinueUntilAnswer(JSON.parse(fullBody), googleBody, res, model, requestId); if (!result || typeof result.answer !== /string/.source) throw Object.assign(Error(/AT_incomplete_stream_answer/.source),{status:502}); fullBody = JSON.stringify({candidates:[{content:{role:/model/.source,parts:[{text:result.answer}]},finishReason:result.finishReason}]}); }
+          if (AT.atIsEnabled(model)) { const result = await this._atContinueUntilAnswer(JSON.parse(fullBody), googleBody, res, model, requestId); if (!result || typeof result.answer !== /string/.source) throw Object.assign(Error(/AT_incomplete_stream_answer/.source),{status:502}); fullBody = JSON.stringify({candidates:[{content:{role:/model/.source,parts:[{text:result.answer}]},finishReason:result.finishReason}],...(result.usageMetadata?{usageMetadata:result.usageMetadata}:{})}); }
           const translatedChunk = this._translateGoogleToOpenAIStream(
             fullBody,
             model,
@@ -1590,7 +1590,7 @@ class RequestHandler {
           );
           if (atResult && typeof atResult.answer === "string") {
             atAnswer = atResult.answer;
-            googleResponse = {candidates:[{content:{role:/model/.source,parts:[{text:atAnswer}]},finishReason:atResult.finishReason}]};
+            googleResponse = {candidates:[{content:{role:/model/.source,parts:[{text:atAnswer}]},finishReason:atResult.finishReason}],...(atResult.usageMetadata?{usageMetadata:atResult.usageMetadata}:{})};
           }
         }
         if (atEnabledLocal && atAnswer === null) throw Object.assign(Error(/AT_incomplete_answer/.source),{status:502});
@@ -2088,10 +2088,14 @@ class RequestHandler {
     let attempt = 0;
     let current = googleResponse;
     let lastAnswer = null;
+    const atUsage = {complete: true, sum: {}};
+    const atAddUsage = (resp) => { const u = resp && resp.usageMetadata; if (!u || typeof u !== 'object') { atUsage.complete = false; return; } for (const key of ['promptTokenCount','candidatesTokenCount','thoughtsTokenCount','cachedContentTokenCount','totalTokenCount']) { if (Number.isSafeInteger(u[key]) && u[key] >= 0) atUsage.sum[key] = (atUsage.sum[key] || 0) + u[key]; } };
+    atAddUsage(current);
     while (attempt <= AT.AT_MAX_ATTEMPTS) {
       attempt++;
       const r = AT.atExtractAnswer(current);
       if (r.found ? /^STOP$/.test(r.finishReason || String()) : false) {
+        if (atUsage.complete && Number.isSafeInteger(atUsage.sum.promptTokenCount)) r.usageMetadata = atUsage.sum;
         this.logger.info("[AT] emit_answer found on attempt " + attempt + ", len=" + r.answer.length);
         return r;
       }
@@ -2128,6 +2132,7 @@ class RequestHandler {
           if (m.event_type === "chunk" && m.data) contFull += m.data;
         }
         current = JSON.parse(contFull);
+        atAddUsage(current);
         previousOperationId = contId;
       } catch (e) {
         this.logger.warn("[AT] continuation failed: " + e.message);

@@ -47,13 +47,13 @@
 </section>
 <section id="accounts" class="page" hidden><div class="page-actions"><div class="section-tabs"><span class="selected"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>账号池</span></div><div class="tools"><a class="button primary" href="/import"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg>导入账号</a><button id="sync"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>同步账号</button></div></div>
 <div id="account-summary" class="account-summary" aria-label="账号概览"></div>
-<div class="card account-toolbar"><label class="search-field"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span class="sr-only">搜索账号</span><input id="quota-search" type="search" maxlength="200" placeholder="搜索账号名称、ID…"></label><label><span class="sr-only">账号状态</span><select id="account-status"><option value="all">全部状态</option><option value="available">备用账号</option><option value="assigned">已分配</option><option value="cooling">冷却中</option><option value="invalid">登录失效</option></select></label><span class="muted">本地额度</span></div>
+<div class="card account-toolbar"><label class="search-field"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span class="sr-only">搜索账号</span><input id="quota-search" type="search" maxlength="200" placeholder="搜索账号名称、ID…"></label><label><span class="sr-only">账号状态</span><select id="account-status"><option value="all">全部状态</option><option value="available">备用账号</option><option value="assigned">已分配</option><option value="cooling">冷却中</option><option value="invalid">登录失效</option></select></label></div>
 <div class="card table-wrap"><table class="account-table"><thead><tr><th>账号</th><th>实例</th><th>模型额度</th><th>状态</th><th>Cookie 状态</th><th>冷却结束</th><th><span class="sr-only">操作</span></th></tr></thead><tbody id="account-rows"><tr><td colspan="7">等待状态数据</td></tr></tbody></table></div>
 <div class="pager account-pager"><span id="account-page" class="muted"></span><div class="tools"><label><span class="sr-only">每页条数</span><select id="account-page-size"><option value="20">20 条 / 页</option><option value="50">50 条 / 页</option><option value="100">100 条 / 页</option></select></label><button id="account-prev" disabled>上一页</button><button id="account-next" disabled>下一页</button></div></div>
 <dialog id="account-dialog" aria-labelledby="account-dialog-title"><div class="dialog-head"><div><h2 id="account-dialog-title">账号详情</h2><span id="account-dialog-subtitle" class="muted"></span></div><button id="account-dialog-close" class="icon-button" aria-label="关闭账号详情">×</button></div><div class="dialog-body"><div id="quota-accounts" class="quota-accounts"></div></div></dialog>
 <details class="card form-card rotation-panel"><summary><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg><span>手动切换账号</span><span class="muted">按实例操作</span></summary><div class="form-row"><label>实例<select id="slot"><option value="A">实例 A</option><option value="B">实例 B</option></select></label><label>目标账号<select id="target"><option value="">自动选择下一账号</option></select></label><button id="rotate" class="primary">提交轮换</button></div></details></section>
 <section id="models" class="page" hidden>
-<div class="section-head"><div><h2>上游模型目录</h2></div><button id="catalog-read">刷新目录状态</button></div>
+<div class="section-head"><div><h2>模型目录</h2></div><button id="catalog-read">刷新目录状态</button></div>
 
 <p id="catalog-message" role="status" aria-live="polite" class="muted">等待读取目录状态</p>
 
@@ -67,14 +67,14 @@
 <p id="policy-message" role="status">尚未读取策略</p></div>
 <div id="catalog-workers" class="workers"></div>
 <div class="section-head"><h2>模型清单</h2><label>筛选模型 <input id="catalog-search" type="search" placeholder="输入模型名称" maxlength="200"></label></div>
-<div class="card table-wrap"><table><thead><tr><th>模型</th><th>实例 / 账号</th><th>上游声明的方法</th><th>目录更新时间</th></tr></thead><tbody id="catalog-rows"></tbody></table></div>
+<div class="card table-wrap"><table><thead><tr><th>模型</th><th>实例 / 账号</th><th>能力</th><th>目录更新时间</th></tr></thead><tbody id="catalog-rows"></tbody></table></div>
 </section>
 <section id="usage" class="page" hidden>
  <div class="usage-toolbar"><label><span class="sr-only">时间范围</span><select id="usage-range"><option value="today">今日</option><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="all">全部记录</option></select></label><button id="usage-refresh"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>刷新统计</button></div>
  <p id="usage-message" class="muted" role="status">等待读取</p>
  <div id="usage-cards" class="stats"></div>
  <div class="card distribution-card"><div class="section-head"><div class="heading-icon"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><div><h2>模型统计</h2></div></div></div><div id="usage-models"></div></div>
- <details class="card note" hidden><summary>统计范围与计量说明</summary><p>仅包含启用记录后的派单请求，不包含派单前拒绝或旧历史。今日按浏览器时区计算。费用按参考单价估算；响应报告的 Token 尚未核实为上游原始计量，缺失数据不按零处理。RPM 为最近一分钟派单数；TPM 按响应结束时间归属，受所选范围限制。</p></details>
+ 
  </section>
  <section id="history" class="page" hidden>
  <form id="history-filter" class="card form-row">
@@ -89,7 +89,7 @@
  <div class="card form-card"><div class="section-head"><h2>A / B · SOCKS5 代理</h2><button type="button" id="proxy-read">重新读取</button></div>
  
  <p id="proxy-message" role="status">尚未读取代理配置</p><div id="proxy-forms"></div></div>
-<div class="card form-card"><h2>流式模式</h2><p>协调器记录的模式 <span id="mode-current" class="badge">—</span></p><div class="form-row"><label>响应方式<select id="mode"><option value="fake">Fake · 缓冲后发送</option><option value="real">Real · 流式转发</option></select></label><button id="save-mode" class="primary">应用到 A / B</button></div></div><div class="card form-card">
+<div class="card form-card"><h2>流式模式</h2><p>当前模式 <span id="mode-current" class="badge">—</span></p><div class="form-row"><label>响应方式<select id="mode"><option value="fake">Fake · 缓冲后发送</option><option value="real">Real · 流式转发</option></select></label><button id="save-mode" class="primary">应用到 A / B</button></div></div><div class="card form-card">
  <div class="section-head"><h2>模型参考单价</h2><button id="price-read" type="button">重新读取</button></div>
  <p class="subtitle">单位 USD / 百万 Token</p>
  <p id="price-message" role="status">尚未读取价格</p>
