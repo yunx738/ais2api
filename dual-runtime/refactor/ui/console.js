@@ -1,9 +1,9 @@
  'use strict';
 const $=id=>document.getElementById(id);
-const titles={overview:'仪表盘',accounts:'账号管理',models:'模型目录',usage:'使用统计',history:'请求记录',settings:'系统运维'};
+const titles={overview:'概览',accounts:'账号',models:'模型',usage:'统计',history:'请求',settings:'设置'};
 let state=null,reading=false,mutating=false,fresh=false,readTask=null,statusError=false;
 let accountPage=1;
-const accountColumns=['账号','实例','模型额度','状态','Cookie 状态','冷却结束','操作'];
+const accountColumns=['账号','实例','额度','状态','登录','冷却至','操作'];
 const hiddenAccountColumns=new Set();
 try{const saved=JSON.parse(localStorage.getItem('ais-account-columns-v2')||'[]');if(Array.isArray(saved))for(const index of saved)if([1,2,3,4,5].includes(index))hiddenAccountColumns.add(index);}catch{}
 function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text);if(cls)n.className=cls;return n;}

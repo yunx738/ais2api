@@ -1,6 +1,6 @@
 'use strict';
 const path = require('path');
-const assets=Object.freeze(['console.css','console-panels.css','models.css','analytics.css',
+const assets=Object.freeze(['console.css','console-panels.css','models.css','analytics.css','layout.css',
   'proxies.js','console.js','shell.js','models.js','prices.js','analytics.js']);
 // Install after the existing authenticated dashboard middleware.
 function install(dashboard) {
