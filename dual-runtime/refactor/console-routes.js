@@ -7,6 +7,7 @@ function install(dashboard) {
   const ui = path.join(__dirname, 'ui');
   const serve = name => (req,res,next) => {
     res.setHeader('X-Content-Type-Options','nosniff');
+    res.setHeader('Cache-Control',name==='index.html'?'no-store':'private, max-age=2592000, immutable');
     res.sendFile(path.join(ui,name),err => {if(err) next(err);});
   };
   dashboard.get('/',serve('index.html'));
