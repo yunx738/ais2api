@@ -8,7 +8,11 @@ class RotationController {
  }
  gate(slot,token){
   const g=this.dispatch.rotationThrottle||{lastAt:0};
-  if(g.slot!==undefined)return g.slot===slot&&g.token===token ? null : 'Waiting for previous rotation result';
+  if(g.slot!==undefined&&g.slot===slot&&g.token===token)return null;
+  if(g.slot!==undefined){
+   // A stuck rotation on one slot must not freeze the other slot forever.
+   if(g.slot===slot||this.running.has(g.slot)||Date.now()-(g.claimedAt||g.lastAt||0)<600000)return 'Waiting for previous rotation result';
+  }
   if([...this.running].some(s=>s!==slot))return 'Another rotation is running';
   if(Date.now()-g.lastAt<300000)return 'Global rotation interval: wait at least 5 minutes';
   return null;
@@ -16,8 +20,8 @@ class RotationController {
  claim(slot,token){
   if(this.gate(slot,token))return false;
   const g=this.dispatch.rotationThrottle||{lastAt:0};
-  if(g.slot===undefined){
-   this.dispatch.rotationThrottle={lastAt:Date.now(),slot,token};
+  if(g.slot===undefined||(g.slot!==slot&&Date.now()-(g.claimedAt||g.lastAt||0)>=600000)){
+   this.dispatch.rotationThrottle={lastAt:Date.now(),claimedAt:Date.now(),slot,token};
    this.dispatch.checkpoint();
   }
   return true;

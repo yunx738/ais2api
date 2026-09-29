@@ -18,7 +18,7 @@ function createWorker(System,account,authDir){
  system.requestHandler._switchToSpecificAuth=async()=>({success:false,reason:'Account assignment is controlled by the coordinator'});
  const status=()=>{
   const b=system.browserManager;
-  const ready=b.currentAuthIndex===account && Boolean(b.context) && Boolean(b.page) && !b.page.isClosed() && system.connectionRegistry.hasActiveConnections() && system.connectionRegistry.protocolReady?.()===true;
+  const ready=b.currentAuthIndex===account && Boolean(b.context) && Boolean(b.page) && !b.page.isClosed() && system.connectionRegistry.hasActiveConnections() && system.connectionRegistry.protocolReady?.()===true && !/\/docs\/available-regions|accounts\.google\.com/.test(b.page.url());
   return {account,ready,busy:(system.requestHandler.stabilityGate?.activeCount||0)>0,activeRequests:system.connectionRegistry.messageQueues.size};
  };
  return {system,status};

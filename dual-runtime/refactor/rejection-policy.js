@@ -1,10 +1,18 @@
 'use strict';
 
 const DAY = 86400000;
+const REGION = /region not supported|not available in your (?:country|region)|unsupported[_\s-]*(?:country|region|location)|user location is not supported|available-regions/i;
+function isRegionBlock(result) {
+  if (result?.status !== 403 && result?.status !== 400) return false;
+  const body = result.rejection?.body;
+  const text = Buffer.isBuffer(body) ? body.toString('utf8', 0, Math.min(body.length, 8192)) : String(body || '');
+  return REGION.test(text);
+}
 
 // A rate limit belongs to the account/model that received it. An HTTP 429 is
 // never evidence that other accounts, models or the whole service are blocked.
 function rejectionCooldown(result, now = Date.now()) {
+  if (isRegionBlock(result)) return { scope: 'egress', until: 0 };
   if (![401, 403, 429].includes(result?.status)) return;
   if (result.status === 401) return { scope: 'account', until: now + DAY };
   if (result.status === 403) return { scope: 'model', until: now + DAY };
@@ -35,4 +43,4 @@ function deadline(task, timeoutMs, message) {
   });
 }
 
-module.exports = { rejectionCooldown, deadline };
+module.exports = { rejectionCooldown, deadline, isRegionBlock };

@@ -152,6 +152,12 @@ class RequestScheduler {
   if (result?.workerRejection) return;
   const restriction = rejectionCooldown(result);
   if (!restriction) return;
+  if (restriction.scope === 'egress') {
+   // Region rejection proves the network exit is refused, not the account.
+   this.dispatch.egressBlocked = { slot: ticket.slot, account: ticket.account, at: Date.now() };
+   console.warn('[Egress] slot ' + ticket.slot + ' region rejected; account not cooled');
+   return;
+  }
   if (restriction.scope === 'account') this.dispatch.pool.cooldown(ticket.account, restriction.until);
   else this.dispatch.quotas.defer(ticket.account, ticket.model, ticket.kind, restriction.until);
   this.dispatch.checkpoint();

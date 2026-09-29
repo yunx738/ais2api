@@ -66,6 +66,10 @@ function install(h){
  h._handleRequestFailureAndSwitch=async function(error){
   const status=Number(error.status)||500;
   if(/abort/i.test(error.message||""))return;
+  if(/region not supported|not available in your (?:country|region)|user location is not supported/i.test(String(error.message||"")+String(error.body||""))){
+   this.logger.warn("[Stability] 账号 #"+this.currentAuthIndex+" 出口地区被拒绝；不冷却账号");
+   return;
+  }
   const previous=this.accountCooldowns.get(this.currentAuthIndex);
   const strikes=(previous?.strikes||0)+1;
   let seconds=0;
