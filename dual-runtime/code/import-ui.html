@@ -1,7 +1,17 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'"><title>转换与导入账号</title>
 <style>body{font-family:system-ui;max-width:720px;margin:24px auto;padding:16px;line-height:1.6}textarea{box-sizing:border-box;width:100%;min-height:220px;font:14px monospace}button{padding:12px;margin:8px 6px 8px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eee;padding:12px}small{color:#555}</style></head>
-<body><a href="/">返回管理页面</a><h2>Cookie 转换与账号导入</h2>
+<body><a href="/">返回管理页面</a>
+<h2>账号密码登录</h2>
+<form id="lf" autocomplete="off" onsubmit="return false">
+<p><label for="le">邮箱</label><br><input id="le" type="email" autocomplete="off" autocapitalize="off" spellcheck="false" style="width:100%;box-sizing:border-box;padding:10px"></p>
+<p><label for="lp">密码</label><br><input id="lp" type="password" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:10px"></p>
+<p><button id="lgo" type="button">登录并添加</button><button id="lcancel" type="button" disabled>取消</button></p>
+<div id="lneed" hidden><p id="lprompt"></p><p><input id="lv" autocomplete="one-time-code" style="width:100%;box-sizing:border-box;padding:10px"></p><p><button id="lsend" type="button">提交</button></p></div>
+</form>
+<pre id="lres" role="status" aria-live="polite"></pre>
+<hr>
+<h2>Cookie 导入</h2>
 
 <label for="file">选择 Cookie 导出 JSON 或 Playwright storageState 文件</label><p><input id="file" type="file" accept=".json,application/json"></p>
 <label for="raw">或粘贴 Cookies JSON</label>
@@ -81,4 +91,31 @@ $("send").onclick=async()=>{
  finally{busy=false;reset();for(const id of ["convert","raw","file","clear"])$(id).disabled=false;}
 };
 window.addEventListener("pagehide",()=>{reset();$("raw").value="";$("file").value="";});
+let job=null,timer=null;
+const STEP={starting:"正在启动",open:"正在打开登录页",email:"已提交邮箱",password:"已提交密码，等待结果",verifying:"正在验证"};
+function lbusy(on){$("lgo").disabled=on;$("le").disabled=on;$("lp").disabled=on;$("lcancel").disabled=!on;}
+async function lpost(url,body){const r=await fetch(url,{method:"POST",credentials:"same-origin",redirect:"error",headers:{"Content-Type":"application/json","X-Import-Token":token},body:JSON.stringify(body)});return {ok:r.ok,d:await r.json().catch(()=>({}))};}
+function lshow(j){
+ if(j.status==="need"){$("lneed").hidden=false;$("lprompt").textContent=(j.need.kind==="phone"?"需要手机号：":j.need.kind==="code"?"需要验证码：":"需要输入：")+(j.need.prompt||"");$("lv").type=j.need.kind==="phone"?"tel":"text";$("lres").textContent="等待输入";$("lv").focus();return;}
+ $("lneed").hidden=true;
+ if(j.status==="done"){$("lres").textContent="添加成功：账号 "+j.account+(j.message?"\n"+j.message:"");stop();return;}
+ if(j.status==="failed"){$("lres").textContent="失败："+(j.message||"登录失败");stop();return;}
+ $("lres").textContent=STEP[j.step]||"处理中";
+}
+function stop(){clearInterval(timer);timer=null;job=null;lbusy(false);$("lp").value="";}
+async function poll(){if(!job)return;try{const r=await fetch("/api/login/job?id="+job,{credentials:"same-origin",redirect:"error"});const d=await r.json();if(!r.ok){$("lres").textContent=d.error||"查询失败";stop();return;}lshow(d);}catch{$("lres").textContent="连接中断，稍后刷新账号列表确认结果";}}
+$("lgo").onclick=async()=>{
+ const email=$("le").value.trim(),password=$("lp").value;
+ if(!email||!password){$("lres").textContent="请填写邮箱和密码";return;}
+ lbusy(true);$("lres").textContent="正在启动";
+ try{const {ok,d}=await lpost("/api/login/start",{email,password});$("lp").value="";
+  if(!ok){$("lres").textContent=d.error||"无法开始登录";lbusy(false);return;}
+  job=d.id;lshow(d);timer=setInterval(poll,2500);}
+ catch{$("lres").textContent="无法开始登录";lbusy(false);}
+};
+$("lsend").onclick=async()=>{const v=$("lv").value.trim();if(!v||!job)return;$("lsend").disabled=true;
+ try{const {ok,d}=await lpost("/api/login/job",{id:job,action:"input",value:v});$("lv").value="";if(!ok)$("lres").textContent=d.error||"提交失败";else lshow(d);}
+ finally{$("lsend").disabled=false;}};
+$("lcancel").onclick=async()=>{if(!job)return;await lpost("/api/login/job",{id:job,action:"cancel"}).catch(()=>{});$("lres").textContent="已取消";stop();};
+window.addEventListener("pagehide",()=>{$("lp").value="";$("lv").value="";});
 </script></body></html>

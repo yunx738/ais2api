@@ -13,6 +13,8 @@ async function main(){
  allowed.add("POST /api/models/policy");
  allowed.add('GET /api/requests');
  allowed.add('GET /api/usage');
+ allowed.add('POST /api/login/start');
+ for(const m of ['GET','POST'])allowed.add(m+' /api/login/job');
  allowed.add('POST /api/accounts/delete');
  allowed.add('GET /api/proxies');
  allowed.add('POST /api/proxies');
@@ -125,6 +127,30 @@ require('./console-routes').install(dashboard);
   catch(error){return res.status(400).json({error:error.message});}
   const r=await call('POST','/internal/rotate',payload);
   if(!res.destroyed)res.status(r.status).json(r.body);
+ });
+ // Password login: forwarded to the loopback login service; never logged or stored here.
+ const loginCall=createControlCall(system.config.apiKeys[0],{port:8894,timeoutMs:15000});
+ const loginGuard=(req,res)=>{
+  if(!req.session.importToken||req.get('X-Import-Token')!==req.session.importToken){res.status(403).json({error:'请求校验失败，请刷新页面'});return false;}
+  return true;
+ };
+ dashboard.post('/api/login/start',async(req,res)=>{
+  if(!loginGuard(req,res))return;
+  const email=typeof req.body?.email==='string'?req.body.email:'',password=typeof req.body?.password==='string'?req.body.password:'';
+  const r=await loginCall('POST','/login/start',{email,password});
+  res.status(r.status).json(r.body);
+ });
+ const jobPath=id=>/^[0-9a-f-]{36}$/.test(String(id||''))?'/login/'+id:null;
+ dashboard.get('/api/login/job',async(req,res)=>{
+  const p=jobPath(req.query.id);if(!p)return res.status(400).json({error:'任务编号无效'});
+  const r=await loginCall('GET',p);res.status(r.status).json(r.body);
+ });
+ dashboard.post('/api/login/job',async(req,res)=>{
+  if(!loginGuard(req,res))return;
+  const p=jobPath(req.body?.id),action=req.body?.action;
+  if(!p||!['input','cancel'].includes(action))return res.status(400).json({error:'请求无效'});
+  const r=await loginCall('POST',p+'/'+action,action==='input'?{value:String(req.body.value||'')}:{});
+  res.status(r.status).json(r.body);
  });
  dashboard.post('/api/sync-accounts',async(req,res)=>{
   const r=await call('POST','/internal/sync-accounts',{});
