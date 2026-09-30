@@ -137,7 +137,7 @@ require('./console-routes').install(dashboard);
  dashboard.post('/api/login/start',async(req,res)=>{
   if(!loginGuard(req,res))return;
   const email=typeof req.body?.email==='string'?req.body.email:'',password=typeof req.body?.password==='string'?req.body.password:'';
-  const r=await loginCall('POST','/login/start',{email,password});
+  const r=await loginCall('POST','/login/start',{email,password,remember:req.body?.remember===true});
   res.status(r.status).json(r.body);
  });
  const jobPath=id=>/^[0-9a-f-]{36}$/.test(String(id||''))?'/login/'+id:null;

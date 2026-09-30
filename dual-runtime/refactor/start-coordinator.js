@@ -117,6 +117,19 @@ async function main(){
    flag.status='deleted';flag.deletedAt=Date.now();dispatch.checkpoint();
    return {deleted:true,id,historyPreserved:true,retiredCopiesPreserved:true};
   },
+  revalidateAccount(body){
+   const id=body?.id,flag=dispatch.accountFlags[id];
+   const error=(statusCode,message)=>Object.assign(Error(message),{statusCode});
+   if(!Number.isSafeInteger(id)||!dispatch.pool.ids.includes(id))throw error(400,'账号无效');
+   if(!flag)return {revalidated:false,id};
+   if(flag.status!=='invalid')throw error(409,'账号状态不允许恢复');
+   if(stopping||dispatch.halted||accountOccupied(id))throw error(409,'账号仍被占用');
+   try{driver.validateAccount(id);}catch{throw error(409,'登录文件不可用');}
+   delete dispatch.accountFlags[id];dispatch.pool.cooldowns.delete(id);
+   if(dispatch.authSaves?.[id])dispatch.authSaves[id]={...dispatch.authSaves[id],keepaliveResult:'ok',keepaliveAt:Date.now()};
+   dispatch.checkpoint();
+   return {revalidated:true,id};
+  },
   proxies:()=>proxies.snapshot(),
   saveProxy:body=>proxies.save(body),
   applyProxy:body=>proxies.start(body),

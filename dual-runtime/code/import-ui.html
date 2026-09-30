@@ -6,6 +6,7 @@
 <form id="lf" autocomplete="off" onsubmit="return false">
 <p><label for="le">邮箱</label><br><input id="le" type="email" autocomplete="off" autocapitalize="off" spellcheck="false" style="width:100%;box-sizing:border-box;padding:10px"></p>
 <p><label for="lp">密码</label><br><input id="lp" type="password" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:10px"></p>
+<p><label><input id="lrem" type="checkbox" checked> 记住密码，失效后自动重新登录</label></p>
 <p><button id="lgo" type="button">登录并添加</button><button id="lcancel" type="button" disabled>取消</button></p>
 <div id="lneed" hidden><p id="lprompt"></p><p><input id="lv" autocomplete="one-time-code" style="width:100%;box-sizing:border-box;padding:10px"></p><p><button id="lsend" type="button">提交</button></p></div>
 </form>
@@ -108,7 +109,7 @@ $("lgo").onclick=async()=>{
  const email=$("le").value.trim(),password=$("lp").value;
  if(!email||!password){$("lres").textContent="请填写邮箱和密码";return;}
  lbusy(true);$("lres").textContent="正在启动";
- try{const {ok,d}=await lpost("/api/login/start",{email,password});$("lp").value="";
+ try{const {ok,d}=await lpost("/api/login/start",{email,password,remember:$("lrem").checked});$("lp").value="";
   if(!ok){$("lres").textContent=d.error||"无法开始登录";lbusy(false);return;}
   job=d.id;lshow(d);timer=setInterval(poll,2500);}
  catch{$("lres").textContent="无法开始登录";lbusy(false);}

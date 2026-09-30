@@ -8,6 +8,7 @@ const KEY=cfg.apiKeys[0],IMAGE=cfg.image,PORT=8894;
 const UPFILE='/opt/ais2api-direct/login-upstream.env';
 const RUNNER=path.join(RT,'login','login-runner.js');
 const jobs=new Map();
+const creds=require('./login-credentials');
 const eq=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
 const send=(res,code,body)=>{res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(body));};
 const EMAIL=/^[^\s@]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,}$/i;
@@ -40,6 +41,26 @@ function writeAccount(storage,email){
  fs.chownSync(file,1000,1000);
  return index;
 }
+function refreshAccount(id,storage){
+ const {cookies,origins}=cleanStorage(storage);
+ if(cookies.filter(c=>/^(SID|__Secure-1PSID|__Secure-3PSID|SAPISID|HSID|SSID)$/.test(c.name)).length<3)throw Error('登录状态不完整');
+ const file=path.join(AUTH,'auth-'+id+'.json');
+ const old=JSON.parse(fs.readFileSync(file,'utf8'));
+ const content=JSON.stringify({...old,cookies,origins});
+ if(Buffer.byteLength(content)>262144)throw Error('登录数据过大');
+ const tmp=file+'.'+crypto.randomBytes(6).toString('hex')+'.tmp';
+ const fd=fs.openSync(tmp,'wx',0o600);
+ try{fs.writeFileSync(fd,content);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+ fs.chownSync(tmp,1000,1000);fs.renameSync(tmp,file);
+}
+function coord(method,p,body){
+ return new Promise(resolve=>{
+  const payload=body===undefined?'':JSON.stringify(body);
+  const req=http.request({host:'127.0.0.1',port:8890,path:p,method,headers:{Authorization:'Bearer '+KEY,'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)}},r=>{
+   let s='';r.on('data',d=>{s+=d;});r.on('end',()=>{try{resolve({status:r.statusCode,body:JSON.parse(s)});}catch{resolve({status:r.statusCode,body:null});}});});
+  req.on('error',()=>resolve({status:0,body:null}));req.setTimeout(15000,()=>{req.destroy();resolve({status:0,body:null});});req.end(payload);
+ });
+}
 function syncPool(){
  return new Promise(resolve=>{
   const req=http.request({host:'127.0.0.1',port:8890,path:'/internal/sync-accounts',method:'POST',
@@ -53,9 +74,9 @@ function alreadyImported(email){
   try{if(String(JSON.parse(fs.readFileSync(path.join(AUTH,n),'utf8')).accountName||'').toLowerCase()===want)return Number(n.match(/\d+/)[0]);}catch{}}
  return 0;
 }
-function startJob(email,password){
+function startJob(email,password,opts={}){
  const id=crypto.randomUUID(),name='ais-login-'+id.slice(0,8);
- const job={id,name,email,status:'running',step:'starting',need:null,message:'',account:null,created:Date.now(),updated:Date.now()};
+ const job={id,name,email,target:opts.target||null,auto:!!opts.auto,status:'running',step:'starting',need:null,message:'',account:null,created:Date.now(),updated:Date.now()};
  jobs.set(id,job);
  const up=upstream();
  const child=spawn('docker',['run','--rm','-i','--name',name,'--user','1000:1000','--memory','1100m','--shm-size','256m',
@@ -65,6 +86,7 @@ function startJob(email,password){
  job.child=child;
  child.stdin.on('error',()=>{});
  child.stdin.write(JSON.stringify({email,password,upstream:up||undefined})+'\n');
+ const keep=opts.remember?password:null;
  password=null;
  let buf='';
  child.stdout.on('data',async d=>{
@@ -77,9 +99,14 @@ function startJob(email,password){
    else if(m.type==='result'){
     job.need=null;
     if(!m.ok){job.status='failed';job.message=m.message||'登录失败';continue;}
-    try{job.account=writeAccount(m.storage,email);m.storage=null;
-     const ok=await syncPool();job.status='done';job.message=ok?'':'账号已保存，同步账号池未确认';}
-    catch(e){job.status='failed';job.message=e.message;}
+    try{
+     if(job.target){refreshAccount(job.target,m.storage);job.account=job.target;m.storage=null;
+      const r=await coord('POST','/internal/accounts/revalidate',{id:job.target});
+      job.status='done';job.message=r.status===200?'已重新登录':'登录已更新，恢复状态未确认';}
+     else{job.account=writeAccount(m.storage,email);m.storage=null;
+      if(keep)try{creds.put(job.account,email,keep);}catch{}
+      const ok=await syncPool();job.status='done';job.message=ok?'':'账号已保存，同步账号池未确认';}
+    }catch(e){job.status='failed';job.message=e.message;}
    }
   }
  });
@@ -106,7 +133,7 @@ http.createServer(async(req,res)=>{
    const dup=alreadyImported(email);if(dup)return send(res,409,{error:'该邮箱已在账号池中（账号 '+dup+'）'});
    if([...jobs.values()].some(j=>j.child))return send(res,409,{error:'已有登录在进行，请稍候'});
    if(memMb()<900)return send(res,503,{error:'服务器内存不足，暂不能登录'});
-   return send(res,202,view(startJob(email,password)));
+   return send(res,202,view(startJob(email,password,{remember:b.remember===true})));
   }
   const m=url.pathname.match(/^\/login\/([0-9a-f-]{36})(\/(input|cancel))?$/);
   if(!m)return send(res,404,{error:'Not found'});
@@ -123,3 +150,34 @@ http.createServer(async(req,res)=>{
   return send(res,405,{error:'Method not allowed'});
  }catch(e){send(res,400,{error:'请求无效'});}
 }).listen(PORT,'127.0.0.1',()=>console.log('login service on 127.0.0.1:'+PORT));
+// Auto re-login: accounts flagged invalid with a stored password get one attempt per 6h.
+const RETRY_MS=6*3600000;
+async function autoRelogin(){
+ try{
+  if([...jobs.values()].some(j=>j.child)||memMb()<900)return;
+  const r=await coord('GET','/internal/coordinator-status');
+  if(r.status!==200||!r.body||!Array.isArray(r.body.accounts))return;
+  const stored=creds.meta();
+  for(const a of r.body.accounts){
+   const c=stored[a.id];
+   if(!c||a.authStatus!=='invalid'||a.invalidReason!=='login_required'||a.owner)continue;
+   if(Date.now()-(c.lastAttemptAt||0)<RETRY_MS)continue;
+   let cred;try{cred=creds.get(a.id);}catch{creds.mark(a.id,'decrypt_failed');continue;}
+   if(!cred)continue;
+   let owner='';try{owner=String(JSON.parse(fs.readFileSync(path.join(AUTH,'auth-'+a.id+'.json'),'utf8')).accountName||'').toLowerCase();}catch{}
+   if(owner!==cred.email.toLowerCase()){cred.password=null;creds.remove(a.id);continue;}
+   creds.mark(a.id,'running');
+   const job=startJob(cred.email,cred.password,{target:a.id,auto:true});cred.password=null;
+   const done=setInterval(()=>{
+    if(job.status==='need'){job.verify=true;cancel(job);}
+    if(job.status==='done'||job.status==='failed'){
+     clearInterval(done);
+     creds.mark(a.id,job.status==='done'?'ok':(job.verify?'needs_verification':(job.message||'failed')).slice(0,60));
+    }
+   },3000);
+   return;
+  }
+ }catch{}
+}
+setTimeout(autoRelogin,60000).unref();
+setInterval(autoRelogin,5*60000).unref();

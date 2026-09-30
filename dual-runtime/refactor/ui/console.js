@@ -32,7 +32,7 @@ function date(value){return Number.isFinite(value)&&value>0?new Date(value).toLo
 function navigate(){const name=location.hash.slice(1);const page=titles[name]?name:'overview';for(const key of Object.keys(titles))$(key).hidden=key!==page;document.querySelectorAll('[data-page]').forEach(a=>{a.classList.toggle('selected',a.dataset.page===page);if(a.dataset.page===page)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});$('page-title').textContent=titles[page];$('refresh').hidden=page==='usage'||page==='history';if(page==='overview')loadOverviewUsage();}
 function controls(){for(const id of ['sync','rotate','save-mode'])$(id).disabled=mutating||!fresh;}
 async function api(path,body){
- const c=new AbortController(),timer=setTimeout(()=>c.abort(),body===undefined?10000:65000);
+ const c=new AbortController(),timer=setTimeout(()=>c.abort(),body===undefined?25000:65000);
  try{const options={credentials:'same-origin',redirect:'error',signal:c.signal,headers:{Accept:'application/json'}};if(body!==undefined){options.method='POST';options.headers['Content-Type']='application/json';options.body=JSON.stringify(body);}
  const r=await fetch(path,options);
  if(r.status===401||r.status===403)throw Error('登录状态已失效，请重新登录');
