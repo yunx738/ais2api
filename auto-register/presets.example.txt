@@ -1,0 +1,13 @@
+# 账号预设表 —— 跑之前先填这里（表里没写的走 config.json 的默认值）
+#
+# 格式：<邮件别名 或 账号邮箱>	[密码]	[辅助邮箱]     列之间是 TAB；后两列可留空
+#   · 密码留空 → 首次强制改密时自动生成 16 位强密码
+#   · 辅助邮箱留空 → 用 config.json 里的 recovery_email
+#
+# ★ 提醒：Google 首次登录强制改密时会拒绝「用过的密码」。
+#   所以预设密码只在「给一个该号没用过的新密码」时才行得通，
+#   填了当前密码会被拒（页面会写：请使用您以前没有用过的密码重试）。
+#
+# 例（把行首的 # 去掉即可生效）：
+# alias+tag@outlook.com	YourNewPassw0rd!	recovery+tag@outlook.com
+# user001@your-domain.com		recovery+001@outlook.com

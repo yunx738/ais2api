@@ -1,3 +1,4 @@
+const sameOrigin=req=>{try{const o=new URL(req.headers.origin);return ["https:","http:"].includes(o.protocol)&&o.host===req.headers.host;}catch{return false;}};
 const fs = require("fs"), path = require("path"), crypto = require("crypto");
 module.exports = function(app, system) {
   const guard = (req,res,next) => {
@@ -12,7 +13,7 @@ module.exports = function(app, system) {
     res.send(fs.readFileSync(path.join(__dirname,"import-ui.html"),"utf8").replace("__CSRF_TOKEN__",req.session.importToken));
   });
   app.post("/api/import-account",guard,(req,res)=>{
-    if(req.headers.origin !== "https://aisbuild.129357.xyz" || !req.session.importToken || req.get("X-Import-Token") !== req.session.importToken)
+    if(!sameOrigin(req) || !req.session.importToken || req.get("X-Import-Token") !== req.session.importToken)
       return res.status(403).json({error:"请求校验失败，请刷新导入页面"});
     if(!req.is("application/json")) return res.status(415).json({error:"仅支持JSON"});
     if(system.authSource.authMode !== "file") return res.status(409).json({error:"非文件认证模式"});

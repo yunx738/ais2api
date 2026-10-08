@@ -111,6 +111,35 @@ function createServer({keys,models,scheduler,status,actions}){
     try{return json(res,200,await actions.revalidateAccount(await readBody()));}
     catch(e){const code=[400,409].includes(e.statusCode)?e.statusCode:503;return json(res,code,{error:code===503?'恢复未确认':e.message});}
    }
+   if(req.method==='GET'&&url.pathname==='/internal/client-script'){
+    try{const body=require('fs').readFileSync(require('path').join(__dirname,'black-browser.js'),'utf8');
+     res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'});return res.end(body);}
+    catch{return json(res,503,{error:'脚本不可用'});}
+   }
+   if(url.pathname==='/internal/target-app'){
+    if(req.method==='GET')return json(res,200,actions.targetApp());
+    if(req.method==='POST'){
+     try{const body=await readBody();return json(res,200,body?.action==='apply'?actions.applyTargetApp():actions.saveTargetApp(body));}
+     catch(e){return json(res,[400,409].includes(e.statusCode)?e.statusCode:503,{error:[400,409].includes(e.statusCode)?e.message:'保存未确认'});}
+    }
+   }
+   if(url.pathname==='/internal/run-mode'){
+    if(req.method==='GET')return json(res,200,actions.runMode());
+    if(req.method==='POST'){
+     try{return json(res,200,actions.setRunMode(await readBody()));}
+     catch(e){return json(res,[400,409].includes(e.statusCode)?e.statusCode:503,{error:[400,409].includes(e.statusCode)?e.message:'切换未确认'});}
+    }
+   }
+   if(url.pathname==='/internal/browser-lease'){
+    if(req.method==='GET')return json(res,200,{lease:actions.leaseStatus()});
+    if(req.method==='POST'){
+     try{const body=await readBody();
+      if(body.action==='acquire')return json(res,200,await actions.leaseAcquire(body));
+      if(body.action==='release')return json(res,200,await actions.leaseRelease());
+      return json(res,400,{error:'Invalid action'});
+     }catch(e){return json(res,e.statusCode===409?409:503,{error:e.statusCode===409?e.message:'实例暂停或恢复未确认'});}
+    }
+   }
    if(req.method==='POST' && url.pathname==='/internal/sync-accounts')
     return json(res,200,await actions.syncAccounts());
    const native=/^\/v1beta\/models\/[a-zA-Z0-9._-]+:(generateContent|streamGenerateContent)$/.test(url.pathname);

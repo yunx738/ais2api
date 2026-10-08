@@ -20,6 +20,22 @@ const AT_SYSTEM_HINT =
   "Do not output the answer as plain text. Do not stop early. " +
   "If the answer is long, call emit_answer once with the complete content.";
 
+// Google rejects a conversation whose last turn is the model. Turn trailing
+// plain-text model turns into user turns; tool-call turns are left untouched.
+function fixTrailingModelTurn(body, logger) {
+  if (!body || !Array.isArray(body.contents) || !body.contents.length) return body;
+  let changed = 0;
+  for (let i = body.contents.length - 1; i >= 0; i--) {
+    const c = body.contents[i];
+    if (!c || c.role !== "model") break;
+    const parts = Array.isArray(c.parts) ? c.parts : [];
+    if (parts.some((p) => p && (p.functionCall || p.functionResponse))) break;
+    body.contents[i] = { ...c, role: "user" };
+    changed++;
+  }
+  if (changed && logger) logger.info("[Adapter] 末尾 " + changed + " 条助手消息已改为用户消息");
+  return body;
+}
 function atIsEnabled(modelName) {
   return typeof modelName === "string" && modelName.startsWith(AT_PREFIX);
 }
@@ -92,7 +108,7 @@ function atBuildContinuationBody(googleBody, googleResponse, prevAnswer) {
   }
   return body;
 }
-  return { AT_PREFIX, AT_TOOL_NAME, AT_MAX_ATTEMPTS, atIsEnabled, atRealModel, atInjectTools, atExtractAnswer, atBuildContinuationBody };
+  return { AT_PREFIX, AT_TOOL_NAME, AT_MAX_ATTEMPTS, fixTrailingModelTurn, atIsEnabled, atRealModel, atInjectTools, atExtractAnswer, atBuildContinuationBody };
 })();
 
 // ===================================================================================
@@ -1436,6 +1452,7 @@ class RequestHandler {
     let googleBody;
     try {
       googleBody = this._translateOpenAIToGoogle(req.body, model);
+      AT.fixTrailingModelTurn(googleBody, this.logger);
     const atEnabled = AT.atIsEnabled(model);
     if (atEnabled) {
       const atReal = AT.atRealModel(model);
@@ -1725,6 +1742,9 @@ class RequestHandler {
       }
     }
 
+    if (req.method === "POST" && bodyObj && Array.isArray(bodyObj.contents) && /:(generateContent|streamGenerateContent)$/.test(req.path || "")) {
+      AT.fixTrailingModelTurn(bodyObj, this.logger);
+    }
     let requestBody = "";
     if (bodyObj) {
       requestBody = JSON.stringify(bodyObj);
@@ -2549,7 +2569,7 @@ class ProxyServerSystem extends EventEmitter {
       immediateSwitchStatusCodes: [429, 503],
       // [新增] 用于追踪API密钥来源
       apiKeySource: "未设置",
-      targetUrl: "https://ai.studio/apps/59d6e5ae-e3bb-494d-b942-2da1adab2ba0",
+      targetUrl: "",
     };
 
     const configPath = path.join(__dirname, "config.json");

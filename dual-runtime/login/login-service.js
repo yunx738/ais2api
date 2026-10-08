@@ -9,14 +9,18 @@ const UPFILE='/opt/ais2api-direct/login-upstream.env';
 const RUNNER=path.join(RT,'login','login-runner.js');
 const jobs=new Map();
 const creds=require('./login-credentials');
+const ws=require('./workspace');
 const eq=(a,b)=>{const x=Buffer.from(String(a)),y=Buffer.from(String(b));return x.length===y.length&&crypto.timingSafeEqual(x,y);};
 const send=(res,code,body)=>{res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(body));};
 const EMAIL=/^[^\s@]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,}$/i;
 const DOMAIN=/^\.?([a-z0-9-]+\.)*google\.com$/i;
 const ORIGINS=['https://aistudio.google.com','https://ai.studio','https://accounts.google.com'];
 function upstream(){try{const l=fs.readFileSync(UPFILE,'utf8').split('\n').find(x=>x.startsWith('UPSTREAM='));return l?l.slice(9).trim():'';}catch{return '';}}
-function memMb(){try{return Number(fs.readFileSync('/proc/meminfo','utf8').match(/MemAvailable:\s+(\d+)/)[1])/1024;}catch{return 0;}}
-function view(j){return {id:j.id,status:j.status,step:j.step,need:j.need||null,message:j.message||'',account:j.account||null};}
+function memInfo(){try{const t=fs.readFileSync('/proc/meminfo','utf8'),g=k=>Number((t.match(new RegExp(k+':\\s+(\\d+)'))||[])[1]||0)/1024;return {avail:g('MemAvailable'),swap:g('SwapFree')};}catch{return {avail:0,swap:0};}}
+// One login peaks around 650 MB. Allow it to spill into swap instead of refusing outright.
+function memOk(){const m=memInfo();return m.avail>=400&&m.avail+m.swap>=1500;}
+function busy(){return [...jobs.values()].some(j=>j.child||j.leased||j.status==='running'||j.status==='need');}
+function view(j){return {id:j.id,status:j.status,step:j.step,need:j.need||null,message:j.message||'',account:j.account||null,resume:j.resume||null};}
 function cleanStorage(storage){
  const cookies=(storage.cookies||[]).filter(c=>c&&typeof c.name==='string'&&c.name&&c.name.length<=256&&
   typeof c.value==='string'&&c.value.length<=16384&&typeof c.domain==='string'&&DOMAIN.test(c.domain)&&
@@ -58,9 +62,12 @@ function coord(method,p,body){
   const payload=body===undefined?'':JSON.stringify(body);
   const req=http.request({host:'127.0.0.1',port:8890,path:p,method,headers:{Authorization:'Bearer '+KEY,'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)}},r=>{
    let s='';r.on('data',d=>{s+=d;});r.on('end',()=>{try{resolve({status:r.statusCode,body:JSON.parse(s)});}catch{resolve({status:r.statusCode,body:null});}});});
-  req.on('error',()=>resolve({status:0,body:null}));req.setTimeout(15000,()=>{req.destroy();resolve({status:0,body:null});});req.end(payload);
+  req.on('error',()=>resolve({status:0,body:null}));req.setTimeout(p==='/internal/browser-lease'?420000:15000,()=>{req.destroy();resolve({status:0,body:null});});req.end(payload);
  });
 }
+async function leaseAcquire(owner){const r=await coord('POST','/internal/browser-lease',{action:'acquire',owner});
+ if(r.status!==200)throw Error((r.body&&r.body.error)||'暂停实例失败');return r.body;}
+async function leaseRelease(){for(let i=0;i<3;i++){const r=await coord('POST','/internal/browser-lease',{action:'release'});if(r.status===200)return true;await new Promise(x=>setTimeout(x,5000));}return false;}
 function syncPool(){
  return new Promise(resolve=>{
   const req=http.request({host:'127.0.0.1',port:8890,path:'/internal/sync-accounts',method:'POST',
@@ -78,8 +85,13 @@ function startJob(email,password,opts={}){
  const id=crypto.randomUUID(),name='ais-login-'+id.slice(0,8);
  const job={id,name,email,target:opts.target||null,auto:!!opts.auto,status:'running',step:'starting',need:null,message:'',account:null,created:Date.now(),updated:Date.now()};
  jobs.set(id,job);
- const up=upstream();
- const child=spawn('docker',['run','--rm','-i','--name',name,'--user','1000:1000','--memory','1100m','--shm-size','256m',
+ (async()=>{
+ try{job.step='pausing_worker';await leaseAcquire('login:'+id.slice(0,8));job.leased=true;}
+ catch(e){job.status='failed';job.message=e.message;job.updated=Date.now();password=null;return;}
+ if(job.status!=='running'){password=null;job.leased=false;await leaseRelease();return;}
+ job.step='starting';job.updated=Date.now();
+ const up=ws.upstreamFor();
+ const child=spawn('docker',['run','--rm','-i','--name',name,'--user','1000:1000','--memory','700m','--memory-swap','1400m','--shm-size','256m',
   '--pids-limit','256','--cap-drop','ALL','--security-opt','no-new-privileges:true','--log-driver','none',
   '-v',RUNNER+':/app/login-runner.js:ro','-v','/opt/ais2api/proxy-relay:/relay:ro',
   '--entrypoint','node',IMAGE,'/app/login-runner.js'],{stdio:['pipe','pipe','ignore']});
@@ -110,9 +122,51 @@ function startJob(email,password,opts={}){
    }
   }
  });
- child.on('close',()=>{job.child=null;if(job.status==='running'||job.status==='need'){job.status='failed';job.message=job.message||'登录进程已结束';}});
+ child.on('close',async()=>{job.child=null;if(job.status==='running'||job.status==='need'){job.status='failed';job.message=job.message||'登录进程已结束';}
+  if(job.leased){job.leased=false;job.resume='resuming';const ok=await leaseRelease();job.resume=ok?'ok':'failed';job.updated=Date.now();}});
+ })();
  return job;
 }
+
+function wsSpawn(args,env,name){
+ return spawn('docker',['run','--rm','-i','--name',name,'--user','1000:1000','--memory','700m','--memory-swap','1400m','--shm-size','256m',
+  '--pids-limit','256','--cap-drop','ALL','--security-opt','no-new-privileges:true','--log-driver','none',
+  '-v',ws.DIR+':/src:ro','-v',ws.DATA+':/data',...Object.keys(env).flatMap(k=>['-e',k]),
+  '--entrypoint','python',ws.IMAGE,'/src/ws-runner.py',...args],{stdio:['ignore','pipe','ignore'],env:{...process.env,...env}});
+}
+function wsJob(kind,args,opts={}){
+ const id=crypto.randomUUID();
+ const job={id,kind,status:'running',step:opts.lease?'pausing_worker':'starting',need:null,message:'',account:null,log:[],items:null,created:Date.now(),updated:Date.now()};
+ jobs.set(id,job);
+ (async()=>{
+  if(opts.lease){try{await leaseAcquire('ws:'+id.slice(0,8));job.leased=true;}catch(e){job.status='failed';job.message=e.message;job.updated=Date.now();return;}}
+  if(job.status!=='running'){if(job.leased){job.leased=false;await leaseRelease();}return;}
+  job.step='running';
+  const env=opts.proxy?{WS_UPSTREAM:ws.upstreamFor()}:{};
+  job.name='ais-ws-'+id.slice(0,8);const child=wsSpawn(args,env,job.name);job.child=child;let buf='';
+  child.stdout.on('data',async d=>{buf+=d;if(buf.length>1048576)buf='';let i;while((i=buf.indexOf('\n'))>=0){const line=buf.slice(0,i);buf=buf.slice(i+1);
+   let m;try{m=JSON.parse(line);}catch{continue;}job.updated=Date.now();
+   if(m.type==='log'){job.log.push(String(m.text).replace(/(密码|password|secret|code)[^\s]*\s*[:：=]\s*\S+/gi,'$1 ***'));if(job.log.length>60)job.log.shift();}
+   else if(m.type==='need'){job.status='need';job.need={kind:m.kind,uri:m.uri,code:m.code};}
+   else if(m.type==='result'){job.need=null;if(!m.ok){job.status='failed';job.message=m.message||'失败';job.account=m.account||null;continue;}
+    if(m.items)job.items=m.items;
+    if(kind==='run'&&m.cookies){try{job.account=importWs(m.cookies);job.email=m.account;const ok=await syncPool();job.message=ok?'':'已保存，同步账号池未确认';}catch(e){job.status='failed';job.message=e.message;continue;}}
+    job.status='done';}
+  }});
+  child.on('close',async()=>{job.child=null;if(job.status==='running'||job.status==='need'){job.status='failed';job.message=job.message||'进程已结束';}
+   if(job.leased){job.leased=false;job.resume='resuming';const ok=await leaseRelease();job.resume=ok?'ok':'failed';job.updated=Date.now();}});
+ })();
+ return job;
+}
+function importWs(name){
+ if(!/^[A-Za-z0-9._@-]{1,200}\.json$/.test(name))throw Error('登录态文件名异常');
+ const d=JSON.parse(fs.readFileSync(path.join(ws.DATA,'output','cookies',name),'utf8'));
+ const email=String(d.accountName||'').toLowerCase();
+ const dup=alreadyImported(email);
+ if(dup){refreshAccount(dup,d);return dup;}
+ return writeAccount(d,email);
+}
+function wsView(j){return {id:j.id,kind:j.kind,status:j.status,step:j.step,need:j.need,message:j.message,account:j.account,email:j.email||null,items:j.items,log:j.log.slice(-30),resume:j.resume||null};}
 function cancel(job){
  if(job.child){try{job.child.stdin.write('{"cancel":true}\n');}catch{}
   setTimeout(()=>spawn('docker',['rm','-f',job.name],{stdio:'ignore'}),3000);}
@@ -131,10 +185,32 @@ http.createServer(async(req,res)=>{
    const b=await body(req);const email=String(b.email||'').trim().toLowerCase(),password=String(b.password||'');
    if(!EMAIL.test(email)||!password||password.length>256)return send(res,400,{error:'邮箱或密码格式不正确'});
    const dup=alreadyImported(email);if(dup)return send(res,409,{error:'该邮箱已在账号池中（账号 '+dup+'）'});
-   if([...jobs.values()].some(j=>j.child))return send(res,409,{error:'已有登录在进行，请稍候'});
-   if(memMb()<900)return send(res,503,{error:'服务器内存不足，暂不能登录'});
+   if(busy())return send(res,409,{error:'已有登录在进行，请稍候'});
+   if(!memOk())return send(res,503,{error:'服务器内存不足，暂不能登录'});
    return send(res,202,view(startJob(email,password,{remember:b.remember===true})));
   }
+  if(url.pathname==='/ws/config'){
+   if(req.method==='GET'){const c=ws.config();const tok=fs.existsSync(path.join(ws.DATA,'mailbox-token.json'));return send(res,200,{config:c,mailAuthorized:tok,proxy:ws.proxyView(),busy:busy()});}
+   if(req.method==='POST'){try{return send(res,200,{config:ws.saveConfig(await body(req))});}catch(e){return send(res,400,{error:e.message});}}
+  }
+  if(url.pathname==='/login-proxy'&&req.method==='POST'){try{return send(res,200,{proxy:ws.saveProxy(await body(req))});}catch(e){return send(res,400,{error:e.message});}}
+  if(url.pathname==='/ws/start'&&req.method==='POST'){
+   const b=await body(req);const c=ws.config();
+   if(b.kind==='mail-auth'&&c.mail_provider==='tempmail')return send(res,409,{error:'临时邮箱无需授权'});
+   if(c.mail_provider==='tempmail'?!(c.tempmail_address||c.tempmail_name):(!c.graph_client_id||!c.mailbox))return send(res,409,{error:'请先完成收信邮箱设置'});
+   if(busy())return send(res,409,{error:'已有登录任务在进行，请稍候'});
+   if(b.kind==='mail-auth')return send(res,202,wsView(wsJob('mail-auth',['mail-auth'])));
+   if(b.kind==='list')return send(res,202,wsView(wsJob('list',['list'])));
+   if(b.kind==='run'){const mid=String(b.mailId||'');if(!/^[A-Za-z0-9=_+\/-]{1,300}$/.test(mid))return send(res,400,{error:'邮件编号无效'});
+    if(!c.domain||!c.recovery_email)return send(res,409,{error:'请先填写域名和辅助邮箱'});
+    if(!memOk())return send(res,503,{error:'服务器内存不足，暂不能登录'});
+    return send(res,202,wsView(wsJob('run',['run',mid],{lease:true,proxy:true})));}
+   return send(res,400,{error:'操作无效'});
+  }
+  const wm=url.pathname.match(/^\/ws\/([0-9a-f-]{36})(\/cancel)?$/);
+  if(wm){const j=jobs.get(wm[1]);if(!j||!j.kind)return send(res,404,{error:'任务不存在或已过期'});
+   if(req.method==='GET'&&!wm[2])return send(res,200,wsView(j));
+   if(req.method==='POST'&&wm[2]){if(j.child&&j.name)spawn('docker',['rm','-f',j.name],{stdio:'ignore'});if(j.status==='running'||j.status==='need'){j.status='failed';j.message='已取消';}return send(res,200,wsView(j));}}
   const m=url.pathname.match(/^\/login\/([0-9a-f-]{36})(\/(input|cancel))?$/);
   if(!m)return send(res,404,{error:'Not found'});
   const job=jobs.get(m[1]);if(!job)return send(res,404,{error:'登录任务不存在或已过期'});
@@ -154,7 +230,7 @@ http.createServer(async(req,res)=>{
 const RETRY_MS=6*3600000;
 async function autoRelogin(){
  try{
-  if([...jobs.values()].some(j=>j.child)||memMb()<900)return;
+  if(busy()||!memOk())return;
   const r=await coord('GET','/internal/coordinator-status');
   if(r.status!==200||!r.body||!Array.isArray(r.body.accounts))return;
   const stored=creds.meta();

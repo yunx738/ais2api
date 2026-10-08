@@ -1,25 +1,129 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'"><title>转换与导入账号</title>
-<style>body{font-family:system-ui;max-width:720px;margin:24px auto;padding:16px;line-height:1.6}textarea{box-sizing:border-box;width:100%;min-height:220px;font:14px monospace}button{padding:12px;margin:8px 6px 8px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#eee;padding:12px}small{color:#555}</style></head>
-<body><a href="/">返回管理页面</a>
-<h2>账号密码登录</h2>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'"><title>账号</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--line:#e3e5e8;--txt:#1d1f23;--sub:#6b7078;--pri:#2563eb;--ok:#16a34a;--warn:#d97706;--bad:#dc2626}
+@media(prefers-color-scheme:dark){:root{--bg:#111316;--card:#1b1e23;--line:#2c3038;--txt:#e7e9ec;--sub:#9aa0a8;--pri:#5b8cff}}
+*{box-sizing:border-box}html,body{margin:0}body{font:15px/1.5 system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--txt);padding-bottom:calc(72px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--card);border-bottom:1px solid var(--line)}
+header a{color:var(--pri);text-decoration:none;font-size:14px}header h1{flex:1;margin:0;font-size:17px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:99px;font-size:12px;background:var(--bg);color:var(--sub);white-space:nowrap}
+.chip i{width:8px;height:8px;border-radius:50%;background:var(--sub)}.chip.ok i{background:var(--ok)}.chip.warn i{background:var(--warn)}.chip.bad i{background:var(--bad)}
+main{max-width:640px;margin:0 auto;padding:12px}
+section[data-tab]{display:none}section[data-tab].on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.card h2{margin:0 0 10px;font-size:15px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+label.f{display:block;font-size:13px;color:var(--sub);margin:10px 0 4px}
+input:not([type=checkbox]):not([type=file]),select,textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--txt);font:inherit}
+textarea{min-height:160px;font:13px ui-monospace,monospace}
+.row{display:flex;gap:8px}.row>*{flex:1;min-width:0}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+button{min-height:42px;padding:0 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--txt);font:inherit;cursor:pointer}
+button.p{background:var(--pri);border-color:var(--pri);color:#fff}button:disabled{opacity:.45}
+.btns button{flex:1 1 auto}
+.chk{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:14px}
+.sw{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sw input{appearance:none;width:46px;height:26px;border-radius:99px;background:var(--line);position:relative;flex:none;margin:0;cursor:pointer}
+.sw input::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+.sw input:checked{background:var(--pri)}.sw input:checked::after{left:23px}.sw input:disabled{opacity:.5}
+.sub{color:var(--sub);font-size:13px}
+pre.out{margin:12px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-radius:10px;padding:10px;font-size:13px;max-height:260px;overflow:auto}pre.out:empty{display:none}
+.item{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}.item:first-child{border-top:0}
+.item div{flex:1;min-width:0}.item b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#wcode{font-size:24px;letter-spacing:2px}
+nav{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;border-radius:0;background:none;min-height:58px;color:var(--sub);font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+nav button svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8}
+nav button.on{color:var(--pri)}
+dialog{border:0;border-radius:16px;padding:0;width:min(560px,calc(100vw - 24px));max-height:calc(100vh - 32px);background:var(--card);color:var(--txt)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+.dh{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)}.dh b{font-size:16px}
+.db{padding:14px 16px;overflow:auto;max-height:calc(100vh - 170px)}
+.df{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}.df button{flex:1}
+ol.steps{margin:0;padding-left:20px}ol.steps li{margin:0 0 12px}ol.steps code{background:var(--bg);padding:1px 6px;border-radius:6px;font-size:13px;word-break:break-all}
+.x{min-height:36px;padding:0 10px;border:0;background:none;font-size:20px;color:var(--sub)}
+.warn{background:rgba(217,119,6,.12);color:var(--txt);border-radius:10px;padding:8px 10px;font-size:13px;margin:10px 0 0}
+</style></head>
+<body>
+<header><a href="/">‹ 管理</a><h1>账号</h1><span id="mchip" class="chip"><i></i><span id="mtext">…</span></span></header>
+<main>
+<section data-tab="login" class="on">
+<div class="card"><h2>账号密码登录</h2>
 <form id="lf" autocomplete="off" onsubmit="return false">
-<p><label for="le">邮箱</label><br><input id="le" type="email" autocomplete="off" autocapitalize="off" spellcheck="false" style="width:100%;box-sizing:border-box;padding:10px"></p>
-<p><label for="lp">密码</label><br><input id="lp" type="password" autocomplete="new-password" style="width:100%;box-sizing:border-box;padding:10px"></p>
-<p><label><input id="lrem" type="checkbox" checked> 记住密码，失效后自动重新登录</label></p>
-<p><button id="lgo" type="button">登录并添加</button><button id="lcancel" type="button" disabled>取消</button></p>
-<div id="lneed" hidden><p id="lprompt"></p><p><input id="lv" autocomplete="one-time-code" style="width:100%;box-sizing:border-box;padding:10px"></p><p><button id="lsend" type="button">提交</button></p></div>
+<label class="f" for="le">邮箱</label><input id="le" type="email" autocomplete="off" autocapitalize="off" spellcheck="false">
+<label class="f" for="lp">密码</label><input id="lp" type="password" autocomplete="new-password">
+<label class="chk"><input id="lrem" type="checkbox" checked>记住密码，失效后自动重新登录</label>
+<div class="btns"><button id="lgo" class="p" type="button">登录并添加</button><button id="lcancel" type="button" disabled>取消</button></div>
+<div id="lneed" hidden><label class="f" id="lprompt" for="lv"></label><div class="row"><input id="lv" autocomplete="one-time-code"><button id="lsend" class="p" type="button" style="flex:none">提交</button></div></div>
 </form>
-<pre id="lres" role="status" aria-live="polite"></pre>
-<hr>
-<h2>Cookie 导入</h2>
-
-<label for="file">选择 Cookie 导出 JSON 或 Playwright storageState 文件</label><p><input id="file" type="file" accept=".json,application/json"></p>
-<label for="raw">或粘贴 Cookies JSON</label>
-<textarea id="raw" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴 Cookie 数组 […] 或完整的 {cookies: […], origins: […]} JSON"></textarea>
-
-<p><button id="convert">① 本地转换 / 校验</button><button id="send" disabled>② 确认导入</button><button id="clear">清空</button></p>
-<pre id="result" role="status" aria-live="polite"></pre>
+<pre id="lres" class="out" role="status" aria-live="polite"></pre></div>
+</section>
+<section data-tab="ws">
+<div class="card"><h2>Workspace 激活<span id="wstat" class="sub"></span></h2>
+<div class="btns" style="margin-top:0"><button id="wlist" class="p" type="button">读取待激活</button><button id="wauth" type="button">授权邮箱</button><button id="wcancel" type="button" disabled>取消</button></div>
+<div id="wneed" hidden><p>打开 <a id="wuri" target="_blank" rel="noopener noreferrer"></a> 输入</p><pre id="wcode"></pre></div>
+<div id="witems" style="margin-top:8px"></div>
+<pre id="wres" class="out" role="status" aria-live="polite"></pre></div>
+</section>
+<section data-tab="cookie">
+<div class="card"><h2>Cookie 导入</h2>
+<label class="f" for="file">JSON 文件</label><input id="file" type="file" accept=".json,application/json">
+<label class="f" for="raw">或粘贴</label>
+<textarea id="raw" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="[…] 或 {cookies:[…],origins:[…]}"></textarea>
+<div class="btns"><button id="convert" type="button">校验</button><button id="send" class="p" type="button" disabled>导入</button><button id="clear" type="button">清空</button></div>
+<pre id="result" class="out" role="status" aria-live="polite"></pre></div>
+</section>
+<section data-tab="set">
+<div class="card"><h2>AI Studio 应用<button id="tahelp" type="button" style="min-height:32px;padding:0 12px;font-size:13px">教程</button></h2>
+<div id="tastat" class="sub"></div>
+<label class="f" for="taurl">应用链接</label><input id="taurl" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://ai.studio/apps/…">
+<div class="btns"><button id="tasave" class="p" type="button">保存</button><button id="taapply" type="button">立即生效</button></div>
+<pre id="tares" class="out"></pre></div>
+<div class="card"><div class="sw"><div><b>单实例运行</b><div id="msub" class="sub"></div></div><input id="msingle" type="checkbox" aria-label="单实例运行"></div><pre id="mres" class="out"></pre></div>
+<div class="card"><h2>登录代理<span id="pxs" class="sub"></span></h2>
+<form onsubmit="return false" autocomplete="off">
+<div class="row"><select id="pxt" style="flex:0 0 110px"><option value="socks5">SOCKS5</option><option value="http">HTTP</option></select><input id="pxh" placeholder="地址"></div>
+<div class="row" style="margin-top:8px"><input id="pxp" type="number" inputmode="numeric" placeholder="端口" style="flex:0 0 110px"><input id="pxu" placeholder="用户名" autocomplete="off"></div>
+<input id="pxw" type="password" placeholder="密码（留空不改）" autocomplete="new-password" style="margin-top:8px">
+<label class="chk"><input id="pxe" type="checkbox" checked>启用</label>
+<div class="btns"><button id="pxsave" class="p" type="button">保存</button><button id="pxclear" type="button">恢复默认</button></div>
+</form></div>
+<div class="card" id="wcfgbox"><h2>Workspace</h2>
+<form onsubmit="return false" autocomplete="off">
+<label class="f" for="wdom">账号域名</label><input id="wdom">
+<div class="row"><div><label class="f" for="wtn">临时邮箱名</label><input id="wtn"></div><div><label class="f" for="wta">接口密码</label><input id="wta" type="password" placeholder="留空不改" autocomplete="new-password"></div></div>
+<label class="f" for="wrec">辅助邮箱</label><input id="wrec" type="email">
+<label class="f" for="wkey">主题关键词</label><input id="wkey" placeholder="逗号分隔">
+<details style="margin-top:10px"><summary class="sub">Graph 收信</summary>
+<label class="f" for="wmail">收信邮箱</label><input id="wmail" type="email">
+<label class="f" for="wcid">Azure 应用 ID</label><input id="wcid"></details>
+<div class="btns"><button id="wsave" class="p" type="button">保存</button></div>
+</form></div>
+</section>
+</main>
+<dialog id="tadlg">
+<div class="dh"><b>配置 AI Studio 应用</b><button class="x" type="button" data-close aria-label="关闭">×</button></div>
+<div class="db">
+<ol class="steps">
+<li>用任意一个已加入账号池的 Google 账号打开 <a href="https://aistudio.google.com/apps" target="_blank" rel="noopener noreferrer">aistudio.google.com/apps</a>，点 <b>Build</b> 新建一个空白应用。</li>
+<li>在左侧文件中打开入口脚本（通常是 <code>index.tsx</code> 或 <code>index.js</code>），删除全部内容。</li>
+<li>点下方“复制客户端脚本”，粘贴进去并保存。脚本连接地址保持 <code>ws://127.0.0.1:9998</code> 不变。</li>
+<li>右侧预览出现 <code>[ProxyClient]</code> 开头的日志即表示脚本已运行；断开连接的报错可忽略。</li>
+<li>点右上角 <b>Share</b>，访问权限设为 <b>Anyone with the link</b>，账号池里的其他账号才能打开。</li>
+<li>复制浏览器地址栏中的链接，格式为 <code>https://ai.studio/apps/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx</code>，填入下方并保存。</li>
+<li>点“立即生效”，两个实例会依次换号重启并加载新应用；不点则在下次换号时生效。</li>
+</ol>
+<div class="warn">应用链接只保存在服务器上，不会写入代码仓库。不要把链接公开，被删除或改为私有后需要重新配置。</div>
+<label class="f" for="taurl2">应用链接</label><input id="taurl2" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://ai.studio/apps/…">
+<pre id="tares2" class="out"></pre>
+</div>
+<div class="df"><button id="tacopy" type="button">复制客户端脚本</button><button id="tasave2" class="p" type="button">保存</button></div>
+</dialog>
+<nav>
+<button type="button" data-go="login" class="on"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>登录</button>
+<button type="button" data-go="ws"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>激活</button>
+<button type="button" data-go="cookie"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg>导入</button>
+<button type="button" data-go="set"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 14H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 3V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 10h0a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>设置</button>
+</nav>
 <script>
 "use strict";
 const token="__CSRF_TOKEN__",limit=262144;
@@ -93,7 +197,7 @@ $("send").onclick=async()=>{
 };
 window.addEventListener("pagehide",()=>{reset();$("raw").value="";$("file").value="";});
 let job=null,timer=null;
-const STEP={starting:"正在启动",open:"正在打开登录页",email:"已提交邮箱",password:"已提交密码，等待结果",verifying:"正在验证"};
+const STEP={pausing_worker:"正在暂停一个实例",starting:"正在启动",open:"正在打开登录页",email:"已提交邮箱",password:"已提交密码，等待结果",verifying:"正在验证"};
 function lbusy(on){$("lgo").disabled=on;$("le").disabled=on;$("lp").disabled=on;$("lcancel").disabled=!on;}
 async function lpost(url,body){const r=await fetch(url,{method:"POST",credentials:"same-origin",redirect:"error",headers:{"Content-Type":"application/json","X-Import-Token":token},body:JSON.stringify(body)});return {ok:r.ok,d:await r.json().catch(()=>({}))};}
 function lshow(j){
@@ -119,4 +223,95 @@ $("lsend").onclick=async()=>{const v=$("lv").value.trim();if(!v||!job)return;$("
  finally{$("lsend").disabled=false;}};
 $("lcancel").onclick=async()=>{if(!job)return;await lpost("/api/login/job",{id:job,action:"cancel"}).catch(()=>{});$("lres").textContent="已取消";stop();};
 window.addEventListener("pagehide",()=>{$("lp").value="";$("lv").value="";});
+// ---- login proxy + workspace ----
+const WSTEP={pausing_worker:"正在暂停一个实例",starting:"正在启动",running:"执行中"};
+let wjob=null,wtimer=null;
+function pxShow(p){$("pxs").textContent=p&&p.host?((p.enabled?"使用中：":"已停用：")+p.type+" "+p.host+":"+p.port+(p.username?"（"+p.username+"）":"")):(p&&p.source==="default"?"使用默认登录代理":"直连");
+ if(p&&p.host){$("pxt").value=p.type;$("pxh").value=p.host;$("pxp").value=p.port;$("pxu").value=p.username||"";$("pxe").checked=p.enabled;}}
+async function wload(){try{const r=await fetch("/api/ws/config",{credentials:"same-origin",redirect:"error"});const d=await r.json();if(!r.ok){$("wstat").textContent=d.error||"读取失败";return;}
+ const c=d.config;$("wdom").value=c.domain||"";$("wmail").value=c.mailbox||"";$("wtn").value=c.tempmail_name||"";$("wcid").value=c.graph_client_id||"";$("wrec").value=c.recovery_email||"";$("wkey").value=(c.mail_subject_keywords||[]).join(",");
+ const ready=c.domain&&(c.tempmail_name||c.mailbox)&&c.recovery_email;
+ $("wstat").textContent=(ready?"":"设置未完成 · ")+(d.mailAuthorized?"邮箱已授权":"邮箱未授权");pxShow(d.proxy);}catch{$("wstat").textContent="读取失败";}}
+$("pxsave").onclick=async()=>{const {ok,d}=await lpost("/api/login-proxy",{type:$("pxt").value,host:$("pxh").value.trim(),port:Number($("pxp").value),username:$("pxu").value.trim(),password:$("pxw").value,enabled:$("pxe").checked}).catch(()=>({ok:false,d:{}}));$("pxw").value="";
+ if(!ok){$("pxs").textContent=d.error||"保存失败";return;}pxShow(d.proxy);};
+$("pxclear").onclick=async()=>{const {ok,d}=await lpost("/api/login-proxy",{clear:true}).catch(()=>({ok:false,d:{}}));if(ok){["pxh","pxp","pxu","pxw"].forEach(k=>$(k).value="");pxShow(d.proxy);}};
+$("wsave").onclick=async()=>{const {ok,d}=await lpost("/api/ws/config",{domain:$("wdom").value.trim(),mailbox:$("wmail").value.trim(),graph_client_id:$("wcid").value.trim(),tempmail_admin:$("wta").value,tempmail_name:$("wtn").value.trim(),recovery_email:$("wrec").value.trim(),mail_subject_keywords:$("wkey").value.split(/[,，]/).map(x=>x.trim()).filter(Boolean)}).catch(()=>({ok:false,d:{}}));
+ $("wres").textContent=ok?"已保存":(d.error||"保存失败");if(ok)wload();};
+function wbusy(b){["wauth","wlist"].forEach(k=>$(k).disabled=b);$("wcancel").disabled=!b;document.querySelectorAll(".wrun").forEach(x=>x.disabled=b);}
+function wstop(){clearInterval(wtimer);wtimer=null;wjob=null;wbusy(false);$("wneed").hidden=true;}
+function witems(list){const box=$("witems");box.textContent="";if(!list.length){box.innerHTML='<p class="sub">没有待激活的账号</p>';return;}
+ for(const it of list){const row=document.createElement("div");row.className="item";
+  const info=document.createElement("div"),t=document.createElement("b"),m=document.createElement("span");t.textContent=it.alias||"(未知收件人)";m.className="sub";m.textContent=it.time||"";info.append(t,m);
+  const b=document.createElement("button");b.className="wrun p";b.type="button";b.textContent="激活";b.onclick=()=>wstart("run",it.id);
+  row.append(info,b);box.append(row);}}
+function wshow(j){
+ if(j.status==="need"&&j.need&&j.need.kind==="device"){$("wneed").hidden=false;$("wuri").href=j.need.uri;$("wuri").textContent=j.need.uri;$("wcode").textContent=j.need.code;$("wres").textContent="等待授权";return;}
+ $("wneed").hidden=true;const log=(j.log||[]).join("\n");
+ const resume=j.resume==="failed"?"\n实例恢复未确认，请查看管理页面":"";
+ if(j.status==="done"){
+  if(j.kind==="list"){witems(j.items||[]);$("wres").textContent="";}
+  else if(j.kind==="mail-auth"){$("wres").textContent="邮箱授权成功";wload();}
+  else $("wres").textContent="添加成功：账号 "+j.account+(j.email?"（"+j.email+"）":"")+(j.message?"\n"+j.message:"")+resume;
+  if(j.resume!=="resuming")wstop();return;}
+ if(j.status==="failed"){$("wres").textContent="失败："+(j.message||"")+resume+(log?"\n\n"+log:"");if(j.resume!=="resuming")wstop();return;}
+ $("wres").textContent=(WSTEP[j.step]||"处理中")+(log?"\n\n"+log:"");}
+async function wpoll(){if(!wjob)return;try{const r=await fetch("/api/ws/job?id="+wjob,{credentials:"same-origin",redirect:"error"});const d=await r.json();if(!r.ok){$("wres").textContent=d.error||"查询失败";wstop();return;}wshow(d);}catch{}}
+async function wstart(kind,mailId){if(kind==="run"&&!confirm("将为这个账号改密、绑定两步验证和辅助邮箱，并"+pauseText()+"。继续？"))return;
+ wbusy(true);$("wres").textContent="正在启动";
+ const {ok,d}=await lpost("/api/ws/start",{kind,mailId}).catch(()=>({ok:false,d:{}}));
+ if(!ok){$("wres").textContent=d.error||"无法开始";wbusy(false);return;}wjob=d.id;wshow(d);wtimer=setInterval(wpoll,3000);}
+$("wauth").onclick=()=>wstart("mail-auth");$("wlist").onclick=()=>wstart("list");
+$("wcancel").onclick=async()=>{if(!wjob)return;await lpost("/api/ws/cancel",{id:wjob}).catch(()=>{});$("wres").textContent="正在取消并恢复实例";};
+window.addEventListener("pagehide",()=>{$("pxw").value="";});
+// ---- tabs + run mode ----
+function tab(t){document.querySelectorAll("section[data-tab]").forEach(x=>x.classList.toggle("on",x.dataset.tab===t));document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.go===t));try{sessionStorage.setItem("imtab",t);}catch{}scrollTo(0,0);}
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>tab(b.dataset.go));
+try{const t=sessionStorage.getItem("imtab");if(t&&document.querySelector('section[data-tab="'+t+'"]'))tab(t);}catch{}
+let mode=null,mtimer=null;
+function pauseText(){return mode&&mode.single?"暂停唯一实例，期间无法处理请求":"暂时停用一个实例";}
+function mshow(m){mode=m;const busy=["parking","resuming","pending"].includes(m.phase);
+ $("msingle").checked=m.single;$("msingle").disabled=busy||m.leaseActive;
+ const txt={dual:"双实例",parked:"单实例",parking:"切换中",pending:"切换中",resuming:"恢复中"}[m.phase]||m.phase;
+ $("mtext").textContent=m.leaseActive?txt+" · 登录中":txt;
+ $("mchip").className="chip "+(m.error?"bad":busy||m.leaseActive?"warn":"ok");
+ $("msub").textContent=m.single?("实例 "+m.serving+" 运行，"+m.parked+" 停用；登录时暂停 "+m.serving):"两个实例运行；登录时暂停其中一个";
+ $("mres").textContent=m.error||"";
+ clearTimeout(mtimer);mtimer=setTimeout(mload,busy||m.leaseActive?3000:15000);}
+async function mload(){try{const r=await fetch("/api/run-mode",{credentials:"same-origin",redirect:"error"});const d=await r.json();if(r.ok)mshow(d);else{$("mtext").textContent="未知";mtimer=setTimeout(mload,15000);}}catch{mtimer=setTimeout(mload,15000);}}
+$("msingle").onchange=async()=>{const single=$("msingle").checked;
+ if(single&&!confirm("停用一个实例，只保留一个处理请求。继续？")){$("msingle").checked=false;return;}
+ $("msingle").disabled=true;const {ok,d}=await lpost("/api/run-mode",{single}).catch(()=>({ok:false,d:{}}));
+ if(!ok){$("mres").textContent=d.error||"切换失败";$("msingle").checked=!single;$("msingle").disabled=false;return;}mshow(d);};
+// ---- AI Studio app ----
+let ta=null,tatimer=null;
+function tashow(t){ta=t;
+ $("tastat").textContent=t.configured?(t.consistent?"已配置 · "+t.appId.slice(0,8)+"…":"两个实例配置不一致，请重新保存"):"未配置";
+ if(t.url&&!$("taurl").value)$("taurl").value=t.url;
+ $("taapply").disabled=!t.configured||!!t.applying;
+ const r=t.lastApply&&t.lastApply.result,name={ok:"已重启",skipped:"忙碌，下次换号生效",failed:"失败"};
+ $("tares").textContent=t.applying?"正在应用到实例 "+(t.applying.slot||"")+"…":r?"A "+name[r.A]+"，B "+name[r.B]:"";
+ clearTimeout(tatimer);if(t.applying)tatimer=setTimeout(taload,4000);}
+async function taload(){try{const r=await fetch("/api/target-app",{credentials:"same-origin",redirect:"error"});const d=await r.json();if(!r.ok)return;tashow(d);
+  if(!d.configured&&!sessionStorage.getItem("tadlgShown")){sessionStorage.setItem("tadlgShown","1");tab("set");taopen();}}catch{}}
+function taopen(){$("taurl2").value=$("taurl").value;$("tares2").textContent="";const d=$("tadlg");if(d.showModal)d.showModal();else d.setAttribute("open","");}
+function taclose(){const d=$("tadlg");if(d.close)d.close();else d.removeAttribute("open");}
+async function tasave(v,out){const url=v.trim();if(!url){out.textContent="请填写应用链接";return false;}
+ const {ok,d}=await lpost("/api/target-app",{url}).catch(()=>({ok:false,d:{}}));
+ if(!ok){out.textContent=d.error||"保存失败";return false;}$("taurl").value=d.url;tashow(d);out.textContent="已保存，下次换号生效";return true;}
+$("tahelp").onclick=taopen;document.querySelectorAll("#tadlg [data-close]").forEach(b=>b.onclick=taclose);
+$("tadlg").addEventListener("click",e=>{if(e.target===$("tadlg"))taclose();});
+$("tasave").onclick=()=>tasave($("taurl").value,$("tares"));
+$("tasave2").onclick=async()=>{if(await tasave($("taurl2").value,$("tares2")))setTimeout(taclose,800);};
+$("taapply").onclick=async()=>{if(!confirm("两个实例会依次换号重启，期间请求可能变慢。继续？"))return;
+ $("taapply").disabled=true;const {ok,d}=await lpost("/api/target-app",{action:"apply"}).catch(()=>({ok:false,d:{}}));
+ if(!ok){$("tares").textContent=d.error||"操作失败";$("taapply").disabled=false;return;}tashow(d);};
+$("tacopy").onclick=async()=>{const b=$("tacopy");b.disabled=true;
+ try{const r=await fetch("/api/client-script",{credentials:"same-origin",redirect:"error"});if(!r.ok)throw Error();const t=await r.text();
+  try{await navigator.clipboard.writeText(t);b.textContent="已复制";}
+  catch{const a=document.createElement("textarea");a.value=t;a.style.cssText="position:fixed;opacity:0";document.body.append(a);a.select();document.execCommand("copy");a.remove();b.textContent="已复制";}}
+ catch{$("tares2").textContent="复制失败，请刷新后重试";}
+ finally{b.disabled=false;setTimeout(()=>b.textContent="复制客户端脚本",2000);}};
+taload();
+mload();
+wload();
 </script></body></html>

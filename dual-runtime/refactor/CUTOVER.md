@@ -41,7 +41,7 @@
 
 ## Located ingress and candidate pause artifact
 - Shared proxy container: 1Panel-openresty-LykW. Only the AIS site is in scope.
-- Site source: /opt/1panel/apps/openresty/openresty/conf/conf.d/aisbuild.129357.xyz.conf
+- Site source: /opt/1panel/apps/openresty/openresty/conf/conf.d/admin.example.com.conf
 - /v1 and /v1beta proxy to loopback 8890; management proxies to loopback 8893.
 - ingress-paused.conf and ingress-plan.json are generated and passed full proxy configuration syntax validation via a temporary file; NOT applied.
 - Pause covers API model-list reads as well as generation. Management and ACME remain unchanged.

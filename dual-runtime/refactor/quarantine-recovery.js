@@ -61,6 +61,27 @@ class QuarantineRecovery {
     this.dispatch.checkpoint();
    }
    if(!this.idle(slot,state,owner,account))return;
+   if(this.stopped(description)){
+    const failed=await this.driver.loginFailure?.(slot,account);
+    if(failed){
+     const current=await this.driver.describe(slot);
+     if(!this.owned(current,account,failed.id)||!this.stopped(current)||
+        !this.idle(slot,state,owner,account))throw Error('Failed login closure changed');
+     this.dispatch.accountFlags[account]||={status:'invalid',reason:'login_required',at:Date.now()};
+     this.dispatch.checkpoint();
+     const target=this.dispatch.rotationCandidate();
+     if(target===undefined)return;
+     this.driver.validateAccount(target);
+     const ticket=this.dispatch.pool.reserve(slot,target);
+     if(!ticket)throw Error('No replacement reservation');
+     delete state.recovery;
+     state.rotation={account:ticket.id,token:ticket.token,oldAccount:account,
+      oldContainerId:current.Id,phase:'old_closed'};
+     state.ready=false;this.dispatch.checkpoint();
+     this.rotation.failures.delete(slot);
+     return;
+    }
+   }
    if(marker.phase==='stopping'&&description.State?.Running===true){
     await this.driver.stop(slot);
     description=await this.driver.describe(slot);

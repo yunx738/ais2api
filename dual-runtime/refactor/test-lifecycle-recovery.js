@@ -220,3 +220,18 @@ test('unavailable retirement journal does not fail or undo a successful rotation
  assert.equal(f.engine.containers.get('a'.repeat(64)).State.Running,false);
  assert(fs.readdirSync(path.join(f.root,'slots','A')).some(name=>name.startsWith('auth-retired-')));
 });
+test('stopped current login failure hands off to durable spare rotation',async t=>{
+ const f=fixture(t),driver=f.worker(),rotation=new RotationController(f.dispatch,driver);
+ const state=f.dispatch.slots.get('B'),old=f.find('ais2api-dual-b');
+ old.State={Running:false,Pid:0,Status:'exited',ExitCode:1};
+ state.ready=false;state.recovery={account:2,containerId:old.Id,phase:'waiting'};
+ driver.loginFailure=async()=>({id:old.Id,account:2});
+ const recovery=new QuarantineRecovery(f.dispatch,{executing:new Set(),closed:false},f.client,driver,rotation);
+ await recovery.check('B');
+ assert.equal(f.dispatch.accountFlags[2].reason,'login_required');
+ assert.equal(state.recovery,undefined);assert.equal(state.rotation.phase,'old_closed');
+ assert.equal(f.dispatch.pool.slots.get('B').pending.id,3);
+ assert.equal(f.engine.commands.some(x=>x[0]==='start'),false);
+ assert.equal(restore(f.file).slots.get('B').rotation.account,3);
+ assert.equal(f.dispatch.operations.has('B'),false);
+});

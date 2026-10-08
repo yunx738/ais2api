@@ -44,3 +44,11 @@ dual-runtime/refactor/management-replacement-plan.json
 dual-runtime/refactor/ingress-paused.conf
 __pycache__/
 *.pyc
+auto-register/data/
+auto-register/.venv/
+auto-register/**/__pycache__/
+dual-runtime/run-mode.json
+__pycache__/
+*.pyc
+dual-runtime/retired-resources/
+dual-stage/

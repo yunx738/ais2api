@@ -61,7 +61,7 @@ async function main(){
  };
  const status=()=>({
   halted:dispatch.halted,queue:scheduler.queue.length,scheduling:scheduler.status(),
-  streamingMode:lastMode,rotationThrottle:{...dispatch.rotationThrottle,intervalMs:300000},keepalive:keepalive.status(),
+  streamingMode:lastMode,rotationThrottle:{...dispatch.rotationThrottle,intervalMs:300000},keepalive:keepalive.status(),browserLease:browserLease?browserLease.status():null,runMode:browserLease?browserLease.modeStatus():null,
   analytics:recordedForward.status(),
   retiredCleanup:cleanup.status(),
   quotaMode:"per-account-per-model",quotaLimits:{flash:100,pro:10},
@@ -96,8 +96,23 @@ async function main(){
  const authMaintenance=new AuthMaintenance({dispatch,driver,client,scheduler,isStopping:()=>stopping});
  const {SpareKeepalive}=require('./spare-keepalive');
  const keepalive=new SpareKeepalive({dispatch,driver,client,scheduler,rotation,occupied:accountOccupied,isStopping:()=>stopping});
+ const {BrowserLease}=require('./browser-lease');
+ const browserLease=new BrowserLease({dispatch,driver,client,rotation,scheduler,isStopping:()=>stopping,file:path.join(root,'run-mode.json')});
+ browserLease.init();
+ const {TargetApp}=require('./target-app');
+ const targetApp=new TargetApp({root,
+  isBusy:slot=>stopping||dispatch.operations.has(slot)||!dispatch.slots.get(slot).ready||!!dispatch.pool.slots.get(slot)?.pending||rotation.running.has(slot)||rotation.failures.has(slot),
+  rotate:async slot=>{const p=rotation.preflight(slot);if(!p.available)throw Error(p.reason);await rotation.rotate(slot,true);}});
  monitor.tick();
  const actions={
+  leaseStatus:()=>browserLease.status(),
+  leaseAcquire:body=>browserLease.acquire(body?.owner),
+  leaseRelease:()=>browserLease.release(false),
+  runMode:()=>browserLease.modeStatus(),
+  setRunMode:body=>browserLease.setMode(body),
+  targetApp:()=>targetApp.status(),
+  saveTargetApp:body=>targetApp.save(body),
+  applyTargetApp:()=>targetApp.apply(),
   async deleteAccount(body){
    const id=body?.id,flag=dispatch.accountFlags[id];
    const error=(statusCode,message)=>Object.assign(Error(message),{statusCode});
@@ -215,6 +230,7 @@ async function main(){
  });
  const authTimer=setInterval(()=>{authMaintenance.tick();keepalive.tick();},60000);authTimer.unref();
  const timer=setInterval(()=>monitor.tick(),2000);
+ const modeTimer=setInterval(()=>browserLease.tick(),5000);modeTimer.unref();
  const cleanupTimer=setInterval(()=>cleanup.tick(),60000);cleanupTimer.unref();
  console.log('[Coordinator] loopback 8890; protocol v2; per-slot concurrency 2; explicit model quotas');
  async function shutdown(){

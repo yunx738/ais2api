@@ -1,0 +1,17 @@
+# ── 绝不外传的东西 ──
+config.json
+presets.txt
+secrets.json
+mailbox-token.json
+state.json
+.run.lock
+
+# 运行产出（登录态就是账号钥匙，明文）
+output/
+profiles/
+
+# 杂项
+__pycache__/
+*.pyc
+*.log
+*.jpg

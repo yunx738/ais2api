@@ -1,0 +1,22 @@
+{
+  "_说明": "复制成 config.json 再改。所有 *_dir 都是相对本目录（也可以用绝对路径）。",
+
+  "domain": "your-domain.com",
+  "mailbox": "your-base@outlook.com",
+  "_必填_graph_client_id": "去 Azure 注册一个「公共客户端」应用，把 Application (client) ID 填在下面（README 三、配置 有 4 步）",
+  "graph_client_id": "<你的 Azure 应用 Application (client) ID>",
+  "recovery_email": "your-base@outlook.com",
+  "mail_subject_keywords": ["新的 Google", "Google 帐号"],
+
+  "profiles_dir": "profiles",
+  "output_dir": "output",
+  "accounts_tsv": "output/accounts.tsv",
+  "cookies_dir": "output/cookies",
+  "otp_store": "secrets.json",
+  "presets_file": "presets.txt",
+  "headless": false,
+
+  "_反代相关": "用 import_to_proxy.py 才需要填；proxy_auth_dir 是容器挂载出来的 auth 目录",
+  "proxy_auth_dir": "D:/path/to/aistudio-to-api/auth",
+  "proxy_container": "aistudio-to-api"
+}

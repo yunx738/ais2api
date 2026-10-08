@@ -14,6 +14,7 @@ async function main(){
  allowed.add('GET /api/requests');
  allowed.add('GET /api/usage');
  allowed.add('POST /api/login/start');
+ for(const r of ['GET /api/client-script','GET /api/target-app','POST /api/target-app','GET /api/run-mode','POST /api/run-mode','GET /api/ws/config','POST /api/ws/config','POST /api/login-proxy','POST /api/ws/start','GET /api/ws/job','POST /api/ws/cancel'])allowed.add(r);
  for(const m of ['GET','POST'])allowed.add(m+' /api/login/job');
  allowed.add('POST /api/accounts/delete');
  allowed.add('GET /api/proxies');
@@ -152,6 +153,30 @@ require('./console-routes').install(dashboard);
   const r=await loginCall('POST',p+'/'+action,action==='input'?{value:String(req.body.value||'')}:{});
   res.status(r.status).json(r.body);
  });
+ dashboard.get('/api/client-script',(req,res)=>{
+  const up=http.request({host:'127.0.0.1',port:8890,path:'/internal/client-script',method:'GET',agent:false,headers:{Authorization:'Bearer '+system.config.apiKeys[0]}},r=>{
+   res.status(r.statusCode===200?200:503).type('text/plain; charset=utf-8');r.pipe(res);});
+  up.on('error',()=>{if(!res.headersSent)res.status(503).json({error:'脚本不可用'});});up.setTimeout(10000,()=>up.destroy());up.end();
+ });
+ dashboard.get('/api/target-app',async(req,res)=>{const r=await call('GET','/internal/target-app');res.status(r.status).json(r.body);});
+ dashboard.post('/api/target-app',async(req,res)=>{if(!loginGuard(req,res))return;
+  const b=req.body||{};const payload=b.action==='apply'?{action:'apply'}:{url:typeof b.url==='string'?b.url.slice(0,300):''};
+  const r=await call('POST','/internal/target-app',payload);res.status(r.status).json(r.body);});
+ dashboard.get('/api/run-mode',async(req,res)=>{const r=await call('GET','/internal/run-mode');res.status(r.status).json(r.body);});
+ dashboard.post('/api/run-mode',async(req,res)=>{if(!loginGuard(req,res))return;
+  if(typeof req.body?.single!=='boolean')return res.status(400).json({error:'参数无效'});
+  const r=await call('POST','/internal/run-mode',{single:req.body.single});res.status(r.status).json(r.body);});
+ dashboard.get('/api/ws/config',async(req,res)=>{const r=await loginCall('GET','/ws/config');res.status(r.status).json(r.body);});
+ dashboard.post('/api/ws/config',async(req,res)=>{if(!loginGuard(req,res))return;const b=req.body||{};
+  const r=await loginCall('POST','/ws/config',{domain:b.domain,mailbox:b.mailbox,graph_client_id:b.graph_client_id,recovery_email:b.recovery_email,mail_subject_keywords:b.mail_subject_keywords,mail_provider:b.mail_provider,tempmail_api:b.tempmail_api,tempmail_admin:b.tempmail_admin,tempmail_name:b.tempmail_name});res.status(r.status).json(r.body);});
+ dashboard.post('/api/login-proxy',async(req,res)=>{if(!loginGuard(req,res))return;const b=req.body||{};
+  const r=await loginCall('POST','/login-proxy',{type:b.type,host:b.host,port:b.port,username:b.username,password:b.password,enabled:b.enabled,clear:b.clear===true});res.status(r.status).json(r.body);});
+ dashboard.post('/api/ws/start',async(req,res)=>{if(!loginGuard(req,res))return;
+  const r=await loginCall('POST','/ws/start',{kind:req.body?.kind,mailId:req.body?.mailId});res.status(r.status).json(r.body);});
+ dashboard.get('/api/ws/job',async(req,res)=>{const id=String(req.query.id||'');if(!/^[0-9a-f-]{36}$/.test(id))return res.status(400).json({error:'任务编号无效'});
+  const r=await loginCall('GET','/ws/'+id);res.status(r.status).json(r.body);});
+ dashboard.post('/api/ws/cancel',async(req,res)=>{if(!loginGuard(req,res))return;const id=String(req.body?.id||'');if(!/^[0-9a-f-]{36}$/.test(id))return res.status(400).json({error:'任务编号无效'});
+  const r=await loginCall('POST','/ws/'+id+'/cancel',{});res.status(r.status).json(r.body);});
  dashboard.post('/api/sync-accounts',async(req,res)=>{
   const r=await call('POST','/internal/sync-accounts',{});
   res.status(r.status).json(r.body);
