@@ -25,7 +25,7 @@ button.p{background:var(--pri);border-color:var(--pri);color:#fff}button:disable
 .sw input{appearance:none;width:46px;height:26px;border-radius:99px;background:var(--line);position:relative;flex:none;margin:0;cursor:pointer}
 .sw input::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
 .sw input:checked{background:var(--pri)}.sw input:checked::after{left:23px}.sw input:disabled{opacity:.5}
-.sub{color:var(--sub);font-size:13px}
+.card h2{flex-wrap:wrap}.sub{overflow-wrap:anywhere;color:var(--sub);font-size:13px}
 pre.out{margin:12px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--bg);border-radius:10px;padding:10px;font-size:13px;max-height:260px;overflow:auto}pre.out:empty{display:none}
 .item{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}.item:first-child{border-top:0}
 .item div{flex:1;min-width:0}.item b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -87,16 +87,20 @@ ol.steps{margin:0;padding-left:20px}ol.steps li{margin:0 0 12px}ol.steps code{ba
 <label class="chk"><input id="pxe" type="checkbox" checked>启用</label>
 <div class="btns"><button id="pxsave" class="p" type="button">保存</button><button id="pxclear" type="button">恢复默认</button></div>
 </form></div>
-<div class="card" id="wcfgbox"><h2>Workspace</h2>
+<div class="card" id="wcfgbox"><h2>Workspace 与收信</h2>
 <form onsubmit="return false" autocomplete="off">
-<label class="f" for="wdom">账号域名</label><input id="wdom">
-<div class="row"><div><label class="f" for="wtn">临时邮箱名</label><input id="wtn"></div><div><label class="f" for="wta">接口密码</label><input id="wta" type="password" placeholder="留空不改" autocomplete="new-password"></div></div>
-<label class="f" for="wrec">辅助邮箱</label><input id="wrec" type="email">
+<label class="f" for="wdom">Workspace 账号域名</label><input id="wdom" autocapitalize="off" spellcheck="false" placeholder="example.com">
+<label class="f" for="wprovider">收信方式</label><select id="wprovider"><option value="tempmail">Cloudflare 临时邮箱 API</option><option value="graph">Microsoft Graph</option></select>
+<label class="f" for="wmail">收信邮箱（完整地址）</label><input id="wmail" type="email" autocapitalize="off" spellcheck="false" placeholder="inbox@example.com">
+<div id="wtempfields">
+<label class="f" for="wapi">邮箱 API 地址</label><input id="wapi" type="url" autocapitalize="off" spellcheck="false" placeholder="https://mail-api.example.com">
+<label class="f" for="wta">API 管理密码</label><input id="wta" type="password" placeholder="留空不改" autocomplete="new-password"><div id="wsecret" class="sub"></div>
+</div>
+<div id="wgraphfields" hidden><label class="f" for="wcid">Azure 应用 ID</label><input id="wcid" autocapitalize="off" spellcheck="false"></div>
+<label class="f" for="wrec">辅助邮箱</label><input id="wrec" type="email" autocapitalize="off" spellcheck="false">
 <label class="f" for="wkey">主题关键词</label><input id="wkey" placeholder="逗号分隔">
-<details style="margin-top:10px"><summary class="sub">Graph 收信</summary>
-<label class="f" for="wmail">收信邮箱</label><input id="wmail" type="email">
-<label class="f" for="wcid">Azure 应用 ID</label><input id="wcid"></details>
-<div class="btns"><button id="wsave" class="p" type="button">保存</button></div>
+<div class="btns"><button id="wsave" class="p" type="button">保存收信设置</button></div>
+<pre id="wcfgres" class="out" role="status" aria-live="polite"></pre>
 </form></div>
 </section>
 </main>
@@ -228,15 +232,33 @@ const WSTEP={pausing_worker:"正在暂停一个实例",starting:"正在启动",r
 let wjob=null,wtimer=null;
 function pxShow(p){$("pxs").textContent=p&&p.host?((p.enabled?"使用中：":"已停用：")+p.type+" "+p.host+":"+p.port+(p.username?"（"+p.username+"）":"")):(p&&p.source==="default"?"使用默认登录代理":"直连");
  if(p&&p.host){$("pxt").value=p.type;$("pxh").value=p.host;$("pxp").value=p.port;$("pxu").value=p.username||"";$("pxe").checked=p.enabled;}}
+function wproviderShow(){const temp=$("wprovider").value==="tempmail";$("wtempfields").hidden=!temp;$("wgraphfields").hidden=temp;$("wauth").hidden=temp;}
+$("wprovider").onchange=wproviderShow;
 async function wload(){try{const r=await fetch("/api/ws/config",{credentials:"same-origin",redirect:"error"});const d=await r.json();if(!r.ok){$("wstat").textContent=d.error||"读取失败";return;}
- const c=d.config;$("wdom").value=c.domain||"";$("wmail").value=c.mailbox||"";$("wtn").value=c.tempmail_name||"";$("wcid").value=c.graph_client_id||"";$("wrec").value=c.recovery_email||"";$("wkey").value=(c.mail_subject_keywords||[]).join(",");
- const ready=c.domain&&(c.tempmail_name||c.mailbox)&&c.recovery_email;
- $("wstat").textContent=(ready?"":"设置未完成 · ")+(d.mailAuthorized?"邮箱已授权":"邮箱未授权");pxShow(d.proxy);}catch{$("wstat").textContent="读取失败";}}
+ const c=d.config;$("wdom").value=c.domain||"";$("wmail").value=c.mailbox||c.tempmail_address||"";$("wapi").value=c.tempmail_api||"";$("wprovider").value=c.mail_provider||"tempmail";$("wcid").value=c.graph_client_id||"";$("wrec").value=c.recovery_email||"";$("wkey").value=(c.mail_subject_keywords||[]).join(",");
+ $("wsecret").textContent=c.has_tempmail_admin?"密码已设置":"尚未设置密码";wproviderShow();
+ const temp=$("wprovider").value==="tempmail",ready=c.domain&&$("wmail").value&&c.recovery_email&&(temp?c.tempmail_api&&c.has_tempmail_admin:c.graph_client_id);
+ $("wstat").textContent=ready?(temp?"API 已配置":d.mailAuthorized?"邮箱已授权":"邮箱未授权"):"设置未完成";pxShow(d.proxy);
+ }catch{$("wstat").textContent="读取失败";}}
 $("pxsave").onclick=async()=>{const {ok,d}=await lpost("/api/login-proxy",{type:$("pxt").value,host:$("pxh").value.trim(),port:Number($("pxp").value),username:$("pxu").value.trim(),password:$("pxw").value,enabled:$("pxe").checked}).catch(()=>({ok:false,d:{}}));$("pxw").value="";
  if(!ok){$("pxs").textContent=d.error||"保存失败";return;}pxShow(d.proxy);};
 $("pxclear").onclick=async()=>{const {ok,d}=await lpost("/api/login-proxy",{clear:true}).catch(()=>({ok:false,d:{}}));if(ok){["pxh","pxp","pxu","pxw"].forEach(k=>$(k).value="");pxShow(d.proxy);}};
-$("wsave").onclick=async()=>{const {ok,d}=await lpost("/api/ws/config",{domain:$("wdom").value.trim(),mailbox:$("wmail").value.trim(),graph_client_id:$("wcid").value.trim(),tempmail_admin:$("wta").value,tempmail_name:$("wtn").value.trim(),recovery_email:$("wrec").value.trim(),mail_subject_keywords:$("wkey").value.split(/[,，]/).map(x=>x.trim()).filter(Boolean)}).catch(()=>({ok:false,d:{}}));
- $("wres").textContent=ok?"已保存":(d.error||"保存失败");if(ok)wload();};
+function wsettings(){
+ const p={domain:$("wdom").value.trim(),mailbox:$("wmail").value.trim(),mail_provider:$("wprovider").value,recovery_email:$("wrec").value.trim(),mail_subject_keywords:$("wkey").value.split(/[,，]/).map(x=>x.trim()).filter(Boolean)};
+ if(!p.domain||!p.mailbox||!p.recovery_email)throw Error("请填写账号域名、完整收信邮箱和辅助邮箱");
+ if(p.mail_provider==="tempmail"){
+  let u;try{u=new URL($("wapi").value.trim());}catch{throw Error("请填写有效的邮箱 API 地址");}
+  if(u.protocol!=="https:"||u.username||u.password||u.search||u.hash||!['','/'].includes(u.pathname))throw Error("API 地址应为 HTTPS 根地址，不是收件箱页面或带 JWT 的链接");
+  p.tempmail_api=u.origin;p.tempmail_admin=$("wta").value;
+ }else{p.graph_client_id=$("wcid").value.trim();if(!p.graph_client_id)throw Error("请填写 Azure 应用 ID");}
+ return p;
+}
+$("wsave").onclick=async()=>{const out=$("wcfgres");let payload;try{payload=wsettings();}catch(e){out.textContent=e.message;return;}
+ $("wsave").disabled=true;out.textContent="正在保存";
+ try{const {ok,d}=await lpost("/api/ws/config",payload);if(!ok){out.textContent=d.error||"保存失败";return;}
+  $("wta").value="";$("witems").textContent="";out.textContent="已保存 · "+payload.mailbox;await wload();
+ }catch{out.textContent="保存结果未确认，请刷新后检查";}finally{$("wsave").disabled=false;}
+};
 function wbusy(b){["wauth","wlist"].forEach(k=>$(k).disabled=b);$("wcancel").disabled=!b;document.querySelectorAll(".wrun").forEach(x=>x.disabled=b);}
 function wstop(){clearInterval(wtimer);wtimer=null;wjob=null;wbusy(false);$("wneed").hidden=true;}
 function witems(list){const box=$("witems");box.textContent="";if(!list.length){box.innerHTML='<p class="sub">没有待激活的账号</p>';return;}
@@ -262,7 +284,7 @@ async function wstart(kind,mailId){if(kind==="run"&&!confirm("将为这个账号
  if(!ok){$("wres").textContent=d.error||"无法开始";wbusy(false);return;}wjob=d.id;wshow(d);wtimer=setInterval(wpoll,3000);}
 $("wauth").onclick=()=>wstart("mail-auth");$("wlist").onclick=()=>wstart("list");
 $("wcancel").onclick=async()=>{if(!wjob)return;await lpost("/api/ws/cancel",{id:wjob}).catch(()=>{});$("wres").textContent="正在取消并恢复实例";};
-window.addEventListener("pagehide",()=>{$("pxw").value="";});
+window.addEventListener("pagehide",()=>{$("pxw").value="";$("wta").value="";});
 // ---- tabs + run mode ----
 function tab(t){document.querySelectorAll("section[data-tab]").forEach(x=>x.classList.toggle("on",x.dataset.tab===t));document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x.dataset.go===t));try{sessionStorage.setItem("imtab",t);}catch{}scrollTo(0,0);}
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>tab(b.dataset.go));
