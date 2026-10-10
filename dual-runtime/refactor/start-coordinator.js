@@ -194,7 +194,7 @@ async function main(){
    for(const target of targets){
     const state=dispatch.slots.get(target),owner=dispatch.pool.slots.get(target);
     if(dispatch.operations.has(target)||owner?.pending||rotation.running.has(target)||rotation.failures.has(target)){skipped.push({slot:target,reason:'busy or blocked'});continue;}
-    if(!state.ready||state.active>0){skipped.push({slot:target,reason:'not idle'});continue;}
+    if(!dispatch.rotationIdle(target)){skipped.push({slot:target,reason:'请求未结束或实例状态待确认'});continue;}
     if(targetAccount!==undefined&&targetAccount!==null){
      if(dispatch.pool.ids.includes(targetAccount)===false)return {started,skipped:[{slot:target,reason:'unknown account'}]};
      if(dispatch.pool.owners.has(targetAccount)||((dispatch.pool.cooldowns.get(targetAccount)||0)>Date.now()))return {started,skipped:[{slot:target,reason:'target occupied or cooling'}]};

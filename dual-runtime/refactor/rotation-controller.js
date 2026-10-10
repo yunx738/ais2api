@@ -43,7 +43,7 @@ class RotationController {
   const state=this.dispatch.slots.get(slot),owner=this.dispatch.pool.slots.get(slot);
   if(this.dispatch.halted)return {available:false,reason:'Coordinator halted'};
   const gate=this.gate(slot);if(gate)return {available:false,reason:gate};
-  if(!state||!owner||owner.pending||!state.ready||state.active||state.requests.size||
+  if(!state||!owner||owner.pending||!this.dispatch.rotationIdle(slot)||state.active||state.requests.size||
      Object.keys(state.executions||{}).length||Object.keys(state.retirements||{}).length||
      this.running.has(slot)||this.dispatch.operations.has(slot)||this.failures.has(slot))
    return {available:false,reason:'Slot not safe to rotate'};
@@ -64,6 +64,14 @@ class RotationController {
   this.running.add(slot);
   let ticket;
   try{
+   const state=this.dispatch.slots.get(slot),owner=this.dispatch.pool.slots.get(slot);
+   if(!state?.ready){
+    if(!this.dispatch.rotationIdle(slot))throw Error('Slot not safe to rotate');
+    const probe=await this.driver.probeReady(slot,owner.current);
+    if(this.dispatch.pool.slots.get(slot)!==owner)throw Error('Rotation owner changed');
+    this.dispatch.update(slot,probe);
+    if(!this.dispatch.rotationIdle(slot))throw Error('Worker still busy or status unconfirmed');
+   }
    const candidate=this.dispatch.rotationCandidate(target,plan);
    if(candidate===undefined)return {waiting:true};
    // A bounded local read happens before reserving or stopping anything. Bad

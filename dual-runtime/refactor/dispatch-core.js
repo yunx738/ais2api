@@ -19,6 +19,8 @@ class DispatchCore {
   s.workerHealth={observedAt:Date.now(),account:status.account,workerEpoch:status.workerEpoch,
    hardQuarantine:status.hardQuarantine===true,
    pendingCompletions:Number.isSafeInteger(status.pendingCompletions)?status.pendingCompletions:null};
+  Object.assign(s.workerHealth,{executionProtocol:status.executionProtocol,busy:status.busy,
+   activeRequests:status.activeRequests,browserOperations:status.browserOperations,quarantined:status.quarantined});
   const records=Object.values(s.executions||{});
   const unresolved=Boolean(s.rotation||s.recovery||s.proxyApply)||Object.keys(s.retirements||{}).length>0 || records.length!==s.requests.size || records.some(t=>t.phase!=="running"||t.workerEpoch!==s.workerEpoch);
   s.ready=validEpoch && !unresolved && !this.operations.has(slot) && status.account===owner?.current && status.ready===true && status.busy===false && status.browserOperations===0 && status.quarantined===false;
@@ -83,10 +85,21 @@ class DispatchCore {
   }
   return target;
  }
+ rotationIdle(slot){
+  const s=this.slots.get(slot),o=this.pool.slots.get(slot);
+  if(this.halted||!s||!o||o.pending||s.active||s.requests.size||s.rotation||s.recovery||s.proxyApply||
+     Object.keys(s.executions||{}).length||Object.keys(s.retirements||{}).length)return false;
+  if(s.ready)return true;
+  const h=s.workerHealth,age=Date.now()-(h?.observedAt||0);
+  return !!h&&age>=0&&age<6000&&h.account===o.current&&h.workerEpoch===s.workerEpoch&&
+   /^[a-f0-9-]{36}$/.test(h.workerEpoch||'')&&h.executionProtocol===2&&
+   h.busy===false&&h.activeRequests===0&&h.browserOperations===0&&
+   h.pendingCompletions===0&&h.quarantined===false&&h.hardQuarantine===false;
+ }
  reserveRotation(slot,manual,target,plan){
   if(this.halted)throw Error('Coordinator halted');
   const s=this.slots.get(slot);
-  if(s===undefined||s.active>0||s.requests.size||Object.keys(s.executions||{}).length||Object.keys(s.retirements||{}).length>0||s.ready===false)throw Error('Slot not safe to rotate');
+  if(!this.rotationIdle(slot))throw Error('Slot not safe to rotate');
   if(manual!==true&&!this.quotaExhausted(slot,plan))throw Error('Model quotas not exhausted');
   target=this.rotationCandidate(target,plan);
   if(target===undefined)return null;

@@ -239,7 +239,7 @@ async function action(path,body,message,format){
 }
 $('rotate').addEventListener('click',()=>{
  const slot=$('slot').value,s=state?.slots?.[slot];
- if(!s?.ready||s.active>0||s.operation||s.pending||s.rotationBlocked){notice('实例忙，暂不能轮换');return;}
+ if(!s||s.active>0||s.operation||s.pending||s.rotationBlocked||s.pendingExecutions?.length||s.pendingRetirements||s.legacyUnresolved){notice('请求或恢复操作尚未结束，暂不能轮换');return;}
  const body={slot};if($('target').value)body.targetAccount=Number($('target').value);
  action('/api/rotate',body,'轮换实例 '+slot+'？',r=>Array.isArray(r.started)&&r.started.includes(slot)?'实例 '+slot+' 轮换中':'未启动：'+JSON.stringify(r.skipped||r));
 });

@@ -56,6 +56,14 @@ class CoordinatorMonitor {
     d.checkpoint();
     if (d.operations.has(slot)) return;
 
+    // Account-wide cooling can invalidate the catalog; retire only a proven idle worker.
+    if (probe.cooldownUntil > Date.now() && d.rotationIdle?.(slot)) {
+      const candidate=this.rotation.preflight(slot);
+      if(candidate.available){
+        this.rotation.rotate(slot,false,candidate.target).catch(()=>{});
+        return;
+      }
+    }
     const plan = this.routing.rotationPlan(slot, this.scheduler.pendingPlans());
     if (state.active === 0 && state.ready && plan) {
       // Rotation's per-slot lease and durable intent own this asynchronous operation.
