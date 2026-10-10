@@ -4,9 +4,10 @@ class RotationController {
   this.dispatch=dispatch;
   this.driver=driver;
   this.running=new Set();
-  this.failures=new Map();
+  this.failures=new Map();this.forced=new Set();this.manual=new Map();
  }
  gate(slot,token){
+  if(this.forced.has(slot))return null;
   const g=this.dispatch.rotationThrottle||{lastAt:0};
   if(g.slot!==undefined&&g.slot===slot&&g.token===token)return null;
   if(g.slot!==undefined){
@@ -165,7 +166,7 @@ class RotationController {
   if(marker.phase==='prepared'){
    if(reconciling){
     const now=Date.now(),attempts=(marker.restartAttempts||[]).filter(t=>now-t<3600000);
-    if(attempts.length>=3||attempts.some(t=>now-t<300000))return false;
+    if(!this.forced.has(slot)&&(attempts.length>=3||attempts.some(t=>now-t<300000)))return false;
     marker.restartAttempts=[...attempts,now];this.dispatch.checkpoint();
    }
    this.dispatch.rotationThrottle.lastAt=Date.now();this.dispatch.checkpoint();
@@ -187,8 +188,8 @@ class RotationController {
      return this.skipInvalid(slot,ticket,marker,failed);
     }
     const now=Date.now(),attempts=(marker.restartAttempts||[]).filter(t=>now-t<3600000);
-    if(attempts.length>=3||attempts.some(t=>now-t<300000))return false;
-    if(Date.now()-this.dispatch.rotationThrottle.lastAt<300000)return false;
+    if(!this.forced.has(slot)&&(attempts.length>=3||attempts.some(t=>now-t<300000)))return false;
+    if(!this.forced.has(slot)&&Date.now()-this.dispatch.rotationThrottle.lastAt<300000)return false;
     marker.restartAttempts=[...attempts,now];this.dispatch.checkpoint();
     this.dispatch.rotationThrottle.lastAt=Date.now();this.dispatch.checkpoint();
     await this.driver.restartStopped(slot,marker.account,description.Id);unchanged();
@@ -241,6 +242,111 @@ class RotationController {
   }finally{
    this.running.delete(slot);this.dispatch.operations.release(lease);
   }
+ }
+ // ---- Manual actions: run on request; only report concrete failures. ----
+ manualCheck(slot){
+  const d=this.dispatch;
+  if(!['A','B'].includes(slot))throw Error('实例无效');
+  if(d.halted)throw Error('调度已暂停：状态文件写入失败');
+  if(this.running.has(slot))throw Error('该实例的手动操作或轮换正在执行');
+  const op=d.operations.status(slot);
+  if(op)throw Error('该实例正在执行：'+({auth:'保存登录态',catalog:'模型同步',recovery:'自动恢复',cleanup:'资源清理',proxy:'代理配置应用',login:'登录占用（实例已暂停）',rotation:'账号轮换'}[op.kind]||op.kind));
+  if(d.slots.get(slot).proxyApply)throw Error('代理配置应用未完成，请在代理页重试或恢复原容器');
+ }
+ pick(target){
+  const d=this.dispatch;
+  if(target!==undefined){
+   if(!d.pool.ids.includes(target))throw Error('账号 '+target+' 不存在');
+   if(d.accountFlags[target])throw Error('账号 '+target+' 已标记失效，需要重新登录');
+   const o=d.pool.owners.get(target);if(o)throw Error('账号 '+target+' 正被实例 '+o+' 使用');
+  }else{
+   target=d.rotationCandidate();
+   if(target===undefined)throw Error('没有可用备用账号：其余账号都在使用、冷却或已失效');
+  }
+  try{this.driver.validateAccount(target);}catch{throw Error('账号 '+target+' 的登录文件不可用');}
+  return target;
+ }
+ async interrupt(slot){
+  // Caller holds the slot lease. Stops the current container and drops its
+  // in-flight records as interrupted (they can never complete after a stop).
+  const d=this.dispatch,s=d.slots.get(slot),account=d.pool.slots.get(slot).current;
+  s.ready=false;
+  const before=await this.driver.describe(slot);
+  if(before.Config?.Labels?.['operit.account']!==String(account))throw Error('当前容器账号与记录不符');
+  if(before.State?.Running===true)await this.driver.stop(slot);
+  const after=await this.driver.inspect(slot);
+  if(after.id!==before.Id||after.running!==false||after.processesStopped!==true)throw Error('旧容器停止未确认');
+  const n=Object.keys(s.executions||{}).length||s.requests.size;
+  s.executions={};s.retirements={};s.requests.clear();s.active=0;delete s.recovery;
+  d.checkpoint();
+  if(n)console.warn('[ManualAction]',slot,'interrupted',n,'requests');
+  return {account,containerId:before.Id,interrupted:n};
+ }
+ launch(slot,action,lease,work){
+  const rec={action,at:Date.now(),phase:'running'};this.manual.set(slot,rec);
+  this.running.add(slot);this.forced.add(slot);
+  const done=Promise.resolve().then(()=>work(rec)).then(r=>{rec.phase='ok';Object.assign(rec,r||{});})
+   .catch(e=>{rec.phase='failed';rec.error=String(e.message||e);console.error('[ManualAction]',slot,action,rec.error);})
+   .finally(()=>{this.running.delete(slot);this.forced.delete(slot);try{this.dispatch.operations.release(lease);}catch{}
+    rec.finishedAt=Date.now();try{this.onSettled?.();}catch{}});
+  return done;
+ }
+ forceResume(slot){
+  // A switch is already pending: retry it now, bypassing auto-rotation waits.
+  if(this.running.has(slot)||this.dispatch.operations.has(slot))throw Error('该实例的轮换正在执行');
+  const f=this.failures.get(slot);if(f)f.retryAt=0;
+  const m=this.dispatch.slots.get(slot).rotation;if(m)m.restartAttempts=[];
+  const rec={action:'resume',at:Date.now(),phase:'running'};this.manual.set(slot,rec);
+  this.forced.add(slot);
+  const done=this.reconcile(slot).then(ok=>{rec.phase=ok?'ok':'failed';if(!ok)rec.error=this.failures.get(slot)?.reason||'轮换未完成';})
+   .finally(()=>{this.forced.delete(slot);rec.finishedAt=Date.now();try{this.onSettled?.();}catch{}});
+  return {slot,resumed:true,done};
+ }
+ forceRotate(slot,target){
+  const d=this.dispatch;
+  if(d.pool.slots.get(slot)?.pending)return this.forceResume(slot);
+  this.manualCheck(slot);
+  const candidate=this.pick(target);
+  const lease=d.operations.acquire(slot,'rotation');
+  if(!lease)throw Error('该实例正在执行其他操作');
+  this.failures.delete(slot);d.slots.get(slot).ready=false;
+  const active=d.slots.get(slot).active;
+  const done=this.launch(slot,'rotate',lease,async rec=>{
+   const r=await this.interrupt(slot);rec.interrupted=r.interrupted;
+   if(target!==undefined)d.pool.cooldowns.delete(candidate);
+   const ticket=d.pool.reserve(slot,candidate);
+   if(!ticket)throw Error('预留账号 '+candidate+' 失败');
+   const s=d.slots.get(slot);
+   s.rotation={account:ticket.id,token:ticket.token,oldAccount:r.account,oldContainerId:r.containerId,phase:'old_closed'};
+   s.ready=false;d.checkpoint();
+   try{if(!await this.advance(slot,ticket,false))throw Error('轮换未完成');}
+   catch(e){
+    this.failures.set(slot,{account:ticket.id,token:ticket.token,retryable:true,reason:e.message,retryAt:Date.now()+5000});
+    try{d.checkpoint();}catch{d.halted=true;}
+    throw Error('账号 '+ticket.id+' 启动失败：'+e.message);
+   }
+   return {account:ticket.id};
+  });
+  return {slot,account:candidate,activeRequests:active,done};
+ }
+ forceRestart(slot){
+  const d=this.dispatch;
+  if(d.pool.slots.get(slot)?.pending)return this.forceResume(slot);
+  this.manualCheck(slot);
+  const lease=d.operations.acquire(slot,'recovery');
+  if(!lease)throw Error('该实例正在执行其他操作');
+  this.failures.delete(slot);d.slots.get(slot).ready=false;
+  const account=d.pool.slots.get(slot).current,active=d.slots.get(slot).active;
+  const done=this.launch(slot,'restart',lease,async rec=>{
+   const r=await this.interrupt(slot);rec.interrupted=r.interrupted;
+   d.pool.cooldowns.delete(account);d.checkpoint();
+   await this.driver.restartStopped(slot,account,r.containerId);
+   const fresh=await this.driver.waitReady(slot,account);
+   if(!this.ready(fresh,account))throw Error('重启后未就绪');
+   d.update(slot,fresh);d.checkpoint();
+   return {account};
+  });
+  return {slot,account,activeRequests:active,done};
  }
 }
 module.exports={RotationController};

@@ -101,6 +101,12 @@ function createServer({keys,models,scheduler,status,actions}){
     const result=await actions.rotate(slot,target===undefined?undefined:target===null?undefined:target);
     return json(res,Array.isArray(result.started)&&result.started.length>0?202:409,result);
    }
+   if(req.method==='POST' && url.pathname==='/internal/restart'){
+    const body=await readBody();
+    if(!['A','B'].includes(body?.slot))return json(res,400,{error:'Invalid slot'});
+    const result=await actions.restart(body.slot);
+    return json(res,result.started.length?202:409,result);
+   }
    if(req.method==='POST' && url.pathname==='/internal/accounts/delete'){
     if(!/^application\/json(?:\s*;|$)/i.test(String(req.headers['content-type']||'')))return json(res,415,{error:'JSON required'});
     try{return json(res,200,await actions.deleteAccount(await readBody()));}

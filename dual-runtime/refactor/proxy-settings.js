@@ -90,7 +90,8 @@ class ProxySettings {
   if(this.isStopping()||this.dispatch.halted||this.scheduler.closed||!this.idle(slot))throw fail(409,'实例繁忙或存在未结算请求');
   if(revision!==c.revision)throw fail(409,'配置版本已变化，请重新读取');
   if(action==='rollback'&&!s.proxyApply)throw fail(409,'没有待恢复的代理操作');
-  if(!s.proxyApply&&(this.rotation.running.has(slot)||this.rotation.failures.has(slot)))throw fail(409,'实例正在轮换或处于故障保护');
+  if(!s.proxyApply&&this.rotation.running.has(slot))throw fail(409,'实例正在轮换，结束后再应用');
+  if(!s.proxyApply)this.rotation.failures.delete(slot);
   this.lock(slot);
   try{
    if(!s.proxyApply){

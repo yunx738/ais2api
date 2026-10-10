@@ -40,10 +40,11 @@ test('single mode parks one worker, login pauses the only one, dual restores',as
  assert.equal(g.running.B,true);assert.ok(!g.dispatch.operations.has('B'));
  assert.equal(JSON.parse(fs.readFileSync(file)).single,false);
 });
-test('dual mode still pauses one of two and refuses when other not ready',async()=>{
+test('dual mode pauses the unusable worker instead of refusing',async()=>{
  const f=fixture(path.join(fs.mkdtempSync(path.join(os.tmpdir(),'rm-')),'m.json'));
  f.dispatch.slots.get('A').ready=false;
- await assert.rejects(f.lease.acquire('x'),/另一实例未就绪/);
+ const first=await f.lease.acquire('x');assert.equal(first.slot,'A');
+ await f.lease.release(false);
  f.dispatch.slots.get('A').ready=true;
  const got=await f.lease.acquire('x');assert.equal(got.slot,'B');
  await f.lease.release(false);assert.equal(f.running.B,true);

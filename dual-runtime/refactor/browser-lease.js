@@ -82,8 +82,7 @@ class BrowserLease{
   if(single===this.mode.single)return this.modeStatus();
   if(single){
    const ready=x=>this.dispatch.slots.get(x).ready;
-   const keep=['A','B'].find(ready);
-   if(!keep)throw fail('没有就绪实例，暂不能切换');
+   const keep=['A','B'].find(ready)||'A';
    this.mode={single:true,parked:this.other(keep)};this.save();this.lastError=null;this.retryAt=0;
    this.tryPark();
   }else{
@@ -101,10 +100,9 @@ class BrowserLease{
   if(this.mode.single){
    if(this.park?.phase!=='parked')throw fail('单实例模式尚未就绪');
    slot=this.other(this.park.slot);
-   if(!this.dispatch.slots.get(slot).ready)throw fail('实例未就绪，暂不能登录');
   }else{
-   slot=['B','A'].find(x=>this.dispatch.slots.get(x).ready&&this.dispatch.slots.get(this.other(x)).ready)||null;
-   if(!slot)throw fail('另一实例未就绪，暂不能登录');
+   // Pause an unusable worker first; otherwise B. Never refuse because of readiness.
+   slot=['B','A'].find(x=>!this.dispatch.slots.get(x).ready)||'B';
   }
   const op=this.dispatch.operations.acquire(slot,'login');
   if(!op)throw fail('实例正在执行其他操作');

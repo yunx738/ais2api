@@ -30,7 +30,7 @@ function setupAccountColumns(){
 function notice(message){$('notice').textContent=message;$('notice').hidden=!message;}
 function date(value){return Number.isFinite(value)&&value>0?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';}
 function navigate(){const name=location.hash.slice(1);const page=titles[name]?name:'overview';for(const key of Object.keys(titles))$(key).hidden=key!==page;document.querySelectorAll('[data-page]').forEach(a=>{a.classList.toggle('selected',a.dataset.page===page);if(a.dataset.page===page)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});$('page-title').textContent=titles[page];$('refresh').hidden=page==='usage'||page==='history';if(page==='overview')loadOverviewUsage();}
-function controls(){for(const id of ['sync','rotate','save-mode'])$(id).disabled=mutating||!fresh;}
+function controls(){for(const id of ['sync','rotate','restart','save-mode'])$(id).disabled=mutating;}
 async function api(path,body){
  const c=new AbortController(),timer=setTimeout(()=>c.abort(),body===undefined?25000:65000);
  try{const options={credentials:'same-origin',redirect:'error',signal:c.signal,headers:{Accept:'application/json'}};if(body!==undefined){options.method='POST';options.headers['Content-Type']='application/json';options.body=JSON.stringify(body);}
@@ -181,6 +181,7 @@ function render(d){
   if(s.healthCheck?.error)alerts.push('健康检查失败 '+(s.healthCheck.failureCount||1)+' 次');
   if(s.recoveryBlocked)alerts.push('恢复受阻，请检查实例与登录状态');
   if(s.rotationFailure)alerts.push(s.rotationFailure.retryable?'轮换失败，'+date(s.rotationFailure.retryAt)+' 重试':'轮换失败，请检查实例登录与账号状态');
+  const m=s.manualAction;if(m&&Date.now()-(m.finishedAt||m.at)<600000){const n={rotate:'手动切换',restart:'手动重启',resume:'继续切换'}[m.action]||'手动操作';alerts.push(m.phase==='running'?n+'进行中':m.phase==='ok'?n+'完成'+(m.interrupted?'，中断了 '+m.interrupted+' 个请求':''):n+'失败：'+m.error);}
   if(!healthFresh)alerts.push('状态待更新');
   if(s.pendingRetirements)alerts.push(s.pendingRetirements+' 个请求等待清理确认，暂不轮换');
   if(pending)alerts.push(pending+' 个执行等待完成证据，占用已保留');
@@ -213,7 +214,7 @@ function render(d){
  }
  renderAccountRows(d);
  const selected=$('target').value;$('target').replaceChildren(new Option('自动选择下一账号',''));
- for(const a of d.accounts){const option=new Option('#'+a.id+' · '+(a.name||'未命名'),String(a.id));option.disabled=!!a.owner||['invalid','deleting','deleted'].includes(a.authStatus)||a.cooldownUntil>Date.now();$('target').add(option);}
+ for(const a of d.accounts){const option=new Option('#'+a.id+' · '+(a.name||'未命名'),String(a.id));option.disabled=!!a.owner||['invalid','deleting','deleted'].includes(a.authStatus);if(a.cooldownUntil>Date.now())option.text+=' · 冷却中';$('target').add(option);}
  if([...$('target').options].some(o=>o.value===selected&&!o.disabled))$('target').value=selected;
 }
 function refresh(){
@@ -228,7 +229,7 @@ function refresh(){
  })();return readTask;
 }
 async function action(path,body,message,format){
- if(mutating||!fresh)return;if(message&&!confirm(message))return;
+ if(mutating)return;if(message&&!confirm(message))return;
  mutating=true;controls();try{
   const result=await api(path,body);if(readTask)await readTask;
   if(await refresh()){notice(format(result));statusError=false;}
@@ -237,11 +238,16 @@ async function action(path,body,message,format){
   notice(e.message+'，请刷新后再操作');
  }finally{mutating=false;controls();}
 }
+const skipText=r=>(r?.skipped||[]).map(x=>x.reason).join('；')||r?.error||'未知原因';
+const interruptNote=s=>s?.active>0?'\n该实例有 '+s.active+' 个请求正在处理，会被中断。':'';
 $('rotate').addEventListener('click',()=>{
  const slot=$('slot').value,s=state?.slots?.[slot];
- if(!s||s.active>0||s.operation||s.pending||s.rotationBlocked||s.pendingExecutions?.length||s.pendingRetirements||s.legacyUnresolved){notice('请求或恢复操作尚未结束，暂不能轮换');return;}
  const body={slot};if($('target').value)body.targetAccount=Number($('target').value);
- action('/api/rotate',body,'轮换实例 '+slot+'？',r=>Array.isArray(r.started)&&r.started.includes(slot)?'实例 '+slot+' 轮换中':'未启动：'+JSON.stringify(r.skipped||r));
+ action('/api/rotate',body,'切换实例 '+slot+' 的账号？'+interruptNote(s),r=>Array.isArray(r.started)&&r.started.includes(slot)?'实例 '+slot+(r.details?.[slot]?.resumed?' 继续完成未结束的切换':' 正在切换到账号 #'+r.details?.[slot]?.account):'切换失败：'+skipText(r));
+});
+$('restart').addEventListener('click',()=>{
+ const slot=$('slot').value,s=state?.slots?.[slot];
+ action('/api/restart',{slot},'重启实例 '+slot+'？'+interruptNote(s),r=>Array.isArray(r.started)&&r.started.includes(slot)?'实例 '+slot+' 正在重启':'重启失败：'+skipText(r));
 });
 $('sync').addEventListener('click',()=>action('/api/sync-accounts',{},'同步账号池？',r=>'新增 '+(Array.isArray(r.added)?r.added.length:'?')+' 个账号'));
 $('save-mode').addEventListener('click',()=>action('/api/set-mode',{mode:$('mode').value},'应用流模式？',r=>['A','B'].map(s=>'实例 '+s+' '+(r.results?.[s]||'未返回结果')).join('\n')));

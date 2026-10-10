@@ -73,7 +73,7 @@ async function main(){
    healthCheck:monitor.status(slot),workerEpoch:s.workerEpoch,workerHealth:s.workerHealth,pendingRetirements:Object.keys(s.retirements||{}).length,
    pendingExecutions:Object.values(s.executions||{}).map(t=>({id:t.id,phase:t.phase,createdAt:t.createdAt})),
    legacyUnresolved:[...s.requests].filter(id=>!s.executions?.[id]).length,
-   operation:dispatch.operations.status(slot),rotationBlocked:rotation.failures.has(slot),
+   operation:dispatch.operations.status(slot),manualAction:rotation.manual.get(slot)||null,rotationBlocked:rotation.failures.has(slot),
    rotationFailure:rotation.failures.has(slot)?{
     reason:rotation.failures.get(slot).reason,retryable:rotation.failures.get(slot).retryable===true,
     retryAt:rotation.failures.get(slot).retryAt||null
@@ -101,8 +101,8 @@ async function main(){
  browserLease.init();
  const {TargetApp}=require('./target-app');
  const targetApp=new TargetApp({root,
-  isBusy:slot=>stopping||dispatch.operations.has(slot)||!dispatch.slots.get(slot).ready||!!dispatch.pool.slots.get(slot)?.pending||rotation.running.has(slot)||rotation.failures.has(slot),
-  rotate:async slot=>{const p=rotation.preflight(slot);if(!p.available)throw Error(p.reason);await rotation.rotate(slot,true);}});
+  isBusy:slot=>stopping||dispatch.operations.has(slot)||rotation.running.has(slot),
+  rotate:async slot=>{const r=rotation.forceRotate(slot);await r.done;const m=rotation.manual.get(slot);if(m?.phase==='failed')throw Error(m.error);}});
  monitor.tick();
  const actions={
   leaseStatus:()=>browserLease.status(),
@@ -188,26 +188,20 @@ async function main(){
    return {mode,results};
   },
   async rotate(slot,targetAccount){
-   if(stopping)return {started:[],skipped:[{slot,reason:'coordinator_stopping'}]};
-   const targets=slot===undefined?['A','B']:[slot];
-   const started=[];const skipped=[];
-   for(const target of targets){
-    const state=dispatch.slots.get(target),owner=dispatch.pool.slots.get(target);
-    if(dispatch.operations.has(target)||owner?.pending||rotation.running.has(target)||rotation.failures.has(target)){skipped.push({slot:target,reason:'busy or blocked'});continue;}
-    if(!dispatch.rotationIdle(target)){skipped.push({slot:target,reason:'请求未结束或实例状态待确认'});continue;}
-    if(targetAccount!==undefined&&targetAccount!==null){
-     if(dispatch.pool.ids.includes(targetAccount)===false)return {started,skipped:[{slot:target,reason:'unknown account'}]};
-     if(dispatch.pool.owners.has(targetAccount)||((dispatch.pool.cooldowns.get(targetAccount)||0)>Date.now()))return {started,skipped:[{slot:target,reason:'target occupied or cooling'}]};
-     if(dispatch.pool.slots.get(target)?.current===targetAccount)return {started,skipped:[{slot:target,reason:'target already active'}]};
-    }
-    const available=rotation.preflight(target,targetAccount);
-    if(!available.available){skipped.push({slot:target,reason:available.reason});continue;}
-    rotation.rotate(target,true,targetAccount).then(result=>{
-     console.log('[ManualRotation]',target,'account',result.account);
-    }).catch(error=>console.error('[ManualRotation]',target,'failed:',String(error.message||error)));
-    started.push(target);
+   if(stopping)return {started:[],skipped:[{slot,reason:'协调器正在停止'}]};
+   const started=[],skipped=[],details={};
+   for(const target of slot===undefined?['A','B']:[slot]){
+    try{const r=rotation.forceRotate(target,targetAccount??undefined);
+     r.done?.then(()=>scheduler.pump());started.push(target);details[target]={account:r.account,activeRequests:r.activeRequests||0,resumed:!!r.resumed};}
+    catch(e){skipped.push({slot:target,reason:String(e.message||e)});}
    }
-   return {started,skipped};
+   return {started,skipped,details};
+  },
+  async restart(slot){
+   if(stopping)return {started:[],skipped:[{slot,reason:'协调器正在停止'}]};
+   try{const r=rotation.forceRestart(slot);r.done?.then(()=>scheduler.pump());
+    return {started:[slot],skipped:[],details:{[slot]:{account:r.account,activeRequests:r.activeRequests||0,resumed:!!r.resumed}}};}
+   catch(e){return {started:[],skipped:[{slot,reason:String(e.message||e)}]};}
   },
   async syncAccounts(){
    if(stopping)return {added:[],reason:'coordinator_stopping'};

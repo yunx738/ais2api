@@ -9,7 +9,7 @@ async function main(){
  system.requestHandler._switchToSpecificAuth=denied;
  system.browserManager.launchOrSwitchContext=async()=>{throw Error('Management cannot launch browsers');};
  const app=system._createExpressApp();
- const allowed=new Set(['GET /login','POST /login','GET /import','POST /api/import-account','GET /','GET /api/status','GET /api/models','POST /api/models/refresh','GET /favicon.ico','GET /console-assets/console.css','GET /console-assets/console.js','GET /console-assets/models.js','POST /api/set-mode','POST /api/rotate','POST /api/sync-accounts']);
+ const allowed=new Set(['GET /login','POST /login','GET /import','POST /api/import-account','GET /','GET /api/status','GET /api/models','POST /api/models/refresh','GET /favicon.ico','GET /console-assets/console.css','GET /console-assets/console.js','GET /console-assets/models.js','POST /api/set-mode','POST /api/rotate','POST /api/restart','POST /api/sync-accounts']);
  allowed.add("POST /api/models/policy");
  allowed.add('GET /api/requests');
  allowed.add('GET /api/usage');
@@ -127,6 +127,12 @@ require('./console-routes').install(dashboard);
   try{payload=rotationPayload(req.body);}
   catch(error){return res.status(400).json({error:error.message});}
   const r=await call('POST','/internal/rotate',payload);
+  if(!res.destroyed)res.status(r.status).json(r.body);
+ });
+ dashboard.post('/api/restart',async(req,res)=>{
+  const slot=req.body?.slot;
+  if(!['A','B'].includes(slot))return res.status(400).json({error:'slot must be A or B'});
+  const r=await call('POST','/internal/restart',{slot});
   if(!res.destroyed)res.status(r.status).json(r.body);
  });
  // Password login: forwarded to the loopback login service; never logged or stored here.
