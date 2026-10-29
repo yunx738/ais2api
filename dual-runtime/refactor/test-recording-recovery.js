@@ -80,7 +80,8 @@ test('maxOutputTokens is pinned to the model upstream limit and client values ar
 test('Google cut-off (no finishReason) fails fast as 504 and is never retried or cooled down', () => {
   const fs = require('fs'); const path = require('path');
   const src = fs.readFileSync(path.join(__dirname, '../code/unified-server.runtime.js'), 'utf8');
-  assert.ok(src.includes("window.__gcCall.v!==7") && src.includes("window.__gcCall.v=7;"));
+  assert.ok(src.includes("window.__gcCall.v!==8") && src.includes("window.__gcCall.v=8;"));
+  assert.ok(src.includes("gcbHx.visit = h['x-aistudio-visit-id']") && src.includes("if(hx.visit)hd['x-aistudio-visit-id']=hx.visit;"));
   assert.ok(src.includes('signal:ac.signal') && src.includes("hx.hardMs||660000"));
   assert.ok(src.includes("status: 'UPSTREAM_CUT'") && src.includes('upstream cut: no finishReason'));
   assert.ok(src.includes('GCB_HARD_MS + 30000'));
