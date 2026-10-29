@@ -7,7 +7,19 @@ function install(system,secret){
  const account=Number(process.env.WORKER_ACCOUNT),slot=process.env.WORKER_SLOT;
  const authBaseHash=crypto.createHash('sha256').update(fs.readFileSync(path.join(__dirname,'auth','auth-'+account+'.json'))).digest('hex');
  const original=system._createExpressApp.bind(system);
- let exporting=false,lastExportAt=0,keeping=false;
+ let exporting=false,lastExportAt=0,keeping=false,probing=false;
+ // Runs inside the page. Returns status, headers, chunk timing and body; the signature itself is never returned.
+ const rpcProbe=async function(method,body,ht,sigPath){var w=window,tb=w.__tb;if(!tb||!w.__gcS||!w.__gcH)return JSON.stringify({err:'signer_not_ready'});
+  var md=tb.getMetadata()||{};var waa=md['X-Goog-Api-Key'];var key=null;for(var sk in tb){var mb;try{mb=tb[sk];}catch(e){continue;}if(!mb||typeof mb!=='object')continue;for(var k in mb){var v;try{v=mb[k];}catch(e){continue;}if(typeof v==='string'&&/^AIza[0-9A-Za-z_-]{30,}$/.test(v)&&v!==waa){key=v;break;}}if(key)break;}
+  if(!key)return JSON.stringify({err:'page_key_not_found'});
+  var sig=await w.__gcS(tb,await w.__gcH(ht));var o=body;for(var i=0;i<sigPath.length-1;i++)o=o[sigPath[i]];o[sigPath[sigPath.length-1]]=sig;
+  var hd={'content-type':'application/json+protobuf','x-user-agent':'grpc-web-javascript/0.1','x-goog-api-key':key,'authorization':md.Authorization,'x-goog-authuser':md['X-Goog-AuthUser']!=null?String(md['X-Goog-AuthUser']):'0'};
+  var url='https://alkalimakersuite-pa.clients6.google.com/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/'+method;
+  var t0=Date.now(),chunks=[],txt='',r;var ac=new AbortController();var wd=setTimeout(function(){ac.abort();},110000);
+  try{r=await fetch(url,{method:'POST',credentials:'include',headers:hd,body:JSON.stringify(body),signal:ac.signal});var rh={};r.headers.forEach(function(v,k){if(!/cookie|auth/i.test(k))rh[k]=v;});
+   var rd=r.body.getReader(),dec=new TextDecoder();for(;;){var x=await rd.read();if(x.done)break;var s=dec.decode(x.value,{stream:true});txt+=s;chunks.push([Date.now()-t0,s.length]);if(txt.length>200000)break;}
+  }catch(e){return JSON.stringify({err:'fetch '+String(e&&e.message||e).slice(0,120),ms:Date.now()-t0});}finally{clearTimeout(wd);}
+  return JSON.stringify({status:r.status,ms:Date.now()-t0,headers:rh,chunks:chunks,sigLen:sig.length,text:txt});};
  const idle=()=>{
   const s=system.workerStatus(),b=system.browserManager;
   let url;try{url=new URL(b.page.url());}catch{return false;}
@@ -122,6 +134,32 @@ function install(system,secret){
     const id=req.path.slice('/internal/executions/'.length);
     if(!/^[a-f0-9-]{36}$/.test(id))return res.status(400).json({error:'Invalid execution ID'});
     return res.json(system.executions.read(id,Number(req.headers['x-admission-deadline'])));
+   }
+   if(req.method==='POST' && req.path==='/internal/debug/rpc-probe'){
+    // Diagnostics only: send ONE short request to an allow-listed MakerSuite RPC from the live page,
+    // reusing the page's signer. Requires the worker key, an idle worker and a ready signer.
+    let size=0;const chunks=[];
+    req.on('data',c=>{size+=c.length;if(size>8192){req.destroy();return;}chunks.push(c);});
+    req.on('end',async()=>{
+     if(res.writableEnded)return;
+     let body;try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{return res.status(400).json({error:'Invalid body'});}
+     const ALLOW={CreateInteractionStream:[4],CreateOrchestrationStream:[5]};
+     const method=body&&body.method;
+     if(!Object.hasOwn(ALLOW,method)||!Array.isArray(body.request)||typeof body.hashText!=='string'||body.hashText.length>2000)
+      return res.status(400).json({error:'Method not allowed or bad request'});
+     if(probing)return res.status(409).json({error:'Probe already running'});
+     if(!idle())return res.status(409).json({error:'Worker not idle'});
+     const page=system.browserManager.page;
+     probing=true;
+     try{
+      const code='('+String(rpcProbe)+')('+JSON.stringify(method)+','+JSON.stringify(body.request)+','+JSON.stringify(body.hashText)+','+JSON.stringify(ALLOW[method])+')';
+      let tmo;const raw=await Promise.race([page.evaluate(c=>window.wrappedJSObject.eval(c),code),new Promise(r=>{tmo=setTimeout(()=>r(JSON.stringify({err:'timeout'})),120000);})]).finally(()=>clearTimeout(tmo));
+      let out;try{out=JSON.parse(raw);}catch{out={err:'unparseable',raw:String(raw).slice(0,300)};}
+      if(!res.destroyed)res.json(out);
+     }catch(e){if(!res.destroyed)res.status(500).json({err:String(e&&e.message||e).slice(0,200)});}
+     finally{probing=false;}
+    });
+    return;
    }
    if(req.method==='GET' && req.path==='/internal/models'){
     if(!system.modelCatalog)return res.status(503).json({error:'Catalog unavailable'});

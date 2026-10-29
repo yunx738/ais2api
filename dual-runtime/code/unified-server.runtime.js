@@ -16,6 +16,10 @@ const AT_MAX_ATTEMPTS = 3;
 // After this much time since the request arrived, an unfinished round fails instead of continuing.
 const AT_CONTINUE_DEADLINE_MS = 360000;
 const AT_MAX_RETRIES = 3;
+// STOP with this much plain answer text but no emit_answer call: accept the text as the answer.
+const AT_STOP_TEXT_MIN_CHARS = 2000;
+// Empty upstream response (no candidate parts): wait this long, then resend the original request.
+const AT_EMPTY_RETRY_DELAY_MS = 3000;
 const AT_SYSTEM_HINT =
   "\n\n[SYSTEM CONSTRAINT] You have a tool named emit_answer. " +
   "When you are ready to output your final complete answer, you MUST call " +
@@ -146,7 +150,7 @@ function atBlockPayload(info, httpStatus) {
   if (info.promptTokens !== null) payload.usage = { prompt_tokens: info.promptTokens };
   return payload;
 }
-  return { AT_PREFIX, AT_TOOL_NAME, AT_MAX_ATTEMPTS, AT_CONTINUE_DEADLINE_MS, AT_MAX_RETRIES, fixTrailingModelTurn, atIsEnabled, atRealModel, atInjectTools, atExtractAnswer, atBuildContinuationBody, atBlockInfo, atBlockMessage, atBlockPayload, atFinishPayload };
+  return { AT_PREFIX, AT_TOOL_NAME, AT_MAX_ATTEMPTS, AT_CONTINUE_DEADLINE_MS, AT_MAX_RETRIES, AT_STOP_TEXT_MIN_CHARS, AT_EMPTY_RETRY_DELAY_MS, fixTrailingModelTurn, atIsEnabled, atRealModel, atInjectTools, atExtractAnswer, atBuildContinuationBody, atBlockInfo, atBlockMessage, atBlockPayload, atFinishPayload };
 })();
 
 // ===================================================================================
@@ -2367,6 +2371,7 @@ class RequestHandler {
     let lastAnswer = null;
     const atUsage = {complete: true, sum: {}};
     let atRetries = 0;
+    let atEmptyRetry = false;
     const atAddUsage = (resp) => { const u = resp && resp.usageMetadata; if (!u || typeof u !== 'object') { atUsage.complete = false; return; } for (const key of ['promptTokenCount','candidatesTokenCount','thoughtsTokenCount','cachedContentTokenCount','totalTokenCount']) { if (Number.isSafeInteger(u[key]) && u[key] >= 0) atUsage.sum[key] = (atUsage.sum[key] || 0) + u[key]; } };
     atAddUsage(current);
     // Diagnostics only: shape and size of each round, never the content itself.
@@ -2404,8 +2409,28 @@ class RequestHandler {
       }
       const atElapsed = Date.now() - startedAt;
       const atPartial = (() => { const c0 = current && current.candidates && current.candidates[0]; let t = ''; for (const p of ((c0 && c0.content && c0.content.parts) || [])) if (p && typeof p.text === 'string' && !p.thought) t += p.text; const a = typeof r.answer === 'string' ? r.answer : ''; return a.length >= t.length ? a : t; })();
-      if (attempt > AT.AT_MAX_ATTEMPTS) break;
-      let atRetryNow = false;
+      {
+        const c0 = current && current.candidates && current.candidates[0];
+        const ps = (c0 && c0.content && Array.isArray(c0.content.parts)) ? c0.content.parts : [];
+        const hasCall = ps.some(p => p && p.functionCall);
+        let plain = ''; for (const p of ps) if (p && typeof p.text === 'string' && !p.thought) plain += p.text;
+        // Finished normally with a full plain-text answer but skipped emit_answer: that text is the answer.
+        if (!r.found && r.finishReason === 'STOP' && !hasCall && plain.trim().length >= AT.AT_STOP_TEXT_MIN_CHARS) {
+          const out = { found: true, answer: plain, finishReason: 'STOP' };
+          if (atUsage.complete && Number.isSafeInteger(atUsage.sum.promptTokenCount)) out.usageMetadata = atUsage.sum;
+          this.logger.info('[AT] finish=STOP without emit_answer; accepting plain text as answer on attempt ' + attempt + ', len=' + plain.length);
+          return out;
+        }
+        // Empty response (no parts, no finish reason): wait, then resend the original request (shares the retry budget).
+        if (!r.found && !r.finishReason && ps.length === 0 && !(current && current.promptFeedback && current.promptFeedback.blockReason) && atElapsed < AT.AT_CONTINUE_DEADLINE_MS && atRetries < AT.AT_MAX_RETRIES) {
+          atRetries++;
+          this.logger.warn('[AT] empty upstream response on round ' + attempt + ' elapsed=' + atElapsed + 'ms; waiting ' + AT.AT_EMPTY_RETRY_DELAY_MS + 'ms then retrying original request ' + atRetries + '/' + AT.AT_MAX_RETRIES);
+          await new Promise(rs => setTimeout(rs, AT.AT_EMPTY_RETRY_DELAY_MS));
+          atEmptyRetry = true;
+        }
+      }
+      if (attempt > AT.AT_MAX_ATTEMPTS && !atEmptyRetry) break;
+      let atRetryNow = atEmptyRetry; atEmptyRetry = false;
       if (r.finishReason && !/^(STOP|MAX_TOKENS|MALFORMED_FUNCTION_CALL)$/.test(r.finishReason)) {
         this.logger.warn('[AT] giving up: finish=' + r.finishReason + ' on round ' + attempt);
         const atBlock = AT.atBlockInfo(current);
