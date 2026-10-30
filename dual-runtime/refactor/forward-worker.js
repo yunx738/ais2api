@@ -26,7 +26,8 @@ function forwardWorker(ticket,route,body,res,credentials,options={}){
    path:route,method:'POST',agent:false,
    headers:{"X-Admission-Deadline":String(ticket.admissionDeadline),'Content-Type':'application/json','Content-Length':body.length,
     'X-Request-ID':ticket.id,'X-Execution-ID':ticket.id,'X-Worker-Epoch':ticket.workerEpoch,
-    'X-Worker-Key':credentials.control,'Authorization':'Bearer '+credentials.api}
+    'X-Worker-Key':credentials.control,'Authorization':'Bearer '+credentials.api,
+    ...(typeof options.atPrompt==='string'&&/^[a-z_]{1,24}$/.test(options.atPrompt)?{'X-AT-Prompt':options.atPrompt}:{})}
   },reply=>{
    upstreamReply=reply;
    receivedStatus=reply.statusCode;receivedRetryAfter=reply.headers['retry-after'];

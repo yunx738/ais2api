@@ -157,6 +157,8 @@
 <pre id="tares" class="out"></pre></div>
 <div class="card form-card legacy"><h2>每个实例的并发数</h2><div class="sub">每个实例同时处理的请求数，1–10，默认 2。保存后立即生效，重启或切换账号后不变。</div>
 <div class="form-row"><label>实例 A<input id="ccA" type="number" min="1" max="10" step="1" inputmode="numeric"></label><label>实例 B<input id="ccB" type="number" min="1" max="10" step="1" inputmode="numeric"></label><button id="ccsave" class="primary" type="button">保存</button></div><pre id="ccres" class="out"></pre></div>
+<div class="card form-card legacy"><h2>防截断提示词</h2><div class="sub">请求 anti-truncation/ 开头的模型时注入的提示词。保存后下一条请求立即生效，不用重启实例。</div>
+<div class="form-row"><label>提示词<select id="atp"></select></label><button id="atpsave" class="primary" type="button">保存</button></div><div id="atpnote" class="sub"></div><pre id="atpres" class="out"></pre></div>
 <div class="card form-card legacy"><div class="sw"><div><b>单实例运行</b><div id="msub" class="sub"></div></div><input id="msingle" type="checkbox" aria-label="单实例运行"></div><pre id="mres" class="out"></pre></div>
 <div class="card form-card legacy"><div class="sw"><div><b>Pro/Ultra 专用实例</b><div id="usub" class="sub"></div></div><input id="uon" type="checkbox" aria-label="Pro/Ultra 专用实例"></div>
 <label class="f" for="uslot">专用实例</label><select id="uslot"><option value="A">实例 A</option><option value="B">实例 B</option></select>

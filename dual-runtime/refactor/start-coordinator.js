@@ -23,7 +23,7 @@ async function main(){
  const priceStore=new ModelPriceStore(path.join(root,'model-prices.json'));
  const sweepStale=()=>{if(history.status().ready&&typeof history.expireStale==='function')history.expireStale().then(n=>{if(n)console.warn('[Analytics] closed '+n+' stale pending request(s) as uncertain');}).catch(()=>{});};
  sweepStale();setInterval(sweepStale,300000).unref();
- const recordedForward=createRecordedForward({history,forward:forwardWorker,priceFor:model=>priceStore.get(model),missLog:require('path').join(__dirname,'..','usage-missing.jsonl')});
+ const recordedForward=createRecordedForward({history,forward:(ticket,route,body,res,credentials,options={})=>forwardWorker(ticket,route,body,res,credentials,{...options,atPrompt:atPrompt.get()}),priceFor:model=>priceStore.get(model),missLog:require('path').join(__dirname,'..','usage-missing.jsonl')});
  const scheduler=new RequestScheduler(dispatch,client,recordedForward,cfg.workers);
  const {QuarantineRecovery}=require('./quarantine-recovery');
  const recovery=new QuarantineRecovery(dispatch,scheduler,client,driver,rotation);
@@ -42,6 +42,7 @@ async function main(){
  dispatch.slotAllows=(slot,id)=>tiers.allowed(slot,id);
  const concurrency=new (require('./slot-concurrency').SlotConcurrency)(path.join(root,'concurrency.json'));
  dispatch.slotLimit=slot=>concurrency.get(slot);
+ const atPrompt=new (require('./at-prompt-store').AtPromptStore)(path.join(root,'at-prompt.json'));
  dispatch.slotRule=slot=>!tiers.active()?'':slot===tiers.mode.slot?'实例 '+slot+' 只用 Pro/Ultra 账号':'实例 '+slot+' 不使用 Pro/Ultra 账号';
  routing.isUltra=id=>tiers.isUltra(id);
  routing.isPremium=id=>tiers.isPremium(id);
@@ -145,6 +146,8 @@ async function main(){
    const r=tiers.setTier(id,body?.tier);monitor.tick();return r;},
   setRunMode:body=>browserLease.setMode(body),
   concurrency:()=>concurrency.status(),
+  atPrompt:()=>atPrompt.status(),
+  setAtPrompt:body=>{const r=atPrompt.set(body);console.log('[Coordinator] anti-truncation prompt set to '+r.preset);return r;},
   setConcurrency:body=>{const r=concurrency.set(body);console.log('[Coordinator] per-slot concurrency set to A='+r.A+' B='+r.B);monitor.tick();return r;},
   targetApp:()=>targetApp.status(),
   saveTargetApp:body=>targetApp.save(body),

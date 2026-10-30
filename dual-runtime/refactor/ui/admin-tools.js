@@ -197,6 +197,16 @@ $("ccsave").onclick=async()=>{const A=Number($("ccA").value),B=Number($("ccB").v
  $("ccsave").disabled=true;const {ok,d}=await lpost("/api/concurrency",{A,B}).catch(()=>({ok:false,d:{}}));$("ccsave").disabled=false;
  if(ok){$("ccA").value=d.A;$("ccB").value=d.B;$("ccres").textContent="已保存：实例 A "+d.A+"，实例 B "+d.B;}else{$("ccres").textContent=d.error||"保存失败";ccload();}};
 ccload();
+// ---- anti-truncation prompt preset ----
+let atpList=[];
+function atpNote(){const p=atpList.find(x=>x.key===$("atp").value);$("atpnote").textContent=p?p.note:"";}
+async function atpload(){try{const r=await fetch("/api/at-prompt",{credentials:"same-origin",redirect:"error"});const d=await r.json();if(!r.ok)return;
+ atpList=d.presets||[];$("atp").replaceChildren(...atpList.map(p=>{const o=document.createElement("option");o.value=p.key;o.textContent=p.label;return o;}));$("atp").value=d.preset;atpNote();}catch{}}
+$("atp").onchange=atpNote;
+$("atpsave").onclick=async()=>{const preset=$("atp").value;$("atpsave").disabled=true;
+ const {ok,d}=await lpost("/api/at-prompt",{preset}).catch(()=>({ok:false,d:{}}));$("atpsave").disabled=false;
+ if(ok){const p=atpList.find(x=>x.key===d.preset);$("atpres").textContent="已保存："+(p?p.label:d.preset)+"，下一条请求生效";}else{$("atpres").textContent=d.error||"保存失败";atpload();}};
+atpload();
 // ---- Pro/Ultra dedicated instance ----
 let utimer=null;
 function ushow(u){

@@ -26,6 +26,37 @@ const AT_SYSTEM_HINT =
   "emit_answer with the full answer text as the value of the key \"answer\". " +
   "Do not output the answer as plain text. Do not stop early. " +
   "If the answer is long, call emit_answer once with the complete content.";
+// Selectable prompt presets (settings page: anti-truncation prompt). Unknown or missing key -> classic.
+// Keep the key list in sync with refactor/at-prompt-store.js.
+const AT_PROMPTS = {
+  classic: { desc: "Emit your final complete answer.", hint: AT_SYSTEM_HINT },
+  once: {
+    desc: "Deliver the complete final answer. Call exactly once. The answer must not also appear as normal text.",
+    hint:
+      "\n\n[SYSTEM CONSTRAINT] Deliver your final answer exactly once, through the emit_answer tool.\n" +
+      "- Make a real function call to emit_answer and put the entire final answer in the key \"answer\".\n" +
+      "- Do not write any part of the answer as normal text before or after the call: no preview, no draft, no summary, no second copy.\n" +
+      "- Never type the call yourself as text, JSON, code or a list such as [{\"name\": \"emit_answer\", ...}].\n" +
+      "- If the answer is long, still call emit_answer once with the complete content. Do not stop early.\n" +
+      "- If a real function call is impossible, write the answer once as plain text and stop. Never repeat it.",
+  },
+  tool_only: {
+    desc: "The only channel for the final answer. Your reply must consist of this single call and nothing else.",
+    hint:
+      "\n\n[SYSTEM CONSTRAINT] Your reply must consist of exactly one function call to emit_answer and nothing else.\n" +
+      "- Zero text outside the call: no greeting, no answer text, no notes, no closing remarks.\n" +
+      "- The key \"answer\" holds the complete final answer with all its formatting.\n" +
+      "- The call is a real tool call. Writing it as text, JSON or code is forbidden.\n" +
+      "- Call it once. Never split the answer across several calls and never repeat it. Do not stop early.",
+  },
+  lite: {
+    desc: "Final answer (call once).",
+    hint: "\n\n[SYSTEM CONSTRAINT] Put your complete final answer in one real emit_answer call (key \"answer\"). No answer text outside the call, no second copy, do not stop early.",
+  },
+};
+function atPromptKey(key) {
+  return typeof key === "string" && Object.prototype.hasOwnProperty.call(AT_PROMPTS, key) ? key : "classic";
+}
 
 // Google rejects a conversation whose last turn is the model. Turn trailing
 // plain-text model turns into user turns; tool-call turns are left untouched.
@@ -49,7 +80,8 @@ function atIsEnabled(modelName) {
 function atRealModel(modelName) {
   return atIsEnabled(modelName) ? modelName.slice(AT_PREFIX.length) : modelName;
 }
-function atInjectTools(googleBody) {
+function atInjectTools(googleBody, promptKey) {
+  const preset = AT_PROMPTS[atPromptKey(promptKey)];
   if (!googleBody || !Array.isArray(googleBody.contents)) return googleBody;
   const alreadyInjected = (googleBody.tools || []).some((t) =>
     (t.functionDeclarations || []).some((d) => d.name === AT_TOOL_NAME),
@@ -57,7 +89,7 @@ function atInjectTools(googleBody) {
   if (alreadyInjected) return googleBody;
   const decl = {
     name: AT_TOOL_NAME,
-    description: "Emit your final complete answer.",
+    description: preset.desc,
     parameters: {
       type: "OBJECT",
       properties: { answer: { type: "STRING" } },
@@ -72,7 +104,7 @@ function atInjectTools(googleBody) {
   }
   googleBody.systemInstruction = {
     role: "system",
-    parts: [{ text: sysText + AT_SYSTEM_HINT }],
+    parts: [{ text: sysText + preset.hint }],
   };
   return googleBody;
 }
@@ -195,7 +227,7 @@ function atCleanPlainAnswer(plain) {
   }
   return { answer: plain, info };
 }
-  return { atCleanPlainAnswer, atDecodeJsonString, AT_PREFIX, AT_TOOL_NAME, AT_MAX_ATTEMPTS, AT_CONTINUE_DEADLINE_MS, AT_MAX_RETRIES, AT_STOP_TEXT_MIN_CHARS, AT_EMPTY_RETRY_DELAY_MS, fixTrailingModelTurn, atIsEnabled, atRealModel, atInjectTools, atExtractAnswer, atBuildContinuationBody, atBlockInfo, atBlockMessage, atBlockPayload, atFinishPayload };
+  return { AT_PROMPTS, atPromptKey, atCleanPlainAnswer, atDecodeJsonString, AT_PREFIX, AT_TOOL_NAME, AT_MAX_ATTEMPTS, AT_CONTINUE_DEADLINE_MS, AT_MAX_RETRIES, AT_STOP_TEXT_MIN_CHARS, AT_EMPTY_RETRY_DELAY_MS, fixTrailingModelTurn, atIsEnabled, atRealModel, atInjectTools, atExtractAnswer, atBuildContinuationBody, atBlockInfo, atBlockMessage, atBlockPayload, atFinishPayload };
 })();
 
 // ===================================================================================
@@ -1746,8 +1778,9 @@ class RequestHandler {
     if (atEnabled) {
       const atReal = AT.atRealModel(model);
       proxyRequestModel = atReal;
-      AT.atInjectTools(googleBody);
-      this.logger.info("[AT] anti-truncation enabled for " + atReal + ", tools injected");
+      const atPrompt = AT.atPromptKey(req.headers && req.headers['x-at-prompt']);
+      AT.atInjectTools(googleBody, atPrompt);
+      this.logger.info("[AT] anti-truncation enabled for " + atReal + ", tools injected, prompt=" + atPrompt);
     }
     } catch (error) {
       this.logger.error(`[Adapter] OpenAI请求翻译失败: ${error.message}`);

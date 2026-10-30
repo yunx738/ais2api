@@ -173,6 +173,13 @@ function createServer({keys,models,scheduler,status,actions,auth}){
      catch(e){return json(res,e.statusCode===400?400:503,{error:e.statusCode===400?e.message:'保存未确认'});}
     }
    }
+   if(url.pathname==='/internal/at-prompt'&&actions.atPrompt){
+    if(req.method==='GET')return json(res,200,actions.atPrompt());
+    if(req.method==='POST'){
+     try{return json(res,200,actions.setAtPrompt(await readBody()));}
+     catch(e){return json(res,e.statusCode===400?400:503,{error:e.statusCode===400?e.message:'保存未确认'});}
+    }
+   }
    if(url.pathname==='/internal/run-mode'){
     if(req.method==='GET')return json(res,200,actions.runMode());
     if(req.method==='POST'){
