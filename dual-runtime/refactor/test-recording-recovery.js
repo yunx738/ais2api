@@ -113,7 +113,7 @@ test('client cancel aborts the in-page Google call (also continuation rounds); l
   const o = JSON.parse(await h.run); assert.equal(o.s, 499); assert.equal(o.t, 'cancelled');
   assert.equal(h.abort('g9'), false, 'handle is removed once the call settles');
   // node side: request id is threaded through, legacy models are not tagged, cancel maps rid -> op
-  assert.ok(src.includes("if (!gcbLegacy && typeof proxyRequest.request_id === 'string') body.__aisRid = proxyRequest.request_id;"));
+  assert.ok(src.includes("if (typeof proxyRequest.request_id === 'string') body.__aisRid = proxyRequest.request_id;"));
   assert.ok(src.includes("delete g.__aisRid;") && src.includes('gcbOps.set(gcbRid, gcbOp)') && src.includes('if (gcbRid) gcbOps.delete(gcbRid);'));
   assert.ok(src.includes("window.wrappedJSObject.__gcAbort(o)") && src.includes('r.s === 499'));
   assert.ok(/_cancelBrowserRequest\(requestId\) \{\n\s+try \{ const bm = this\.browserManager/.test(src));

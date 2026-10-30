@@ -421,13 +421,10 @@ class BrowserManager {
       this.context = await this.browser.newContext({
         storageState: storageStateObject,
         viewport: { width: 1920, height: 1080 },
+        bypassCSP: true, // page CSP must not block the injected relay's ws://127.0.0.1 connection
       });
-      if (process.env.WORKER_ACCOUNT) {
-        await require('./verified-client-route').install(
-          this.context, buildScriptContent,
-          record => this.logger.info('[VerifiedClientRoute] '+JSON.stringify(record))
-        );
-      }
+      // No Build App: the worker opens a plain AI Studio chat page and injects the relay client itself.
+      this.relayScript = buildScriptContent;
       this.page = await this.context.newPage();
       // ---- GenerateContent bridge: Google rejects POST via ProxyUnaryCall/ProxyStreamedCall; call MakerSuite GenerateContent directly ----
       {
@@ -444,7 +441,7 @@ var hd={'content-type':'application/json+protobuf','x-user-agent':'grpc-web-java
 return JSON.stringify({s:r.status,t:tx,tier:tier||''});};window.__gcCall.v=8;window.__gcAbort=function(op){var c=window.__gcAb&&window.__gcAb[op];if(!c)return false;c.__cancel=true;c.abort();return true;};}
 return window.__tb?'ok':'wait';})()`;
         const pg = this.page, log = this.logger;
-        global.__gcbPage = pg; let gcbKey = null; const gcbHx = {}; const gcbWaa = 'AIzaSyBGb5fGAyC-pRcRU6MUHb__b_vKha71HRE'; const GCB_HARD_MS = Number(process.env.GCB_HARD_MS) || 660000; const gcbOps = new Map(); const gcbCancelled = new Set(); let gcbSeq = 0;
+        global.__gcbPage = pg; let gcbKey = null; const gcbHx = {}; const gcbWaa = 'AIzaSyBGb5fGAyC-pRcRU6MUHb__b_vKha71HRE'; const GCB_MS_KEY = 'AIzaSyDdP816MREB3SkjZO04QXbjsigfcI0GWOs'; const GCB_HARD_MS = Number(process.env.GCB_HARD_MS) || 660000; const gcbOps = new Map(); const gcbCancelled = new Set(); let gcbSeq = 0;
         this.gcbCancel = rid => { gcbCancelled.add(rid); setTimeout(() => gcbCancelled.delete(rid), 120000).unref?.(); const op = gcbOps.get(rid); if (!op) return false; gcbOps.delete(rid); log.info('[GCBridge] client cancelled ' + rid + '; aborting upstream call ' + op); pg.evaluate(o => window.wrappedJSObject.__gcAbort(o), op).catch(() => {}); return true; }; // Google itself cuts at ~600s
         this.context.on('request', r => { try { if (!/alkalimakersuite-pa\.clients6\.google\.com\/\$rpc\/.*MakerSuiteService\//.test(r.url())) return; const k = r.headers()['x-goog-api-key']; if (k && k !== gcbWaa && /^AIza/.test(k)) gcbKey = k; const h = r.headers(); if (h['x-aistudio-g1-tier']) gcbHx.tier = h['x-aistudio-g1-tier']; if (h['x-goog-ext-519733851-bin']) gcbHx.ext = h['x-goog-ext-519733851-bin']; if (h['x-aistudio-visit-id']) gcbHx.visit = h['x-aistudio-visit-id']; } catch {} });
         const gcbInstall = () => pg.evaluate(c => window.wrappedJSObject.eval(c), GCB_INSTALL).catch(e => 'err:' + String(e && e.message || e).slice(0, 120)).then(r => { const v = typeof r === 'string' ? r : JSON.stringify(r); try { gcbAssess(v); } catch (e) {} pg.evaluate(() => { try { const w = window.wrappedJSObject; return 'hash=' + (w.__gcHn || '-') + ' tb=' + (w.__tb ? 'yes' : 'no') + ' v=' + (w.__gcCall ? w.__gcCall.v : '-') + ' cn=' + (w.__cnSeen || '-') + ' gm=' + w.__gmCnt + ' via=' + (w.__tbVia || '-') + ' seen=' + (w.__gmSeen || '-') + ' snap=' + (w.__gcSn || '-') + ' vis=' + (w.__gcVisN || 0) + ' mk=' + (w.__gcMk || '-') + '/' + (w.__gcMkN || 0) + ' nb=' + (w.__gcMkNb || '-') } catch (e) { return 'probe err ' + e.message; } }).then(x => { const k = v + ' ' + x; if (k !== gcbLast) { gcbLast = k; log.warn('[GCBridge] install result=' + String(v).slice(0, 80) + ' ' + String(x).slice(0, 900)); } }).catch(() => {}); return r; }); let gcbLast = null;
@@ -484,6 +481,31 @@ return window.__tb?'ok':'wait';})()`;
           if (gcbSig.probe === 'ok') { if (gcbSig.state !== 'ok') gcbSet('ok'); return; }
           if (gcbSig.probe === 'failed' && now - gcbSig.probedAt < 30000) return;
           gcbProbe();
+        };
+        // Google MakerSuite errors are JSPB arrays like [,[7,"msg"]]; turn them into REST-style {error:{...}} for the page client
+        const GCB_RPC_STATUS = { 3: 'INVALID_ARGUMENT', 4: 'DEADLINE_EXCEEDED', 5: 'NOT_FOUND', 7: 'PERMISSION_DENIED', 8: 'RESOURCE_EXHAUSTED', 9: 'FAILED_PRECONDITION', 13: 'INTERNAL', 14: 'UNAVAILABLE', 16: 'UNAUTHENTICATED' };
+        const gcbErrBody = (status, text) => {
+          const t = String(text == null ? '' : text);
+          try { const j = JSON.parse(t); if (j && typeof j === 'object' && !Array.isArray(j) && j.error) return t;
+            if (Array.isArray(j)) { const e = Array.isArray(j[1]) ? j[1] : (typeof j[0] === 'number' ? j : null); if (e) return JSON.stringify({ error: { code: status, status: GCB_RPC_STATUS[e[0]] || 'UNKNOWN', message: String(e[1] || t).slice(0, 2000) } }); } } catch (e) {}
+          return JSON.stringify({ error: { code: status, status: 'UNKNOWN', message: t.slice(0, 2000) || ('HTTP ' + status) } });
+        };
+        // GET /v1beta/models from the page client -> MakerSuite ListModels (signed headers not needed; page auth + MakerSuite key)
+        this.gcbListModels = async route => {
+          const t0 = Date.now();
+          try {
+            await gcbInstall();
+            const raw = await pg.evaluate(c => window.wrappedJSObject.eval(c), `(async function(){var tb=window.__tb;var md=tb&&tb.getMetadata?tb.getMetadata():{};var h={'content-type':'application/json+protobuf','x-user-agent':'grpc-web-javascript/0.1','x-goog-api-key':${JSON.stringify(GCB_MS_KEY)}};if(md.Authorization)h.authorization=md.Authorization;if(md['X-Goog-AuthUser']!=null)h['x-goog-authuser']=String(md['X-Goog-AuthUser']);var r=await fetch('https://alkalimakersuite-pa.clients6.google.com/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/ListModels',{method:'POST',credentials:'include',headers:h,body:'[]'});return JSON.stringify({s:r.status,t:await r.text()});})()`);
+            const r = JSON.parse(raw);
+            if (r.s !== 200) { log.warn('[GCBridge] ListModels status ' + r.s + ' ' + String(r.t).slice(0, 200)); return route.fulfill({ status: r.s, headers: GCB_CORS, contentType: 'application/json; charset=UTF-8', body: gcbErrBody(r.s, r.t) }); }
+            const d = JSON.parse(r.t); const items = Array.isArray(d) && Array.isArray(d[0]) ? d[0] : [];
+            const models = items.filter(it => Array.isArray(it) && typeof it[0] === 'string' && it[0].startsWith('models/')).map(it => { const m = { name: it[0], version: typeof it[2] === 'string' ? it[2] : '001', displayName: typeof it[3] === 'string' ? it[3] : it[0].slice(7), description: typeof it[4] === 'string' ? it[4] : '', inputTokenLimit: Number.isSafeInteger(it[5]) ? it[5] : 0, outputTokenLimit: Number.isSafeInteger(it[6]) ? it[6] : 0, supportedGenerationMethods: Array.isArray(it[7]) ? it[7].filter(x => typeof x === 'string') : [] }; if (typeof it[8] === 'number') m.temperature = it[8]; if (typeof it[9] === 'number') m.topP = it[9]; if (typeof it[10] === 'number') m.topK = it[10]; return m; });
+            log.info('[GCBridge] ListModels ok models=' + models.length + ' ms=' + (Date.now() - t0));
+            return route.fulfill({ status: 200, headers: GCB_CORS, contentType: 'application/json; charset=UTF-8', body: JSON.stringify({ models }) });
+          } catch (e) {
+            log.warn('[GCBridge] ListModels error ' + String(e && e.message || e).slice(0, 200));
+            return route.fulfill({ status: 502, headers: GCB_CORS, contentType: 'application/json; charset=UTF-8', body: JSON.stringify({ error: { code: 502, status: 'UNAVAILABLE', message: 'GCBridge ListModels: ' + String(e && e.message || e).slice(0, 300) } }) }).catch(() => {});
+          }
         };
         const gcbOutcome = (ok, text) => {
           if (ok) { gcbSig.okRequests++; gcbSig.failStreak = 0; gcbSig.lastOkAt = Date.now(); if (gcbSig.state === 'failed' && gcbSig.reason === 'frontend_incompatible') gcbSet('ok'); return; }
@@ -587,14 +609,17 @@ return window.__tb?'ok':'wait';})()`;
           const r = { candidates: [{ content: { parts, role: 'model' }, finishReason: fin || 'STOP', index: 0 }] };
           if (usage) r.usageMetadata = usage; if (rid) r.responseId = rid; return r;
         };
-        await this.context.route(/MakerSuiteService\/Proxy(Unary|Streamed)Call/, async route => {
-          const req = route.request(); let a = null;
-          try { a = JSON.parse(req.postData() || ''); } catch {}
-          const mm = Array.isArray(a) && typeof a[0] === 'string' && a[0].match(/models\/([^:/?]+):(stream)?generateContent/i);
-          if (!mm) return route.continue();
-          // Legacy path: models Google no longer serves via MakerSuite GenerateContent still answer through the page's original Proxy call
-          if ((process.env.GCB_LEGACY_MODELS || 'gemini-3.7-flash').split(',').map(x => x.trim()).filter(Boolean).some(x => mm[1] === x || mm[1].startsWith(x + '-'))) { log.info('[GCBridge] ' + mm[1] + ' legacy proxy path'); return route.continue(); }
-          const streamed = /ProxyStreamedCall/.test(req.url());
+        const GCB_CORS = { 'access-control-allow-origin': 'https://aistudio.google.com', 'access-control-allow-credentials': 'true', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-expose-headers': '*' };
+        this.gcbCors = GCB_CORS;
+        await this.context.route(/^https:\/\/generativelanguage\.googleapis\.com\//, async route => {
+          const req = route.request();
+          if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: GCB_CORS, body: '' });
+          const gu = new URL(req.url());
+          if (req.method() === 'GET' && /^\/v1beta\/models\/?$/.test(gu.pathname)) return this.gcbListModels(route);
+          const mm = gu.pathname.match(/^\/v1beta\/models\/([^:/?]+):(stream)?generateContent$/i);
+          if (!mm || req.method() !== 'POST') return route.fulfill({ status: 404, headers: GCB_CORS, contentType: 'application/json; charset=UTF-8', body: JSON.stringify({ error: { code: 404, status: 'NOT_FOUND', message: 'GCBridge: unsupported ' + req.method() + ' ' + gu.pathname } }) });
+          const a = [null, req.postData() || '{}'];
+          const streamed = !!mm[2];
           try {
             const g = JSON.parse(a[1] || '{}'); const gcbRid = typeof g.__aisRid === 'string' ? g.__aisRid : null; delete g.__aisRid;
             const { body, ht } = buildBody(mm[1], g);
@@ -604,19 +629,19 @@ return window.__tb?'ok':'wait';})()`;
             let gcbBk; const raw = await Promise.race([pg.evaluate(c => window.wrappedJSObject.eval(c), code), new Promise(rs => { gcbBk = setTimeout(() => rs(JSON.stringify({ s: 504, t: JSON.stringify({ error: { code: 504, status: 'UPSTREAM_NO_RESPONSE', message: '浏览器页面超过 ' + Math.round((GCB_HARD_MS + 30000) / 60000) + ' 分钟没有返回，已主动中止，请重试。' } }) })), GCB_HARD_MS + 30000); })]).finally(() => clearTimeout(gcbBk)); // backstop only: Google cuts at ~600s
             if (gcbRid) gcbOps.delete(gcbRid); const r = JSON.parse(raw);
             if (r.s === 499) { log.info('[GCBridge] ' + mm[1] + ' upstream call ' + gcbOp + ' cancelled after ' + (Date.now() - gcbT0) + 'ms'); return route.abort().catch(() => {}); }
-            if (r.s !== 200) { log.warn('[GCBridge] ' + mm[1] + ' status ' + r.s + ' tier=' + (r.tier || '-') + ' ms=' + (Date.now() - gcbT0) + ' ' + String(r.t).slice(0, 300)); gcbOutcome(false, r.t); return route.fulfill({ status: r.s, contentType: 'application/json+protobuf; charset=UTF-8', body: r.t }); }
+            if (r.s !== 200) { log.warn('[GCBridge] ' + mm[1] + ' status ' + r.s + ' tier=' + (r.tier || '-') + ' ms=' + (Date.now() - gcbT0) + ' ' + String(r.t).slice(0, 300)); gcbOutcome(false, r.t); return route.fulfill({ status: r.s, headers: GCB_CORS, contentType: 'application/json; charset=UTF-8', body: gcbErrBody(r.s, r.t) }); }
             const arr0 = JSON.parse(r.t); const isChunk = x => Array.isArray(x) && Array.isArray(x[0]) && Array.isArray(x[0][0]) && Array.isArray(x[0][0][0]) && x[0][0][0][1] === 'model'; const arr = Array.isArray(arr0) && arr0.some(isChunk) ? arr0 : (Array.isArray(arr0) && Array.isArray(arr0[0]) ? arr0[0] : []);
             const chunks = arr.map(convChunk).filter(c => c && c.candidates && c.candidates.length);
             let out;
-            if (streamed) { const tail = arr.length && !isChunk(arr[arr.length - 1]) ? arr[arr.length - 1] : null; out = '[[' + chunks.map(c => JSON.stringify([JSON.stringify(c)])).concat(tail ? [JSON.stringify(tail)] : []).join(',') + ']]'; }
-            else out = JSON.stringify([JSON.stringify(merge(chunks))]);
+            if (streamed) { out = chunks.map(c => 'data: ' + JSON.stringify(c) + '\r\n\r\n').join(''); }
+            else out = JSON.stringify(merge(chunks));
             { const lf = (chunks[chunks.length - 1] && chunks[chunks.length - 1].candidates[0] && chunks[chunks.length - 1].candidates[0].finishReason) || '-'; if (lf !== 'STOP') { try { const sh = v => v == null ? null : typeof v === 'string' ? 's' + v.length : Array.isArray(v) ? 'a' + JSON.stringify(v).length : typeof v; const raw = arr.filter(isChunk).map(m => (m[0] || []).map(c => [(Array.isArray(c && c[0] && c[0][0]) ? c[0][0] : []).map(p2 => Array.isArray(p2) ? p2.map((v, i) => v == null ? null : i + ':' + sh(v)).filter(Boolean).join('|') : sh(p2)).join(' ; '), 'cand=' + (Array.isArray(c) ? c.map((v, i) => v == null ? null : i + ':' + sh(v)).filter(Boolean).join('|') : sh(c))].join(' / ')).join(' || ')); log.warn('[GCBridge] shape ' + mm[1] + ' finish=' + lf + ' top=' + arr0.length + ' chunks=' + raw.length + ' :: ' + raw.slice(-3).join(' ## ').slice(0, 1500)); } catch (e) { log.warn('[GCBridge] shape failed ' + e.message); } } }
-            { const lc = chunks[chunks.length - 1]; if (chunks.length && !(lc.candidates[0] && lc.candidates[0].finishReason)) { let chars = 0; for (const c of chunks) for (const p of ((c.candidates[0] && c.candidates[0].content && c.candidates[0].content.parts) || [])) { if (typeof p.text === 'string' && !p.thought) chars += p.text.length; const fa = p.functionCall && p.functionCall.args; if (fa && typeof fa.answer === 'string') chars += fa.answer.length; } const sec = Math.round((Date.now() - gcbT0) / 1000); log.warn('[GCBridge] ' + mm[1] + ' upstream cut: no finishReason after ' + sec + 's chunks=' + chunks.length + ' bytes=' + String(r.t || '').length + ' chars=' + chars); return route.fulfill({ status: 504, contentType: 'application/json; charset=UTF-8', body: JSON.stringify({ error: { code: 504, status: 'UPSTREAM_CUT', message: 'Google 在约 ' + Math.max(1, Math.round(sec / 60)) + ' 分钟时断开连接，回答未写完（已生成约 ' + chars + ' 字被丢弃）。请重试，或让回答短一些。' } }) }); } }
+            { const lc = chunks[chunks.length - 1]; if (chunks.length && !(lc.candidates[0] && lc.candidates[0].finishReason)) { let chars = 0; for (const c of chunks) for (const p of ((c.candidates[0] && c.candidates[0].content && c.candidates[0].content.parts) || [])) { if (typeof p.text === 'string' && !p.thought) chars += p.text.length; const fa = p.functionCall && p.functionCall.args; if (fa && typeof fa.answer === 'string') chars += fa.answer.length; } const sec = Math.round((Date.now() - gcbT0) / 1000); log.warn('[GCBridge] ' + mm[1] + ' upstream cut: no finishReason after ' + sec + 's chunks=' + chunks.length + ' bytes=' + String(r.t || '').length + ' chars=' + chars); return route.fulfill({ status: 504, headers: GCB_CORS, contentType: 'application/json; charset=UTF-8', body: JSON.stringify({ error: { code: 504, status: 'UPSTREAM_CUT', message: 'Google 在约 ' + Math.max(1, Math.round(sec / 60)) + ' 分钟时断开连接，回答未写完（已生成约 ' + chars + ' 字被丢弃）。请重试，或让回答短一些。' } }) }); } }
             gcbOutcome(true); log.info('[GCBridge] ' + mm[1] + (streamed ? ' stream' : ' unary') + ' ok chunks=' + chunks.length + ' tier=' + (r.tier || '-') + ' ms=' + (Date.now() - gcbT0) + ' bytes=' + String(r.t || '').length + ' finish=' + ((chunks[chunks.length - 1] && chunks[chunks.length - 1].candidates[0] && chunks[chunks.length - 1].candidates[0].finishReason) || '-'));
-            return route.fulfill({ status: 200, contentType: 'application/json+protobuf; charset=UTF-8', body: out });
+            return route.fulfill({ status: 200, headers: GCB_CORS, contentType: streamed ? 'text/event-stream; charset=UTF-8' : 'application/json; charset=UTF-8', body: out });
           } catch (e) {
             log.warn('[GCBridge] error ' + e.message); gcbOutcome(false, e.message);
-            return route.fulfill({ status: 500, contentType: 'application/json+protobuf; charset=UTF-8', body: JSON.stringify([13, 'GCBridge: ' + e.message]) });
+            return route.fulfill({ status: 500, headers: GCB_CORS, contentType: 'application/json; charset=UTF-8', body: JSON.stringify({ error: { code: 500, status: 'INTERNAL', message: 'GCBridge: ' + e.message } }) });
           }
         });
       }
@@ -655,7 +680,7 @@ return window.__tb?'ok':'wait';})()`;
           const newUrl = frame.url();
           if (
             newUrl !== "about:blank" &&
-            !newUrl.includes(this.config.targetUrl)
+            !newUrl.startsWith(this.config.pageUrl.split('?')[0])
           ) {
             this.logger.warn(
               `⚠️ [Browser] 页面发生了意外导航/刷新！新 URL: ${newUrl}`,
@@ -679,7 +704,7 @@ return window.__tb?'ok':'wait';})()`;
       });
 
       this.logger.info(`[Browser] 正在导航至目标网页...`);
-      const targetUrl = this.config.targetUrl;
+      const targetUrl = this.config.pageUrl;
       await this.page.goto(targetUrl, {
         timeout: 180000,
         waitUntil: "domcontentloaded",
@@ -805,46 +830,6 @@ return window.__tb?'ok':'wait';})()`;
           } catch (e) {}
         }
 
-        if (!popupStatus.continueBtn) {
-          try {
-            const clicked = await this.page.evaluate(() => {
-              const btns = Array.from(document.querySelectorAll("button"));
-              const target = btns.find(
-                (b) =>
-                  b.innerText && b.innerText.includes("Continue to the app"),
-              );
-              if (target) {
-                target.click();
-                return true;
-              }
-              return false;
-            });
-
-            if (clicked) {
-              this.logger.info(
-                `[Browser] ✅ (4/4) 原生JS成功点击 "Continue to the app"`,
-              );
-              popupStatus.continueBtn = true;
-              clickedInThisLoop = true;
-              this.logger.info(
-                `[Browser] ⚡ 已确认进入应用，提前终止弹窗等待循环。`,
-              );
-              break;
-            }
-          } catch (e) {}
-        }
-        try {
-          const isAppRunning = await this.page.evaluate(() => {
-            // 只要页面里出现了 ProxyClient 的输出，就说明代码已经跑起来了
-            return document.body.innerText.includes("[ProxyClient]");
-          });
-          if (isAppRunning) {
-            this.logger.info(
-              `[Browser] ⚡ 检测到内部环境已就绪，跳出弹窗等待。`,
-            );
-            break;
-          }
-        } catch (e) {}
 
         // 如果本轮点击了按钮，稍微等一下动画；如果没点，等待1秒避免死循环空转
         await this.page.waitForTimeout(clickedInThisLoop ? 500 : 1000);
@@ -860,35 +845,13 @@ return window.__tb?'ok':'wait';})()`;
       );
 
       this.currentAuthIndex = authIndex;
-      this._startBackgroundWakeup();
-      this.logger.info("[Browser] (后台任务) 🛡️ 监控进程已启动...");
-      await this.page.waitForTimeout(1000);
-      this.logger.info(
-        "[Browser] ⚡ 正在发送主动唤醒请求以触发 Launch 流程...",
-      );
-      try {
-        await this.page.evaluate(async () => {
-          try {
-            await fetch(
-              "https://generativelanguage.googleapis.com/v1beta/models?key=ActiveTrigger",
-              {
-                method: "GET",
-                headers: { "Content-Type": "application/json" },
-              },
-            );
-          } catch (e) {
-            console.log(
-              "[ProxyClient] 主动唤醒请求已发送 (预期内可能会失败，这很正常)",
-            );
-          }
-        });
-        this.logger.info("[Browser] ⚡ 主动唤醒请求已发送。");
-      } catch (e) {
-        this.logger.warn(
-          `[Browser] 主动唤醒请求发送异常 (不影响主流程): ${e.message}`,
-        );
-      }
-
+      await this._gcbBootstrap();
+      await this._injectRelay();
+      { const pgRef = this.page; let busy = false;
+        pgRef.on('load', async () => { if (busy || pgRef !== this.page || pgRef.isClosed()) return; busy = true;
+          try { this.logger.warn('[Browser] page reloaded (' + pgRef.url().slice(0, 80) + '); re-warming signer and re-injecting relay'); await this._gcbBootstrap(); await this._injectRelay(); }
+          catch (e) { this.logger.error('[Browser] re-inject after reload failed: ' + String(e && e.message || e).slice(0, 160)); }
+          finally { busy = false; } }); }
       this.logger.info("==================================================");
       this.logger.info(`✅ [Browser] 账号 ${authIndex} 的上下文初始化成功！`);
       this.logger.info("✅ [Browser] 浏览器客户端已准备就绪。");
@@ -926,6 +889,42 @@ return window.__tb?'ok':'wait';})()`;
     );
   }
 
+  // Make the page warm up its own anti-abuse token service: type a tiny prompt and send it,
+  // but abort that GenerateContent before it leaves the browser (no quota used).
+  async _gcbBootstrap() {
+    const pg = this.page, log = this.logger; const t0 = Date.now();
+    let caught = false;
+    const pat = /MakerSuiteService\/GenerateContent/;
+    const handler = async route => { if (!caught) { caught = true; } return route.abort().catch(() => {}); };
+    try {
+      await pg.route(pat, handler);
+      for (let k = 0; k < 3 && !caught; k++) {
+        try {
+          const box = pg.locator('textarea, [contenteditable="true"], [contenteditable="plaintext-only"]').first();
+          await box.waitFor({ timeout: 30000 });
+          await pg.evaluate(() => { for (const e of document.querySelectorAll('[contenteditable="plaintext-only"]')) e.setAttribute('contenteditable', 'true'); });
+          await box.click({ timeout: 5000 }).catch(() => {});
+          await box.fill("say '1'").catch(async () => { await pg.keyboard.type("say '1'"); });
+          await pg.waitForTimeout(800);
+          await pg.keyboard.press('Control+Enter');
+        } catch (e) { log.warn('[GCBridge] bootstrap input attempt ' + (k + 1) + ' failed: ' + String(e && e.message || e).slice(0, 120)); }
+        for (let j = 0; j < 20 && !caught; j++) await pg.waitForTimeout(500);
+        if (!caught) { await pg.getByRole('button', { name: /^(Run|运行)/ }).first().click({ timeout: 5000 }).catch(() => {}); for (let j = 0; j < 20 && !caught; j++) await pg.waitForTimeout(500); }
+      }
+    } finally { await pg.unroute(pat, handler).catch(() => {}); }
+    // clear the prompt box so a page reload/autosave does not keep the text
+    await pg.evaluate(() => { const e = document.querySelector('textarea, [contenteditable="true"]'); if (e) { if ('value' in e) e.value = ''; else e.textContent = ''; e.dispatchEvent(new Event('input', { bubbles: true })); } }).catch(() => {});
+    log.info('[GCBridge] bootstrap ' + (caught ? 'ok (page request intercepted, not sent)' : 'no page request seen') + ' ms=' + (Date.now() - t0));
+    return caught;
+  }
+  // Inject the relay client (black-browser.js) into the page; it connects back over ws://127.0.0.1:<wsPort>.
+  async _injectRelay() {
+    const pg = this.page, log = this.logger;
+    if (!this.relayScript) throw new Error('relay client script missing');
+    const code = this.relayScript.replace('ws://127.0.0.1:9998', 'ws://127.0.0.1:' + this.config.wsPort);
+    const mark = await pg.evaluate(c => { const w = window.wrappedJSObject; if (w.__aisRelay) return 'already'; w.__aisRelay = 1; w.eval(c); return 'injected'; }, code);
+    log.info('[Browser] relay client ' + mark);
+  }
   async _startBackgroundWakeup() {
     if (this.isWakeupRunning && this.wakeupPage === this.page) {
       this.logger.warn(
@@ -2027,8 +2026,7 @@ class RequestHandler {
     if (limit) cfg.maxOutputTokens = limit; else delete cfg.maxOutputTokens;
     if (before !== cfg.maxOutputTokens) this.logger.info('[MaxTokens] ' + mm[1] + ' client=' + (before ?? '-') + ' -> ' + (limit ?? 'default'));
     // internal: lets a client cancel abort the upstream call; stripped in-page before Google. Legacy models go through the page's own Proxy call (already aborted by cancel), so they are left untouched.
-    const gcbLegacy = (process.env.GCB_LEGACY_MODELS || 'gemini-3.7-flash').split(',').map(x => x.trim()).filter(Boolean).some(x => mm[1] === x || mm[1].startsWith(x + '-'));
-    if (!gcbLegacy && typeof proxyRequest.request_id === 'string') body.__aisRid = proxyRequest.request_id;
+    if (typeof proxyRequest.request_id === 'string') body.__aisRid = proxyRequest.request_id;
     proxyRequest.body = JSON.stringify(body);
   }
   _forwardRequest(proxyRequest) {
@@ -2950,7 +2948,8 @@ class ProxyServerSystem extends EventEmitter {
     if (process.env.PORT)
       config.httpPort = parseInt(process.env.PORT, 10) || config.httpPort;
     if (process.env.HOST) config.host = process.env.HOST;
-    if (process.env.TARGET_URL) config.targetUrl = process.env.TARGET_URL;
+    if (process.env.TARGET_URL) config.targetUrl = process.env.TARGET_URL; // kept for the optional Build chat channel; the worker page no longer uses it
+    config.pageUrl = process.env.AISTUDIO_PAGE_URL || 'https://aistudio.google.com/prompts/new_chat';
     if (process.env.STREAMING_MODE)
       config.streamingMode = process.env.STREAMING_MODE;
     if (process.env.FAILURE_THRESHOLD)
