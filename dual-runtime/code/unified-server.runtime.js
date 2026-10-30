@@ -11,9 +11,9 @@ const { firefox } = require("playwright");
 const os = require("os");
 const AT = (function () {
 const AT_PREFIX = "anti-truncation/";
-const AT_TOOL_NAME = "final_answer";
+const AT_TOOL_NAME = "seal_final_reply";
 // Names still accepted from the model (old name kept for history and stray calls).
-const AT_TOOL_NAMES = ["final_answer", "emit_answer"];
+const AT_TOOL_NAMES = ["seal_final_reply", "final_answer", "emit_answer"];
 const AT_MAX_ATTEMPTS = 3;
 // After this much time since the request arrived, an unfinished round fails instead of continuing.
 const AT_CONTINUE_DEADLINE_MS = 360000;
@@ -208,7 +208,7 @@ function atDecodeJsonString(src, i) {
 }
 function atCleanPlainAnswer(plain) {
   const info = { plainLen: plain.length, literalNl: (plain.match(/\\n/g) || []).length, how: 'as-is' };
-  const re = /(?:◁[^▷\n]{0,24}▷\s*)?(?:`{3}[a-z]*\s*)?(?:\[\s*)?(?:\{\s*"name"\s*:\s*"(?:final_answer|emit_answer)"\s*,\s*"(?:arguments|args|parameters)"\s*:\s*)?(?:\b(?:(?:final_answer|emit_answer)|print\(default_api\.(?:final_answer|emit_answer)|default_api\.(?:final_answer|emit_answer))\s*\(?\s*)?\{\s*"answer"\s*:\s*"|\b(?:final_answer|emit_answer)\s*\(\s*answer\s*=\s*"/;
+  const re = /(?:◁[^▷\n]{0,24}▷\s*)?(?:`{3}[a-z]*\s*)?(?:\[\s*)?(?:\{\s*"name"\s*:\s*"(?:seal_final_reply|final_answer|emit_answer)"\s*,\s*"(?:arguments|args|parameters)"\s*:\s*)?(?:\b(?:(?:seal_final_reply|final_answer|emit_answer)|print\(default_api\.(?:seal_final_reply|final_answer|emit_answer)|default_api\.(?:seal_final_reply|final_answer|emit_answer))\s*\(?\s*)?\{\s*"answer"\s*:\s*"|\b(?:seal_final_reply|final_answer|emit_answer)\s*\(\s*answer\s*=\s*"/;
   const m = re.exec(plain);
   if (m) {
     const q = m.index + m[0].length - 1;
