@@ -31,3 +31,11 @@ test('small JSON example inside a long answer does not replace the answer',()=>{
  const t=body+'\n示例：{"answer": "ok"}\n'+body;const r=AT.atCleanPlainAnswer(t);
  assert.ok(r.answer.length>=body.length);assert.notEqual(r.answer,'ok');
 });
+test('answer then text pseudo call with marker and name/arguments wrapper -> one readable copy, marker removed',()=>{
+ const r=AT.atCleanPlainAnswer(body+'\n</aftertalk>\n\u25c1\u0927\u094d\u092f\u093e\u0928\u25b7[{"name": "emit_answer", "arguments": {"answer": "'+esc+'"}}]');
+ assert.equal(r.info.how,'decoded-call');assert.equal(r.answer,body);assert.ok(!/\u25c1/.test(r.answer));
+});
+test('truncated second copy shorter than the first -> keep the complete first copy',()=>{
+ const r=AT.atCleanPlainAnswer(body+'\n\u25c1x\u25b7[{"name": "emit_answer", "arguments": {"answer": "'+esc.slice(0,esc.length/2));
+ assert.equal(r.answer,body);assert.equal(r.info.how,'cut-before-call');
+});

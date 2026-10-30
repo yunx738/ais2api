@@ -174,13 +174,14 @@ function atDecodeJsonString(src, i) {
 }
 function atCleanPlainAnswer(plain) {
   const info = { plainLen: plain.length, literalNl: (plain.match(/\\n/g) || []).length, how: 'as-is' };
-  const re = /(?:`{3}[a-z]*\s*)?(?:\b(?:emit_answer|print\(default_api\.emit_answer|default_api\.emit_answer)\s*\(?\s*)?\{\s*"answer"\s*:\s*"|\bemit_answer\s*\(\s*answer\s*=\s*"/;
+  const re = /(?:◁[^▷\n]{0,24}▷\s*)?(?:`{3}[a-z]*\s*)?(?:\[\s*)?(?:\{\s*"name"\s*:\s*"emit_answer"\s*,\s*"(?:arguments|args|parameters)"\s*:\s*)?(?:\b(?:emit_answer|print\(default_api\.emit_answer|default_api\.emit_answer)\s*\(?\s*)?\{\s*"answer"\s*:\s*"|\bemit_answer\s*\(\s*answer\s*=\s*"/;
   const m = re.exec(plain);
   if (m) {
     const q = m.index + m[0].length - 1;
     const dec = atDecodeJsonString(plain, q);
     const before = plain.slice(0, m.index).replace(/\s+$/, '');
     info.marker = m.index; info.decodedLen = dec.text.length; info.terminated = dec.end > 0;
+    if (dec.end < 0 && before.trim().length > dec.text.trim().length) { info.how = 'cut-before-call'; return { answer: before, info }; }
     if (dec.text.trim().length >= Math.max(200, before.trim().length * 0.5)) { info.how = 'decoded-call'; return { answer: dec.text, info }; }
     if (before.trim().length) { info.how = 'cut-before-call'; return { answer: before, info }; }
   }
