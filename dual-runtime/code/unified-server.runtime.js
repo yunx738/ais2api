@@ -11,7 +11,9 @@ const { firefox } = require("playwright");
 const os = require("os");
 const AT = (function () {
 const AT_PREFIX = "anti-truncation/";
-const AT_TOOL_NAME = "emit_answer";
+const AT_TOOL_NAME = "final_answer";
+// Names still accepted from the model (old name kept for history and stray calls).
+const AT_TOOL_NAMES = ["final_answer", "emit_answer"];
 const AT_MAX_ATTEMPTS = 3;
 // After this much time since the request arrived, an unfinished round fails instead of continuing.
 const AT_CONTINUE_DEADLINE_MS = 360000;
@@ -21,11 +23,11 @@ const AT_STOP_TEXT_MIN_CHARS = 2000;
 // Empty upstream response (no candidate parts): wait this long, then resend the original request.
 const AT_EMPTY_RETRY_DELAY_MS = 3000;
 const AT_SYSTEM_HINT =
-  "\n\n[SYSTEM CONSTRAINT] You have a tool named emit_answer. " +
+  "\n\n[SYSTEM CONSTRAINT] You have a tool named " + AT_TOOL_NAME + ". " +
   "When you are ready to output your final complete answer, you MUST call " +
-  "emit_answer with the full answer text as the value of the key \"answer\". " +
+  "" + AT_TOOL_NAME + " with the full answer text as the value of the key \"answer\". " +
   "Do not output the answer as plain text. Do not stop early. " +
-  "If the answer is long, call emit_answer once with the complete content.";
+  "If the answer is long, call " + AT_TOOL_NAME + " once with the complete content.";
 // Selectable prompt presets (settings page: anti-truncation prompt). Unknown or missing key -> classic.
 // Keep the key list in sync with refactor/at-prompt-store.js.
 const AT_PROMPTS = {
@@ -33,17 +35,17 @@ const AT_PROMPTS = {
   once: {
     desc: "Deliver the complete final answer. Call exactly once. The answer must not also appear as normal text.",
     hint:
-      "\n\n[SYSTEM CONSTRAINT] Deliver your final answer exactly once, through the emit_answer tool.\n" +
-      "- Make a real function call to emit_answer and put the entire final answer in the key \"answer\".\n" +
+      "\n\n[SYSTEM CONSTRAINT] Deliver your final answer exactly once, through the " + AT_TOOL_NAME + " tool.\n" +
+      "- Make a real function call to " + AT_TOOL_NAME + " and put the entire final answer in the key \"answer\".\n" +
       "- Do not write any part of the answer as normal text before or after the call: no preview, no draft, no summary, no second copy.\n" +
-      "- Never type the call yourself as text, JSON, code or a list such as [{\"name\": \"emit_answer\", ...}].\n" +
-      "- If the answer is long, still call emit_answer once with the complete content. Do not stop early.\n" +
+      "- Never type the call yourself as text, JSON, code or a list such as [{\"name\": \"" + AT_TOOL_NAME + "\", ...}].\n" +
+      "- If the answer is long, still call " + AT_TOOL_NAME + " once with the complete content. Do not stop early.\n" +
       "- If a real function call is impossible, write the answer once as plain text and stop. Never repeat it.",
   },
   tool_only: {
     desc: "The only channel for the final answer. Your reply must consist of this single call and nothing else.",
     hint:
-      "\n\n[SYSTEM CONSTRAINT] Your reply must consist of exactly one function call to emit_answer and nothing else.\n" +
+      "\n\n[SYSTEM CONSTRAINT] Your reply must consist of exactly one function call to " + AT_TOOL_NAME + " and nothing else.\n" +
       "- Zero text outside the call: no greeting, no answer text, no notes, no closing remarks.\n" +
       "- The key \"answer\" holds the complete final answer with all its formatting.\n" +
       "- The call is a real tool call. Writing it as text, JSON or code is forbidden.\n" +
@@ -51,7 +53,7 @@ const AT_PROMPTS = {
   },
   lite: {
     desc: "Final answer (call once).",
-    hint: "\n\n[SYSTEM CONSTRAINT] Put your complete final answer in one real emit_answer call (key \"answer\"). No answer text outside the call, no second copy, do not stop early.",
+    hint: "\n\n[SYSTEM CONSTRAINT] Put your complete final answer in one real " + AT_TOOL_NAME + " call (key \"answer\"). No answer text outside the call, no second copy, do not stop early.",
   },
 };
 function atPromptKey(key) {
@@ -84,7 +86,7 @@ function atInjectTools(googleBody, promptKey) {
   const preset = AT_PROMPTS[atPromptKey(promptKey)];
   if (!googleBody || !Array.isArray(googleBody.contents)) return googleBody;
   const alreadyInjected = (googleBody.tools || []).some((t) =>
-    (t.functionDeclarations || []).some((d) => d.name === AT_TOOL_NAME),
+    (t.functionDeclarations || []).some((d) => AT_TOOL_NAMES.includes(d.name)),
   );
   if (alreadyInjected) return googleBody;
   const decl = {
@@ -118,7 +120,7 @@ function atExtractAnswer(googleResponse) {
       let finishReason = candidate.finishReason || null;
   for (const part of candidate.content.parts) {
     const fc = part.functionCall;
-    if (fc && fc.name === AT_TOOL_NAME && fc.args && typeof fc.args.answer === "string") {
+    if (fc && AT_TOOL_NAMES.includes(fc.name) && fc.args && typeof fc.args.answer === "string") {
       answer = fc.args.answer;
       finishReason = candidate.finishReason || null;
     }
@@ -136,9 +138,9 @@ function atBuildContinuationBody(googleBody, googleResponse, prevAnswer) {
     const calls = modelParts.filter(p=>p.functionCall); if (calls.length) newContents.push({role:/user/.source,parts:calls.map(p=>({functionResponse:{name:p.functionCall.name,...(p.functionCall.id?{id:p.functionCall.id}:{}),response:{status:/incomplete/.source}}}))});
   }
   const contText =
-    "Your previous emit_answer call was incomplete or missing. " +
+    "Your previous " + AT_TOOL_NAME + " call was incomplete or missing. " +
     (prevAnswer ? "Previous partial answer: " + prevAnswer + "\n\n" : "") +
-    "Call emit_answer again with the COMPLETE final answer (key \"answer\").";
+    "Call " + AT_TOOL_NAME + " again with the COMPLETE final answer (key \"answer\").";
   newContents.push({ role: "user", parts: [{ text: contText }] });
   const body = Object.assign({}, googleBody, { contents: newContents });
   if (body.generationConfig) {
@@ -206,7 +208,7 @@ function atDecodeJsonString(src, i) {
 }
 function atCleanPlainAnswer(plain) {
   const info = { plainLen: plain.length, literalNl: (plain.match(/\\n/g) || []).length, how: 'as-is' };
-  const re = /(?:◁[^▷\n]{0,24}▷\s*)?(?:`{3}[a-z]*\s*)?(?:\[\s*)?(?:\{\s*"name"\s*:\s*"emit_answer"\s*,\s*"(?:arguments|args|parameters)"\s*:\s*)?(?:\b(?:emit_answer|print\(default_api\.emit_answer|default_api\.emit_answer)\s*\(?\s*)?\{\s*"answer"\s*:\s*"|\bemit_answer\s*\(\s*answer\s*=\s*"/;
+  const re = /(?:◁[^▷\n]{0,24}▷\s*)?(?:`{3}[a-z]*\s*)?(?:\[\s*)?(?:\{\s*"name"\s*:\s*"(?:final_answer|emit_answer)"\s*,\s*"(?:arguments|args|parameters)"\s*:\s*)?(?:\b(?:(?:final_answer|emit_answer)|print\(default_api\.(?:final_answer|emit_answer)|default_api\.(?:final_answer|emit_answer))\s*\(?\s*)?\{\s*"answer"\s*:\s*"|\b(?:final_answer|emit_answer)\s*\(\s*answer\s*=\s*"/;
   const m = re.exec(plain);
   if (m) {
     const q = m.index + m[0].length - 1;
@@ -227,7 +229,7 @@ function atCleanPlainAnswer(plain) {
   }
   return { answer: plain, info };
 }
-  return { AT_PROMPTS, atPromptKey, atCleanPlainAnswer, atDecodeJsonString, AT_PREFIX, AT_TOOL_NAME, AT_MAX_ATTEMPTS, AT_CONTINUE_DEADLINE_MS, AT_MAX_RETRIES, AT_STOP_TEXT_MIN_CHARS, AT_EMPTY_RETRY_DELAY_MS, fixTrailingModelTurn, atIsEnabled, atRealModel, atInjectTools, atExtractAnswer, atBuildContinuationBody, atBlockInfo, atBlockMessage, atBlockPayload, atFinishPayload };
+  return { AT_PROMPTS, AT_TOOL_NAMES, atPromptKey, atCleanPlainAnswer, atDecodeJsonString, AT_PREFIX, AT_TOOL_NAME, AT_MAX_ATTEMPTS, AT_CONTINUE_DEADLINE_MS, AT_MAX_RETRIES, AT_STOP_TEXT_MIN_CHARS, AT_EMPTY_RETRY_DELAY_MS, fixTrailingModelTurn, atIsEnabled, atRealModel, atInjectTools, atExtractAnswer, atBuildContinuationBody, atBlockInfo, atBlockMessage, atBlockPayload, atFinishPayload };
 })();
 
 // ===================================================================================

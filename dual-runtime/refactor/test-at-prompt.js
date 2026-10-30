@@ -29,7 +29,7 @@ test('classic preset injects exactly the original prompt and tool description',(
  const g={contents:[{role:'user',parts:[{text:'q'}]}],systemInstruction:{parts:[{text:'SYS'}]}};
  AT.atInjectTools(g);
  assert.equal(g.tools[0].functionDeclarations[0].description,'Emit your final complete answer.');
- assert.ok(g.systemInstruction.parts[0].text.startsWith('SYS\n\n[SYSTEM CONSTRAINT] You have a tool named emit_answer.'));
+ assert.ok(g.systemInstruction.parts[0].text.startsWith('SYS\n\n[SYSTEM CONSTRAINT] You have a tool named final_answer.'));
  const g2={contents:[{role:'user',parts:[{text:'q'}]}]};AT.atInjectTools(g2,'nope');
  assert.equal(g2.systemInstruction.parts[0].text,g.systemInstruction.parts[0].text.slice(3));
 });
@@ -37,10 +37,10 @@ test('each preset injects its own hint and description, tool name and schema unc
  for(const k of Object.keys(AT.AT_PROMPTS)){
   const g={contents:[{role:'user',parts:[{text:'q'}]}]};AT.atInjectTools(g,k);
   const d=g.tools[0].functionDeclarations[0];
-  assert.equal(d.name,'emit_answer');assert.deepEqual(d.parameters.required,['answer']);
+  assert.equal(d.name,'final_answer');assert.deepEqual(d.parameters.required,['answer']);
   assert.equal(d.description,AT.AT_PROMPTS[k].desc);
   assert.equal(g.systemInstruction.parts[0].text,AT.AT_PROMPTS[k].hint);
-  assert.ok(/emit_answer/.test(AT.AT_PROMPTS[k].hint));
+  assert.ok(/final_answer/.test(AT.AT_PROMPTS[k].hint)&&!/emit_answer/.test(AT.AT_PROMPTS[k].hint));
  }
 });
 async function forward(options){
@@ -56,4 +56,20 @@ test('forwarder sends X-AT-Prompt only for a well-formed preset key',async()=>{
  assert.equal((await forward({atPrompt:'once'}))['X-AT-Prompt'],'once');
  assert.equal((await forward({}))['X-AT-Prompt'],undefined);
  assert.equal((await forward({atPrompt:'bad\r\nX-Evil: 1'}))['X-AT-Prompt'],undefined);
+});
+
+test('tool renamed to final_answer; old emit_answer calls still accepted', () => {
+ const ok=n=>AT.atExtractAnswer({candidates:[{finishReason:'STOP',content:{parts:[{functionCall:{name:n,args:{answer:'hi'}}}]}}]});
+ assert.deepEqual(ok('final_answer'),{found:true,answer:'hi',finishReason:'STOP'});
+ assert.deepEqual(ok('emit_answer'),{found:true,answer:'hi',finishReason:'STOP'});
+ assert.equal(ok('other').found,false);
+ assert.equal(AT.AT_TOOL_NAME,'final_answer');
+ const g=AT.atInjectTools({contents:[{role:'user',parts:[{text:'x'}]}],tools:[{functionDeclarations:[{name:'emit_answer'}]}]},'once');
+ assert.equal(g.tools.length,1);
+});
+
+test('text pseudo call with the new name is cleaned too', () => {
+ const body=Array.from({length:40},(_,i)=>'line '+i+' of the answer').join('\n');
+ const r=AT.atCleanPlainAnswer(body+'\n\n[{"name": "final_answer", "arguments": {"answer": "'+body.replace(/\n/g,'\\n')+'"}}]');
+ assert.equal(r.answer.trim(),body);
 });
