@@ -629,7 +629,7 @@ return window.__tb?'ok':'wait';})()`;
             let gcbBk; const raw = await Promise.race([pg.evaluate(c => window.wrappedJSObject.eval(c), code), new Promise(rs => { gcbBk = setTimeout(() => rs(JSON.stringify({ s: 504, t: JSON.stringify({ error: { code: 504, status: 'UPSTREAM_NO_RESPONSE', message: '浏览器页面超过 ' + Math.round((GCB_HARD_MS + 30000) / 60000) + ' 分钟没有返回，已主动中止，请重试。' } }) })), GCB_HARD_MS + 30000); })]).finally(() => clearTimeout(gcbBk)); // backstop only: Google cuts at ~600s
             if (gcbRid) gcbOps.delete(gcbRid); const r = JSON.parse(raw);
             if (r.s === 499) { log.info('[GCBridge] ' + mm[1] + ' upstream call ' + gcbOp + ' cancelled after ' + (Date.now() - gcbT0) + 'ms'); return route.abort().catch(() => {}); }
-            if (r.s !== 200) { log.warn('[GCBridge] ' + mm[1] + ' status ' + r.s + ' tier=' + (r.tier || '-') + ' ms=' + (Date.now() - gcbT0) + ' ' + String(r.t).slice(0, 300)); gcbOutcome(false, r.t); return route.fulfill({ status: r.s, headers: GCB_CORS, contentType: 'application/json; charset=UTF-8', body: gcbErrBody(r.s, r.t) }); }
+            if (r.s !== 200) { log.warn('[GCBridge] ' + mm[1] + ' status ' + r.s + ' tier=' + (r.tier || '-') + ' key=' + (gcbKey ? gcbKey.slice(0, 8) : 'none') + ' hx=' + Object.keys(gcbHx).join('/') + ' ms=' + (Date.now() - gcbT0) + ' ' + String(r.t).slice(0, 300)); gcbOutcome(false, r.t); return route.fulfill({ status: r.s, headers: GCB_CORS, contentType: 'application/json; charset=UTF-8', body: gcbErrBody(r.s, r.t) }); }
             const arr0 = JSON.parse(r.t); const isChunk = x => Array.isArray(x) && Array.isArray(x[0]) && Array.isArray(x[0][0]) && Array.isArray(x[0][0][0]) && x[0][0][0][1] === 'model'; const arr = Array.isArray(arr0) && arr0.some(isChunk) ? arr0 : (Array.isArray(arr0) && Array.isArray(arr0[0]) ? arr0[0] : []);
             const chunks = arr.map(convChunk).filter(c => c && c.candidates && c.candidates.length);
             let out;
@@ -1764,11 +1764,13 @@ class RequestHandler {
         if (useRealStream) {
           this.logger.info(`[Adapter] OpenAI 流式响应 (Real Mode) 已启动...`);
           let lastGoogleChunk = "";
+          let sseBuf = ""; const sseEmit = (ev) => { const tc = this._translateGoogleToOpenAIStream(ev, model, streamState); if (tc) res.write(tc); }; // SSE events may be batched or split across relay chunks
           const streamState = { inThought: false };
 
           while (true) {
             const message = await messageQueue.dequeue(); // 5分钟超时
             if (message.type === "STREAM_END") {
+              if (sseBuf.trim()) sseEmit(sseBuf); sseBuf = "";
               if (streamState.inThought) {
                 const closeThoughtPayload = {
                   id: `chatcmpl-${requestId}`,
@@ -1789,15 +1791,9 @@ class RequestHandler {
               break;
             }
             if (message.data) {
-              // [修改] 将 streamState 传递给翻译函数
-              const translatedChunk = this._translateGoogleToOpenAIStream(
-                message.data,
-                model,
-                streamState,
-              );
-              if (translatedChunk) {
-                res.write(translatedChunk);
-              }
+              sseBuf += message.data;
+              const evs = sseBuf.split(/\r?\n\r?\n/); sseBuf = evs.pop();
+              for (const ev of evs) if (ev.trim()) sseEmit(ev);
               lastGoogleChunk = message.data;
             }
           }
