@@ -523,6 +523,17 @@ return window.__tb?'ok':'wait';})()`;
         global.__gcbPage = pg; let gcbKey = null; const gcbHx = {}; const gcbWaa = 'AIzaSyBGb5fGAyC-pRcRU6MUHb__b_vKha71HRE'; const GCB_MS_KEY = 'AIzaSyDdP816MREB3SkjZO04QXbjsigfcI0GWOs'; const GCB_HARD_MS = Number(process.env.GCB_HARD_MS) || 660000; const gcbOps = new Map(); const gcbCancelled = new Set(); let gcbSeq = 0;
         this.gcbCancel = rid => { gcbCancelled.add(rid); setTimeout(() => gcbCancelled.delete(rid), 120000).unref?.(); const op = gcbOps.get(rid); if (!op) return false; gcbOps.delete(rid); log.info('[GCBridge] client cancelled ' + rid + '; aborting upstream call ' + op); pg.evaluate(o => window.wrappedJSObject.__gcAbort(o), op).catch(() => {}); return true; }; // Google itself cuts at ~600s
         this.context.on('request', r => { try { if (!/alkalimakersuite-pa\.clients6\.google\.com\/\$rpc\/.*MakerSuiteService\//.test(r.url())) return; const k = r.headers()['x-goog-api-key']; if (k && k !== gcbWaa && /^AIza/.test(k) && k !== gcbKey) { log.info('[GCBridge] page key ' + (gcbKey ? gcbKey.slice(0, 8) : 'none') + ' -> ' + k.slice(0, 8) + ' via ' + r.url().split('/').pop().slice(0, 40)); gcbKey = k; } const h = r.headers(); if (h['x-aistudio-g1-tier']) gcbHx.tier = h['x-aistudio-g1-tier']; if (h['x-goog-ext-519733851-bin']) gcbHx.ext = h['x-goog-ext-519733851-bin']; if (h['x-aistudio-visit-id']) gcbHx.visit = h['x-aistudio-visit-id']; } catch {} });
+        // Diagnostics (no content logged): header set and body shape of every GenerateContent the page sends,
+        // page-originated (bootstrap) or ours (__gcCall), plus the response status. Used to find why some are rejected with 403.
+        { const GCD = /MakerSuiteService\/GenerateContent$/; const gcdSeen = new WeakMap(); let gcdN = 0;
+          const gcdShape = v => v == null ? '-' : typeof v === 'string' ? 's' + v.length : Array.isArray(v) ? 'a' + v.length : typeof v;
+          const gcdOpen = new Set(['content-type', 'x-user-agent', 'x-goog-authuser', 'x-aistudio-g1-tier', 'origin', 'referer', 'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest']);
+          this.context.on('request', r => { try { if (!GCD.test(r.url())) return; const n = ++gcdN; gcdSeen.set(r, { n, t: Date.now() }); const h = r.headers();
+            const hs = Object.keys(h).sort().map(k => k + (gcdOpen.has(k) ? '=' + String(h[k]).slice(0, 60) : ':' + String(h[k]).length + (k === 'x-goog-ext-519733851-bin' ? (h[k] === gcbHx.ext ? 'same' : 'diff') : k === 'x-aistudio-visit-id' ? (h[k] === gcbHx.visit ? 'same' : 'diff') : k === 'x-goog-api-key' ? String(h[k]).slice(0, 8) : ''))).join(' ');
+            let b = '-'; try { const a = JSON.parse(r.postData() || 'null'); if (Array.isArray(a)) b = 'len' + a.length + ' ' + a.map((v, i) => v == null ? null : i + ':' + gcdShape(v)).filter(Boolean).join(',') + (typeof a[4] === 'string' ? ' snap=' + a[4].slice(0, 6) : '') + (Array.isArray(a[3]) ? ' cfg=' + JSON.stringify(a[3]).slice(0, 160) : '') + (a[13] != null ? ' t13=' + JSON.stringify(a[13]).slice(0, 80) : '') + (a[10] != null ? ' t10=' + JSON.stringify(a[10]) : '') + (a[11] != null ? ' t11=' + JSON.stringify(a[11]).slice(0, 80) : '') + (a[12] != null ? ' t12=' + JSON.stringify(a[12]).slice(0, 80) : '') + (a[7] != null ? ' t7=' + JSON.stringify(a[7]).slice(0, 80) : '') + (a[8] != null ? ' t8=' + JSON.stringify(a[8]).slice(0, 80) : '') + (a[9] != null ? ' t9=' + JSON.stringify(a[9]).slice(0, 80) : ''); } catch (e) { b = 'parse-failed'; }
+            log.info('[GCDiag] req#' + n + ' ' + (this._gcbBooting ? 'PAGE' : 'OURS') + ' hdr{' + hs + '} body{' + b + '}'); } catch (e) {} });
+          this.context.on('response', resp => { try { const r = resp.request(); const m = gcdSeen.get(r); if (!m) return; log.info('[GCDiag] res#' + m.n + ' status=' + resp.status() + ' ms=' + (Date.now() - m.t)); } catch (e) {} });
+          this.context.on('requestfailed', r => { try { const m = gcdSeen.get(r); if (!m) return; log.info('[GCDiag] res#' + m.n + ' failed=' + String((r.failure() || {}).errorText || '-').slice(0, 60) + ' ms=' + (Date.now() - m.t)); } catch (e) {} }); }
         const gcbInstall = () => pg.evaluate(c => window.wrappedJSObject.eval(c), GCB_INSTALL).catch(e => 'err:' + String(e && e.message || e).slice(0, 120)).then(r => { const v = typeof r === 'string' ? r : JSON.stringify(r); try { gcbAssess(v); } catch (e) {} pg.evaluate(() => { try { const w = window.wrappedJSObject; return 'hash=' + (w.__gcHn || '-') + ' tb=' + (w.__tb ? 'yes' : 'no') + ' v=' + (w.__gcCall ? w.__gcCall.v : '-') + ' cn=' + (w.__cnSeen || '-') + ' gm=' + w.__gmCnt + ' via=' + (w.__tbVia || '-') + ' seen=' + (w.__gmSeen || '-') + ' snap=' + (w.__gcSn || '-') + ' vis=' + (w.__gcVisN || 0) + ' mk=' + (w.__gcMk || '-') + '/' + (w.__gcMkN || 0) + ' nb=' + (w.__gcMkNb || '-') } catch (e) { return 'probe err ' + e.message; } }).then(x => { const k = v + ' ' + x; if (k !== gcbLast) { gcbLast = k; log.warn('[GCBridge] install result=' + String(v).slice(0, 80) + ' ' + String(x).slice(0, 900)); } }).catch(() => {}); return r; }); let gcbLast = null;
         // ---- Signer self-check: readiness must include "can this page actually sign a request" ----
         const GCB_SIGN_MSG = { frontend_object_missing: '找不到 AI Studio 前端对象', hash_fn_missing: '没找到哈希函数', signer_missing: '没找到签名函数', token_service_missing: '没拿到签名服务（已尝试自唤醒）', sign_probe_failed: '本地试签失败', frontend_incompatible: '连续签名报错，前端可能不兼容', install_error: '签名模块安装出错' };
@@ -973,7 +984,7 @@ return window.__tb?'ok':'wait';})()`;
   // Make the page warm up its own anti-abuse token service: type a tiny prompt and send it,
   // but abort that GenerateContent before it leaves the browser (no quota used).
   async _gcbBootstrap() {
-    const pg = this.page, log = this.logger; const t0 = Date.now();
+    const pg = this.page, log = this.logger; const t0 = Date.now(); this._gcbBooting = true; try {
     let caught = false;
     const pat = /MakerSuiteService\/GenerateContent/;
     const handler = async route => { if (!caught) { caught = true; } return route.abort().catch(() => {}); };
@@ -1005,6 +1016,7 @@ return window.__tb?'ok':'wait';})()`;
     await pg.evaluate(() => { const e = document.querySelector('textarea, [contenteditable="true"]'); if (e) { if ('value' in e) e.value = ''; else e.textContent = ''; e.dispatchEvent(new Event('input', { bubbles: true })); } }).catch(() => {});
     log.info('[GCBridge] bootstrap ' + (caught ? 'ok (page request intercepted, not sent)' : 'no page request seen') + ' ms=' + (Date.now() - t0));
     return caught;
+    } finally { this._gcbBooting = false; }
   }
   // Inject the relay client (black-browser.js) into the page; it connects back over ws://127.0.0.1:<wsPort>.
   async _injectRelay() {
