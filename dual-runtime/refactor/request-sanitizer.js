@@ -7,6 +7,7 @@ const TYPES = new Set(['STRING', 'NUMBER', 'INTEGER', 'BOOLEAN', 'ARRAY', 'OBJEC
 const KEEP = new Set(['type', 'format', 'description', 'nullable', 'enum', 'items', 'properties', 'required',
   'anyOf', 'minItems', 'maxItems', 'minimum', 'maximum', 'minLength', 'maxLength', 'pattern', 'title',
   'default', 'example', 'propertyOrdering', 'minProperties', 'maxProperties']);
+const {fixSampling} = require('./sampling-limits');
 const NAME = /^[a-zA-Z_][a-zA-Z0-9_.-]{0,63}$/;
 const MAX_DEPTH = 32;
 class SanitizeError extends Error {}
@@ -112,7 +113,8 @@ function checkName(name, where, names) {
 
 // Returns {body, changed}. Throws SanitizeError for requests that cannot be repaired.
 function sanitizeRequest(route, parsed) {
-  let changed = false;
+  const notes = fixSampling(route, parsed);
+  let changed = notes.length > 0;
   const names = new Set();
   const fix = (holder, key, where) => {
     const before = JSON.stringify(holder[key]);
@@ -168,7 +170,7 @@ function sanitizeRequest(route, parsed) {
       }
     }
   }
-  return {body: parsed, changed};
+  return {body: parsed, changed, notes};
 }
 
 module.exports = {sanitizeRequest, SanitizeError};

@@ -233,7 +233,7 @@ function createServer({keys,models,scheduler,status,actions,auth}){
    let outgoing=body;
    try{
     const fixed=sanitizeRequest(url.pathname,parsed);
-    if(fixed.changed){outgoing=Buffer.from(JSON.stringify(fixed.body));sanitizeStats.repaired++;}
+    if(fixed.changed){outgoing=Buffer.from(JSON.stringify(fixed.body));sanitizeStats.repaired++;if(fixed.notes&&fixed.notes.length){sanitizeStats.lastParams={at:Date.now(),fixes:fixed.notes.slice(0,8)};console.info("[Gateway] params adjusted: "+fixed.notes.join("; "));}}
    }catch(e){
     if(!(e instanceof SanitizeError))throw e;
     sanitizeStats.rejected++;sanitizeStats.lastRejected={at:Date.now(),reason:e.message};
