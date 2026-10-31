@@ -27,7 +27,8 @@ function forwardWorker(ticket,route,body,res,credentials,options={}){
    headers:{"X-Admission-Deadline":String(ticket.admissionDeadline),'Content-Type':'application/json','Content-Length':body.length,
     'X-Request-ID':ticket.id,'X-Execution-ID':ticket.id,'X-Worker-Epoch':ticket.workerEpoch,
     'X-Worker-Key':credentials.control,'Authorization':'Bearer '+credentials.api,
-    ...(typeof options.atPrompt==='string'&&/^[a-z_]{1,24}$/.test(options.atPrompt)?{'X-AT-Prompt':options.atPrompt}:{})}
+    ...(typeof options.atPrompt==='string'&&/^[a-z_]{1,24}$/.test(options.atPrompt)?{'X-AT-Prompt':options.atPrompt}:{}),
+    ...(options.atPrompt==='custom'&&typeof options.atPromptCustom==='string'&&/^[A-Za-z0-9+/=]{1,12000}$/.test(options.atPromptCustom)?{'X-AT-Prompt-Custom':options.atPromptCustom}:{})}
   },reply=>{
    upstreamReply=reply;
    receivedStatus=reply.statusCode;receivedRetryAfter=reply.headers['retry-after'];

@@ -12,10 +12,21 @@ function isRegionBlock(result) {
   return REGION.test(text);
 }
 
+// Google's web gateway randomly rejects page signatures with this 403 (~15%,
+// independent of account/model/content; a fresh signature passes). It is not
+// evidence the account lacks the model, so it must never cool anything.
+const SIGNATURE = /caller does not have permission/i;
+function isSignatureReject(result) {
+  if (result?.status !== 403) return false;
+  const body = result.rejection?.body;
+  const text = Buffer.isBuffer(body) ? body.toString('utf8', 0, Math.min(body.length, 16384)) : String(body || '');
+  return SIGNATURE.test(text);
+}
 // A rate limit belongs to the account/model that received it. An HTTP 429 is
 // never evidence that other accounts, models or the whole service are blocked.
 function rejectionCooldown(result, now = Date.now()) {
   if (isRegionBlock(result)) return { scope: 'egress', until: 0 };
+  if (isSignatureReject(result)) return;
   if (![401, 403, 429].includes(result?.status)) return;
   if (result.status === 401) return { scope: 'account', until: now + DAY };
   if (result.status === 403) return { scope: 'model', until: now + DAY };
@@ -58,4 +69,4 @@ function deadline(task, timeoutMs, message) {
   });
 }
 
-module.exports = { rejectionCooldown, deadline, isRegionBlock, untilNextReset };
+module.exports = { rejectionCooldown, deadline, isRegionBlock, isSignatureReject, untilNextReset };

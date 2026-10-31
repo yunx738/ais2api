@@ -2,7 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('fs'),os=require('os'),path=require('path'),vm=require('vm');
 const {PassThrough,Writable}=require('stream'),{EventEmitter}=require('events'),{randomUUID}=require('crypto');
-const {AtPromptStore,KEYS,DEFAULT}=require('./at-prompt-store');
+const {AtPromptStore,KEYS,BUILTIN,DEFAULT}=require('./at-prompt-store');
 const {ResponseMetrics}=require('./response-metrics');
 const src=fs.readFileSync(path.join(__dirname,'..','code','unified-server.runtime.js'),'utf8');
 const a=src.indexOf('const AT = (function');const b=src.indexOf('})();',a)+5;
@@ -10,7 +10,8 @@ const AT=new Function(src.slice(a,b)+'\nreturn AT;')();
 const tmp=()=>fs.mkdtempSync(path.join(os.tmpdir(),'atp-'));
 
 test('store keys match the worker presets exactly',()=>{
- assert.deepEqual([...KEYS].sort(),Object.keys(AT.AT_PROMPTS).sort());
+ assert.deepEqual([...BUILTIN].sort(),Object.keys(AT.AT_PROMPTS).sort());
+ assert.deepEqual(KEYS.filter(k=>!BUILTIN.includes(k)),['custom']);
  assert.equal(DEFAULT,'classic');
 });
 test('store defaults to classic, persists a choice, rejects unknown keys',()=>{

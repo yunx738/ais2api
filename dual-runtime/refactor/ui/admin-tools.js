@@ -198,14 +198,26 @@ $("ccsave").onclick=async()=>{const A=Number($("ccA").value),B=Number($("ccB").v
  if(ok){$("ccA").value=d.A;$("ccB").value=d.B;$("ccres").textContent="已保存：实例 A "+d.A+"，实例 B "+d.B;}else{$("ccres").textContent=d.error||"保存失败";ccload();}};
 ccload();
 // ---- anti-truncation prompt preset ----
-let atpList=[];
-function atpNote(){const p=atpList.find(x=>x.key===$("atp").value);$("atpnote").textContent=p?p.note:"";}
+let atpList=[],atpCustom=null;
+function atpShow(){const k=$("atp").value,p=atpList.find(x=>x.key===k);$("atpnote").textContent=p?p.note:"";
+ const src=k==="custom"?(atpCustom||{desc:"",hint:"",cont:""}):(p||{});const ro=k!=="custom";
+ for(const f of ["desc","hint","cont"]){const el=$("atp"+f);el.value=src[f]||"";el.readOnly=ro;el.style.opacity=ro?".75":"1";}
+ $("atpcopy").hidden=k==="custom";}
 async function atpload(){try{const r=await fetch("/api/at-prompt",{credentials:"same-origin",redirect:"error"});const d=await r.json();if(!r.ok)return;
- atpList=d.presets||[];$("atp").replaceChildren(...atpList.map(p=>{const o=document.createElement("option");o.value=p.key;o.textContent=p.label;return o;}));$("atp").value=d.preset;atpNote();}catch{}}
-$("atp").onchange=atpNote;
-$("atpsave").onclick=async()=>{const preset=$("atp").value;$("atpsave").disabled=true;
- const {ok,d}=await lpost("/api/at-prompt",{preset}).catch(()=>({ok:false,d:{}}));$("atpsave").disabled=false;
- if(ok){const p=atpList.find(x=>x.key===d.preset);$("atpres").textContent="已保存："+(p?p.label:d.preset)+"，下一条请求生效";}else{$("atpres").textContent=d.error||"保存失败";atpload();}};
+ atpList=d.presets||[];atpCustom=d.custom||null;$("atp").replaceChildren(...atpList.map(p=>{const o=document.createElement("option");o.value=p.key;o.textContent=p.label;return o;}));$("atp").value=d.preset;atpShow();}catch{}}
+$("atp").onchange=atpShow;
+$("atpcopy").onclick=()=>{const p=atpList.find(x=>x.key===$("atp").value);if(!p)return;atpCustom={desc:p.desc||"",hint:p.hint||"",cont:p.cont||""};$("atp").value="custom";atpShow();$("atpres").textContent="已复制到自定义，改完点保存";};
+$("atpsave").onclick=async()=>{const preset=$("atp").value;const body={preset};
+ if(preset==="custom")body.custom={desc:$("atpdesc").value,hint:$("atphint").value,cont:$("atpcont").value};
+ $("atpsave").disabled=true;
+ const {ok,d}=await lpost("/api/at-prompt",body).catch(()=>({ok:false,d:{}}));$("atpsave").disabled=false;
+ if(ok){atpCustom=d.custom||atpCustom;const p=atpList.find(x=>x.key===d.preset);$("atpres").textContent="已保存："+(p?p.label:d.preset)+"，下一条请求生效";}else{$("atpres").textContent=d.error||"保存失败";}};
+$("atpexport").onclick=()=>{const a=document.createElement("a");a.href="/api/at-prompt/export";a.download="";document.body.appendChild(a);a.click();a.remove();};
+$("atpimport").onclick=()=>{$("atpfile").value="";$("atpfile").click();};
+$("atpfile").onchange=async()=>{const f=$("atpfile").files[0];if(!f)return;if(f.size>32768){$("atpres").textContent="文件太大";return;}
+ let body;try{body=JSON.parse(await f.text());}catch{$("atpres").textContent="不是有效的 JSON 文件";return;}
+ const {ok,d}=await lpost("/api/at-prompt/import",body).catch(()=>({ok:false,d:{}}));
+ if(ok){atpCustom=d.custom||null;$("atp").value=d.preset;atpShow();$("atpres").textContent="已导入并保存（"+d.preset+"），下一条请求生效";}else $("atpres").textContent=d.error||"导入失败";};
 atpload();
 // ---- Pro/Ultra dedicated instance ----
 let utimer=null;

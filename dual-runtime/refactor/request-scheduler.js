@@ -151,6 +151,9 @@ class RequestScheduler {
  }
  applyRejection(ticket, result) {
   if (result?.workerRejection) return;
+  // Build channel (build-*): its failures never cool the account or the per-model count ledger, so they can
+  // never trigger a rotation. Only exhausted request counts rotate accounts.
+  if (typeof ticket?.model === 'string' && ticket.model.startsWith('build-')) return;
   const restriction = rejectionCooldown(result);
   if (!restriction) return;
   if (restriction.scope === 'egress') {

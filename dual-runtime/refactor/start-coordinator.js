@@ -23,10 +23,13 @@ async function main(){
  const priceStore=new ModelPriceStore(path.join(root,'model-prices.json'));
  const sweepStale=()=>{if(history.status().ready&&typeof history.expireStale==='function')history.expireStale().then(n=>{if(n)console.warn('[Analytics] closed '+n+' stale pending request(s) as uncertain');}).catch(()=>{});};
  sweepStale();setInterval(sweepStale,300000).unref();
- const recordedForward=createRecordedForward({history,forward:(ticket,route,body,res,credentials,options={})=>forwardWorker(ticket,route,body,res,credentials,{...options,atPrompt:atPrompt.get()}),priceFor:model=>priceStore.get(model),missLog:require('path').join(__dirname,'..','usage-missing.jsonl')});
+ const recordedForward=createRecordedForward({history,forward:(ticket,route,body,res,credentials,options={})=>forwardWorker(ticket,route,body,res,credentials,{...options,atPrompt:atPrompt.get(),atPromptCustom:atPrompt.header()}),priceFor:model=>priceStore.get(model),missLog:require('path').join(__dirname,'..','usage-missing.jsonl')});
  const scheduler=new RequestScheduler(dispatch,client,recordedForward,cfg.workers);
  const {QuarantineRecovery}=require('./quarantine-recovery');
  const recovery=new QuarantineRecovery(dispatch,scheduler,client,driver,rotation);
+ // Logged-out accounts are logged in again in place (same account, same worker); never skipped.
+ const relogin=require('./relogin-client').createRelogin({key:cfg.apiKeys[0]});
+ rotation.relogin=relogin;recovery.relogin=relogin;
  const {CatalogController}=require('./catalog-controller');
  const {createCatalogWorkerClient}=require('./catalog-worker-client');
  const catalogs=new CatalogController({
@@ -48,6 +51,24 @@ async function main(){
  routing.isPremium=id=>tiers.isPremium(id);
  dispatch.quotas.tierOf=id=>tiers.tier(id);
  scheduler.resolveModel=(route,body,options)=>routing.resolve(route,body,options);
+ // Build channel (build/*, build-st/*): own token ledger, per-account Build project from build-apps.json.
+ const {BuildChannel}=require('./build-coordinator');
+ const build=new BuildChannel({appsFile:path.join(root,'build-apps.json'),ledgerFile:path.join(root,'build-tokens.json'),
+  tierOf:id=>tiers.tier(id),isPremium:id=>tiers.isPremium(id)});
+ scheduler.resolveModel=(route,body,options)=>build.resolve(route,body,options)||routing.resolve(route,body,options);
+ scheduler.forward=build.wrapForward(scheduler.forward);
+ // Nightly Build applet rotation (Beijing 03:00-06:00): fresh applet per Build account, old one deleted.
+ const {BuildAppletRotation}=require('./build-applet-rotation');
+ const appletRpc=(slot,method,request)=>new Promise((resolve,reject)=>{
+  const payload=JSON.stringify({method,request});
+  const req=require('http').request({hostname:'127.0.0.1',port:slot==='A'?8891:8892,path:'/internal/build/applet-rpc',method:'POST',agent:false,
+   headers:{'X-Worker-Key':cfg.workers[slot].control,'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload)}},res=>{
+   let body='';res.on('data',c=>{body+=c;if(body.length>1e6)req.destroy();});
+   res.on('end',()=>{if(res.statusCode!==200)return reject(Error('worker '+res.statusCode+' '+body.slice(0,80)));try{resolve(JSON.parse(body));}catch{reject(Error('bad worker reply'));}});});
+  req.setTimeout(90000,()=>req.destroy(Error('applet rpc deadline')));req.on('error',reject);req.end(payload);});
+ const appletRotation=new BuildAppletRotation({appsFile:path.join(root,'build-apps.json'),stateFile:path.join(root,'build-applet-rotation.json'),rpc:appletRpc,
+  slotOf:id=>['A','B'].find(slot=>dispatch.pool.slots.get(slot)?.current===id)||null});
+ const appletTimer=setInterval(()=>{appletRotation.tick().then(r=>{if(r&&!r.skipped)console.log('[BuildRotation]',JSON.stringify(r));}).catch(e=>console.error('[BuildRotation]',e.message));},600000);appletTimer.unref();
  dispatch.quotaExhausted=(slot,plan)=>routing.exhausted(slot,plan);
  let stopping=false;
  const {RetiredResourceCleanup}=require('./retired-resource-cleanup');
@@ -134,6 +155,8 @@ async function main(){
   rotate:async slot=>{const r=rotation.forceRotate(slot);await r.done;const m=rotation.manual.get(slot);if(m?.phase==='failed')throw Error(m.error);}});
  monitor.tick();
  const actions={
+  buildStatus:()=>({...build.status(),appletRotation:appletRotation.status()}),
+  rotateBuildApplets:body=>appletRotation.tick({force:true,only:Number.isSafeInteger(body?.account)?body.account:null}),
   leaseStatus:()=>browserLease.status(),
   leaseAcquire:body=>browserLease.acquire(body?.owner,body?.slot),
   leaseRelease:()=>browserLease.release(false),
@@ -148,6 +171,8 @@ async function main(){
   concurrency:()=>concurrency.status(),
   atPrompt:()=>atPrompt.status(),
   setAtPrompt:body=>{const r=atPrompt.set(body);console.log('[Coordinator] anti-truncation prompt set to '+r.preset);return r;},
+  importAtPrompt:body=>{const r=atPrompt.import(body);console.log('[Coordinator] anti-truncation prompt imported, preset '+r.preset);return r;},
+  exportAtPrompt:()=>atPrompt.export(),
   setConcurrency:body=>{const r=concurrency.set(body);console.log('[Coordinator] per-slot concurrency set to A='+r.A+' B='+r.B);monitor.tick();return r;},
   targetApp:()=>targetApp.status(),
   saveTargetApp:body=>targetApp.save(body),
@@ -297,7 +322,7 @@ async function main(){
    return {added,removed,pool:dispatch.pool.ids};
   }
  };
- const server=createServer({keys:cfg.apiKeys,models:()=>routing.list(),scheduler,status,actions,auth:consoleAuth});
+ const server=createServer({keys:cfg.apiKeys,models:()=>[...routing.list(),...build.models()],scheduler,status,actions,auth:consoleAuth});
  await new Promise((resolve,reject)=>{
   server.once('error',reject);server.listen(8890,'127.0.0.1',resolve);
  });

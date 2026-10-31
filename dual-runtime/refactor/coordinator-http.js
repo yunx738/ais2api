@@ -31,9 +31,9 @@ function createServer({keys,models,scheduler,status,actions,auth}){
     if(typeof action!=='function')return json(res,503,{error:'Analytics unavailable'});
     return json(res,200,await action(options));
    }
-   const readBody=async()=>{
+   const readBody=async(max=4096)=>{
     let size=0;const chunks=[];
-    for await(const chunk of req){size+=chunk.length;if(size>4096)throw Object.assign(Error('Body too large'),{statusCode:413});chunks.push(chunk);}
+    for await(const chunk of req){size+=chunk.length;if(size>max)throw Object.assign(Error('Body too large'),{statusCode:413});chunks.push(chunk);}
     let body;
     try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}
     catch{throw Object.assign(Error('Invalid JSON body'),{statusCode:400});}
@@ -154,6 +154,8 @@ function createServer({keys,models,scheduler,status,actions,auth}){
      catch(e){return json(res,[400,409].includes(e.statusCode)?e.statusCode:503,{error:[400,409].includes(e.statusCode)?e.message:'保存未确认'});}
     }
    }
+   if(req.method==='GET'&&url.pathname==='/internal/build-status')return json(res,200,actions.buildStatus());
+   if(req.method==='POST'&&url.pathname==='/internal/build/rotate-applets'&&actions.rotateBuildApplets){const body=await readBody();return json(res,200,await actions.rotateBuildApplets(body||{}));}
    if(req.method==='GET'&&url.pathname==='/internal/usage-counts')return json(res,200,actions.usageCounts());
    if(req.method==='POST'&&url.pathname==='/internal/accounts/name'){
     try{return json(res,200,actions.setAccountName(await readBody()));}
@@ -173,10 +175,15 @@ function createServer({keys,models,scheduler,status,actions,auth}){
      catch(e){return json(res,e.statusCode===400?400:503,{error:e.statusCode===400?e.message:'保存未确认'});}
     }
    }
+   if(url.pathname==='/internal/at-prompt/export'&&req.method==='GET'&&actions.exportAtPrompt)return json(res,200,actions.exportAtPrompt());
+   if(url.pathname==='/internal/at-prompt/import'&&req.method==='POST'&&actions.importAtPrompt){
+    try{return json(res,200,actions.importAtPrompt(await readBody(32768)));}
+    catch(e){return json(res,e.statusCode===400||e.statusCode===413?e.statusCode:503,{error:e.statusCode===400?e.message:e.statusCode===413?'文件太大':'保存未确认'});}
+   }
    if(url.pathname==='/internal/at-prompt'&&actions.atPrompt){
     if(req.method==='GET')return json(res,200,actions.atPrompt());
     if(req.method==='POST'){
-     try{return json(res,200,actions.setAtPrompt(await readBody()));}
+     try{return json(res,200,actions.setAtPrompt(await readBody(32768)));}
      catch(e){return json(res,e.statusCode===400?400:503,{error:e.statusCode===400?e.message:'保存未确认'});}
     }
    }

@@ -81,6 +81,10 @@ function install(h){
    this.logger.warn("[Stability] 账号 #"+this.currentAuthIndex+" 出口地区被拒绝；不冷却账号");
    return;
   }
+  if(status===403&&/caller does not have permission/i.test(String(error.message||"")+String(error.body||""))){
+   this.logger.warn("[Stability] 账号 #"+this.currentAuthIndex+" 签名被拒(403 caller does not have permission)；属谷歌随机风控，不冷却账号或模型");
+   return;
+  }
   // 429/403/5xx belong to the model that received them: a flash limit must not block
   // gemini-4-argon, nor make the coordinator retire the account. 401 stays account-wide.
   const model=modelScope.getStore();

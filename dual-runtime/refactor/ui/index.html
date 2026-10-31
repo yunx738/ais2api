@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>AIS2API 管理后台</title><link rel="stylesheet" href="/console-assets/console.css?v=r2a"><link rel="stylesheet" href="/console-assets/console-panels.css?v=r2a"><link rel="stylesheet" href="/console-assets/models.css?v=r2a"><script src="/console-assets/console.js?v=p1" defer></script><script src="/console-assets/shell.js?v=p1" defer></script><script src="/console-assets/models.js?v=n5" defer></script><link rel="stylesheet" href="/console-assets/analytics.css?v=r2a"><script src="/console-assets/analytics.js?v=p2" defer></script><script src="/console-assets/prices.js?v=n5" defer></script><script src="/console-assets/proxies.js?v=r2a" defer></script><link rel="stylesheet" href="/console-assets/admin.css?v=r2a"><script src="/console-assets/admin-tools.js?v=n8" defer></script><script src="/console-assets/security.js?v=n4" defer></script><link rel="stylesheet" href="/console-assets/theme-nai.css?v=p1"><script src="/console-assets/theme-nai.js?v=p1" defer></script><link rel="icon" type="image/png" href="/public-assets/nai-favicon.png"><meta name="theme-color" content="#5b4ce0"></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>AIS2API 管理后台</title><link rel="stylesheet" href="/console-assets/console.css?v=r2a"><link rel="stylesheet" href="/console-assets/console-panels.css?v=r2a"><link rel="stylesheet" href="/console-assets/models.css?v=r2a"><script src="/console-assets/console.js?v=p1" defer></script><script src="/console-assets/shell.js?v=p1" defer></script><script src="/console-assets/models.js?v=n5" defer></script><link rel="stylesheet" href="/console-assets/analytics.css?v=r2a"><script src="/console-assets/analytics.js?v=p2" defer></script><script src="/console-assets/prices.js?v=n5" defer></script><script src="/console-assets/proxies.js?v=r2a" defer></script><link rel="stylesheet" href="/console-assets/admin.css?v=r2a"><script src="/console-assets/admin-tools.js?v=n9" defer></script><script src="/console-assets/security.js?v=n4" defer></script><script src="/console-assets/build.js?v=b1" defer></script><link rel="stylesheet" href="/console-assets/theme-nai.css?v=p1"><script src="/console-assets/theme-nai.js?v=p1" defer></script><link rel="icon" type="image/png" href="/public-assets/nai-favicon.png"><meta name="theme-color" content="#5b4ce0"></head>
 <body>
 <svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
 <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
@@ -33,6 +33,7 @@
 <span class="nav-label">运行</span>
 <a href="#overview" data-page="overview" title="概览"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span>概览</span></a>
 <a href="#usage" data-page="usage" title="统计"><svg class="icon" aria-hidden="true"><use href="#i-activity"/></svg><span>统计</span></a>
+<a href="#build" data-page="build" title="Build 通道"><svg class="icon" aria-hidden="true"><use href="#i-zap"/></svg><span>Build</span></a>
 <a href="#history" data-page="history" title="请求记录"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg><span>请求记录</span></a>
 <span class="nav-label">管理</span>
 <a href="#accounts" data-page="accounts" data-also="add" title="账号"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg><span>账号</span></a>
@@ -97,7 +98,7 @@
 <div class="card form-card mdl-card mdl-card-policy"><div class="section-head"><h2>额度规则</h2></div>
 <div class="form-row">
 <label>模型<select id="policy-model"><option value="">先刷新目录</option></select></label>
-<label>额度类别<select id="policy-bucket"><option value="">请选择</option><option value="flash" title="每模型 100（Ultra 500）">Flash · 100 / Ultra 500</option><option value="pro" title="普通账号 10 / Pro 50 / Ultra 5x 100 / Ultra 20x 200">Pro · 10 / 50 / 100 / 200</option><option value="ultra" title="Pro 50 / Ultra 5x 100 / Ultra 20x 200，仅 Pro/Ultra 账号">高级 · 仅 Pro / Ultra</option></select></label>
+<label>额度类别<select id="policy-bucket"><option value="">请选择</option><option value="flash" title="每模型 100（Ultra 220）">Flash · 100 / Ultra 220</option><option value="pro" title="普通账号 10 / Pro 50 / Ultra 5x 100 / Ultra 20x 200">Pro · 10 / 50 / 100 / 200</option><option value="ultra" title="Pro 50 / Ultra 5x 100 / Ultra 20x 200，仅 Pro/Ultra 账号">高级 · 仅 Pro / Ultra</option></select></label>
 <label class="mdl-check"><input id="policy-anti" type="checkbox">防截断续传</label>
 <button id="policy-save" class="primary" disabled>保存</button></div>
 <p id="policy-message" role="status"></p></div>
@@ -126,6 +127,15 @@
  <div id="usage-cards" class="stats"></div>
  <div class="card distribution-card"><div class="section-head"><div class="heading-icon"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><div><h2>模型统计</h2></div></div></div><div id="usage-models"></div></div>
  <div class="card"><div class="section-head"><div class="heading-icon"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><div><h2>请求次数</h2></div></div></div><div id="usage-counts"><p class="muted">读取中</p></div></div>
+</section>
+<section id="build" class="page" hidden>
+ <div class="usage-toolbar"><button id="build-refresh" type="button"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>刷新</button></div>
+ <p id="build-message" class="muted" role="status">等待读取</p>
+ <p class="muted">Build 通道（build/、build-st/ 模型）单独按 Token 记录，与常规“请求次数”额度互不影响；Pro/Ultra 不设每日上限，普通账号不可用。</p>
+ <div id="build-cards" class="stats"></div>
+ <div class="card"><div class="section-head"><div class="heading-icon"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg><div><h2>账号用量（今日）</h2></div></div></div><div class="table-wrap"><table><thead><tr><th>账号</th><th>类别</th><th>合计 Token</th><th>输入</th><th>输出</th><th>缓存命中</th><th>请求</th><th>状态</th></tr></thead><tbody id="build-accounts"></tbody></table></div></div>
+ <div class="card"><div class="section-head"><div class="heading-icon"><svg class="icon" aria-hidden="true"><use href="#i-chart"/></svg><div><h2>模型（今日）</h2></div></div></div><div class="table-wrap"><table><thead><tr><th>模型</th><th>请求</th><th>Token</th><th>平均每次</th></tr></thead><tbody id="build-models"></tbody></table></div></div>
+ <div class="card"><div class="section-head"><div class="heading-icon"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg><div><h2>最近 50 次调用</h2></div></div></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>账号</th><th>模型</th><th>状态</th><th>输入</th><th>输出</th><th>耗时</th></tr></thead><tbody id="build-recent"></tbody></table></div></div>
 </section>
  <section id="history" class="page" hidden>
  <form id="history-filter" class="card form-row">
@@ -158,7 +168,13 @@
 <div class="card form-card legacy"><h2>每个实例的并发数</h2><div class="sub">每个实例同时处理的请求数，1–10，默认 2。保存后立即生效，重启或切换账号后不变。</div>
 <div class="form-row"><label>实例 A<input id="ccA" type="number" min="1" max="10" step="1" inputmode="numeric"></label><label>实例 B<input id="ccB" type="number" min="1" max="10" step="1" inputmode="numeric"></label><button id="ccsave" class="primary" type="button">保存</button></div><pre id="ccres" class="out"></pre></div>
 <div class="card form-card legacy"><h2>防截断提示词</h2><div class="sub">请求 anti-truncation/ 开头的模型时注入的提示词。保存后下一条请求立即生效，不用重启实例。</div>
-<div class="form-row"><label>提示词<select id="atp"></select></label><button id="atpsave" class="primary" type="button">保存</button></div><div id="atpnote" class="sub"></div><pre id="atpres" class="out"></pre></div>
+<div class="form-row"><label>提示词<select id="atp"></select></label><button id="atpsave" class="primary" type="button">保存</button></div><div id="atpnote" class="sub"></div>
+<div class="sub" style="margin-top:8px">下面是所选提示词的原文。内置的只能看，要改就点“复制到自定义”，改完保存。<code>{tool}</code> 会换成工具名，<code>{partial}</code> 是续写时上一轮没交完的内容。</div>
+<label class="f" for="atpdesc">工具说明（desc）</label><textarea id="atpdesc" rows="2" spellcheck="false" style="width:100%;font-family:monospace"></textarea>
+<label class="f" for="atphint">系统提示词（hint，追加在系统提示词末尾）</label><textarea id="atphint" rows="8" spellcheck="false" style="width:100%;font-family:monospace"></textarea>
+<label class="f" for="atpcont">续写提示词（cont，工具没交完时发给模型）</label><textarea id="atpcont" rows="3" spellcheck="false" style="width:100%;font-family:monospace"></textarea>
+<div class="form-row" style="margin-top:8px"><button id="atpcopy" type="button">复制到自定义</button><button id="atpexport" type="button">导出</button><button id="atpimport" type="button">导入</button><input id="atpfile" type="file" accept=".json,application/json" hidden></div>
+<pre id="atpres" class="out"></pre></div>
 <div class="card form-card legacy"><div class="sw"><div><b>单实例运行</b><div id="msub" class="sub"></div></div><input id="msingle" type="checkbox" aria-label="单实例运行"></div><pre id="mres" class="out"></pre></div>
 <div class="card form-card legacy"><div class="sw"><div><b>Pro/Ultra 专用实例</b><div id="usub" class="sub"></div></div><input id="uon" type="checkbox" aria-label="Pro/Ultra 专用实例"></div>
 <label class="f" for="uslot">专用实例</label><select id="uslot"><option value="A">实例 A</option><option value="B">实例 B</option></select>
@@ -223,6 +239,7 @@
   <div class="sheet-heading"><div><h2 id="more-title">更多菜单</h2></div><button id="more-close" class="icon-button ghost" type="button" aria-label="关闭更多菜单"><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button></div>
   <div class="sheet-grid">
     <a href="#history" data-page="history"><span class="sheet-icon"><svg class="icon" aria-hidden="true"><use href="#i-list"/></svg></span><span>请求记录</span></a>
+    <a href="#build" data-page="build"><span class="sheet-icon"><svg class="icon" aria-hidden="true"><use href="#i-zap"/></svg></span><span>Build 通道</span></a>
     <a href="#settings" data-page="settings"><span class="sheet-icon"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg></span><span>设置</span></a>
     <a href="#add" data-page="add"><span class="sheet-icon"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></span><span>添加账号</span></a>
   </div>

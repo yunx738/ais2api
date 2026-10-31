@@ -22,7 +22,7 @@ function buildSpec(slot,account,root,image){
  const files=['verified-client-route.js','observe-client-scripts.js','worker-protocol.js','worker-system.js','worker-operations.js','operation-tracker.js','worker-http.js','start-worker.js','stability.js','black-browser.js','import-ui.js','import-ui.html'];
  const candidates=new Set(["verified-client-route.js","worker-http.js","start-worker.js","worker-protocol.js","worker-operations.js","operation-tracker.js","black-browser.js"]);
  for(const name of files)mount(path.join(root,candidates.has(name)?'refactor':'code',name),'/app/'+name);
- for(const name of ['worker-executions.js','execution-ledger.js','worker-catalog-service.js','model-catalog.js','request-model.js','browser-catalog-source.js'])mount(path.join(root,'refactor',name),'/app/'+name);
+ for(const name of ['worker-executions.js','execution-ledger.js','worker-catalog-service.js','model-catalog.js','request-model.js','browser-catalog-source.js','build-worker.js','build-context.js','build-response.js','build-page-call.js'])mount(path.join(root,'refactor',name),'/app/'+name);
  mount(path.join(root,'code','unified-server.runtime.js'),'/app/unified-server.js');
  mount('/opt/ais2api/proxy-relay','/relay');
  args.push(image,'node','start-worker.js');

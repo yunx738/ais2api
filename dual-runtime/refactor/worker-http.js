@@ -20,6 +20,15 @@ function install(system,secret){
    var rd=r.body.getReader(),dec=new TextDecoder();for(;;){var x=await rd.read();if(x.done)break;var s=dec.decode(x.value,{stream:true});txt+=s;chunks.push([Date.now()-t0,s.length]);if(txt.length>200000)break;}
   }catch(e){return JSON.stringify({err:'fetch '+String(e&&e.message||e).slice(0,120),ms:Date.now()-t0});}finally{clearTimeout(wd);}
   return JSON.stringify({status:r.status,ms:Date.now()-t0,headers:rh,chunks:chunks,sigLen:sig.length,text:txt});};
+ // Runs inside the page: one MakerSuite applet RPC with the page's own auth headers. Returns status and body text.
+ const appletRpc=async function(method,body){var w=window,tb=w.__tb;if(!tb)return JSON.stringify({err:'page_not_ready'});
+  var md=tb.getMetadata()||{};var waa=md['X-Goog-Api-Key'];var key=null;for(var sk in tb){var mb;try{mb=tb[sk];}catch(e){continue;}if(!mb||typeof mb!=='object')continue;for(var k in mb){var v;try{v=mb[k];}catch(e){continue;}if(typeof v==='string'&&/^AIza[0-9A-Za-z_-]{30,}$/.test(v)&&v!==waa){key=v;break;}}if(key)break;}
+  var hd={'content-type':'application/json+protobuf','x-user-agent':'grpc-web-javascript/0.1','x-goog-api-key':key||waa,'authorization':md.Authorization,'x-goog-authuser':md['X-Goog-AuthUser']!=null?String(md['X-Goog-AuthUser']):'0'};
+  var url='https://alkalimakersuite-pa.clients6.google.com/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/'+method;
+  var ac=new AbortController(),wd=setTimeout(function(){ac.abort();},50000),t0=Date.now();
+  try{var r=await fetch(url,{method:'POST',credentials:'include',headers:hd,body:JSON.stringify(body),signal:ac.signal});var t=await r.text();
+   return JSON.stringify({status:r.status,ms:Date.now()-t0,text:t.length>200000?t.slice(0,200000):t,truncated:t.length>200000,bytes:t.length});}
+  catch(e){return JSON.stringify({err:'fetch '+String(e&&e.message||e).slice(0,120)});}finally{clearTimeout(wd);}};
  const idle=()=>{
   const s=system.workerStatus(),b=system.browserManager;
   let url;try{url=new URL(b.page.url());}catch{return false;}
@@ -155,6 +164,29 @@ function install(system,secret){
       const code='('+String(rpcProbe)+')('+JSON.stringify(method)+','+JSON.stringify(body.request)+','+JSON.stringify(body.hashText)+','+JSON.stringify(ALLOW[method])+')';
       let tmo;const raw=await Promise.race([page.evaluate(c=>window.wrappedJSObject.eval(c),code),new Promise(r=>{tmo=setTimeout(()=>r(JSON.stringify({err:'timeout'})),120000);})]).finally(()=>clearTimeout(tmo));
       let out;try{out=JSON.parse(raw);}catch{out={err:'unparseable',raw:String(raw).slice(0,300)};}
+      if(!res.destroyed)res.json(out);
+     }catch(e){if(!res.destroyed)res.status(500).json({err:String(e&&e.message||e).slice(0,200)});}
+     finally{probing=false;}
+    });
+    return;
+   }
+   if(req.method==='POST' && req.path==='/internal/build/applet-rpc'){
+    // Build project maintenance: relay ONE allow-listed applet RPC from the live page (page auth, no signature).
+    // Used by the nightly project rotation. Idle worker only; body built by the coordinator.
+    let size=0;const chunks=[];
+    req.on('data',c=>{size+=c.length;if(size>65536){req.destroy();return;}chunks.push(c);});
+    req.on('end',async()=>{
+     if(res.writableEnded)return;
+     let body;try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{return res.status(400).json({error:'Invalid body'});}
+     const ALLOW=new Set(['CreateApplet','DeleteApplet','GetApplet','ListAppletTrajectories']);
+     if(!body||!ALLOW.has(body.method)||!Array.isArray(body.request))return res.status(400).json({error:'Method not allowed or bad request'});
+     if(probing)return res.status(409).json({error:'Probe already running'});
+     if(!idle())return res.status(409).json({error:'Worker not idle'});
+     probing=true;
+     try{
+      const code='('+String(appletRpc)+')('+JSON.stringify(body.method)+','+JSON.stringify(body.request)+')';
+      let tmo;const raw=await Promise.race([system.browserManager.page.evaluate(c=>window.wrappedJSObject.eval(c),code),new Promise(r=>{tmo=setTimeout(()=>r(JSON.stringify({err:'timeout'})),60000);})]).finally(()=>clearTimeout(tmo));
+      let out;try{out=JSON.parse(raw);}catch{out={err:'unparseable'};}
       if(!res.destroyed)res.json(out);
      }catch(e){if(!res.destroyed)res.status(500).json({err:String(e&&e.message||e).slice(0,200)});}
      finally{probing=false;}

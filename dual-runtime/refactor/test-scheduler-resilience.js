@@ -259,6 +259,10 @@ test('Retry-After and explicit exhaustion are bounded without treating every 429
  assert.equal(rejectionCooldown(daily, now).until, Date.parse('2023-11-15T07:00:00Z'));
  assert.equal(rejectionCooldown({ status: 429 }, now).until, now + 60000);
  assert.equal(rejectionCooldown({ status: 403 }, now).scope, 'model');
+ // random page-signature 403 never cools; other 403 bodies still do
+ assert.equal(rejectionCooldown(rejected(403, '{"error":{"code":403,"message":"[,[7,\\"The caller does not have permission\\"]]"}}', undefined), now), undefined);
+ assert.equal(rejectionCooldown(rejected(403, Buffer.from('The caller does not have permission'), undefined), now), undefined);
+ assert.equal(rejectionCooldown(rejected(403, 'Permission denied: model not enabled', undefined), now).scope, 'model');
  assert.equal(rejectionCooldown({ status: 401 }, now).scope, 'account');
  assert.equal(rejectionCooldown({ status: 500 }, now), undefined);
 });

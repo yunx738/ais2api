@@ -17,6 +17,9 @@ async function main(){
  process.env.PROXY_URL='http://127.0.0.1:18992';
  const worker=createWorker(ProxyServerSystem,account,require('path').join(__dirname,'auth'));
  require('./worker-protocol').install(worker.system.connectionRegistry);
+ // Build channel: must wrap processOpenAIRequest before worker-operations/worker-executions do.
+ // Optional: containers created before the Build files were mounted simply run without the channel.
+ try{require('./build-worker').install(worker.system);}catch(e){if(e&&e.code==='MODULE_NOT_FOUND')console.warn('[Build] channel files not mounted; Build disabled on this worker');else throw e;}
  const tracker=install(worker.system);
  worker.system.workerStatus=()=>({
   ...worker.status(),

@@ -13,6 +13,7 @@
     add: '',
     usage: '',
     history: '',
+    build: '',
     models: '',
     settings: '',
   };
@@ -30,7 +31,7 @@
 
   function updateMenuState() {
     const page = location.hash.slice(1);
-    more.classList.toggle('selected', sheet.open || page === 'settings' || page === 'history' || page === 'add');
+    more.classList.toggle('selected', sheet.open || page === 'settings' || page === 'history' || page === 'add' || page === 'build');
     document.querySelectorAll('[data-more-open]').forEach(button => {
       button.setAttribute('aria-expanded', String(sheet.open));
     });

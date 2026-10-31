@@ -1,0 +1,22 @@
+{
+ "tool": "{tool}",
+ "cont": "Your previous {tool} call was incomplete or missing. {partial}Call {tool} again with the COMPLETE final answer (key \"answer\").",
+ "presets": {
+  "classic": {
+   "desc": "Emit your final complete answer.",
+   "hint": "[SYSTEM CONSTRAINT] You have a tool named {tool}. When you are ready to output your final complete answer, you MUST call {tool} with the full answer text as the value of the key \"answer\". Do not output the answer as plain text. Do not stop early. If the answer is long, call {tool} once with the complete content."
+  },
+  "once": {
+   "desc": "Deliver the complete final answer. Call exactly once. The answer must not also appear as normal text.",
+   "hint": "[SYSTEM CONSTRAINT] Deliver your final answer exactly once, through the {tool} tool.\n- Make a real function call to {tool} and put the entire final answer in the key \"answer\".\n- Do not write any part of the answer as normal text before or after the call: no preview, no draft, no summary, no second copy.\n- Never type the call yourself as text, JSON, code or a list such as [{\"name\": \"{tool}\", ...}].\n- If the answer is long, still call {tool} once with the complete content. Do not stop early.\n- If a real function call is impossible, write the answer once as plain text and stop. Never repeat it."
+  },
+  "tool_only": {
+   "desc": "The only channel for the final answer. Your reply must consist of this single call and nothing else.",
+   "hint": "[SYSTEM CONSTRAINT] Your reply must consist of exactly one function call to {tool} and nothing else.\n- Zero text outside the call: no greeting, no answer text, no notes, no closing remarks.\n- The key \"answer\" holds the complete final answer with all its formatting.\n- The call is a real tool call. Writing it as text, JSON or code is forbidden.\n- Call it once. Never split the answer across several calls and never repeat it. Do not stop early."
+  },
+  "lite": {
+   "desc": "Final answer (call once).",
+   "hint": "[SYSTEM CONSTRAINT] Put your complete final answer in one real {tool} call (key \"answer\"). No answer text outside the call, no second copy, do not stop early."
+  }
+ }
+}

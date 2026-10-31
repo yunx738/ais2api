@@ -70,7 +70,7 @@ test('pro and ultra share the premium group; caps differ by class',()=>{
  a.throws(()=>tiers.setTier(1,'max'),/standard、pro、ultra 或 ultra20/);
  const q=new ModelQuotaLedger();q.tierOf=id=>tiers.tier(id);
  const cap=(id,m,f)=>q.view(id,m,f).limit;
- for(const [id,argon,flash,pro] of [[1,10,100,10],[2,50,100,50],[3,100,500,100],[4,200,500,200]]){
+ for(const [id,argon,flash,pro] of [[1,10,100,10],[2,50,100,50],[3,100,220,100],[4,200,220,200]]){
   a.equal(cap(id,'gemini-4-argon','ultra'),argon);a.equal(cap(id,'gemini-3.8-flash','flash'),flash);a.equal(cap(id,'gemini-3.1-pro-preview','pro'),pro);}
 });
 test('premium model routing accepts pro and ultra accounts only',()=>{

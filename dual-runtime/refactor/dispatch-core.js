@@ -62,9 +62,11 @@ class DispatchCore {
    if(Object.keys(s.retirements||{}).length>=100||this.operations.has(slot)||s.active>=this.limitOf(slot)||s.proxyApply||s.ready===false||owner?.pending||owner?.current===undefined)continue;
    if(this.accountFlags[owner.current]||!s.workerEpoch||!eligible(slot,owner.current))continue;
    // Quota is owned by account and canonical model, not slot.
-   if(!this.quotas.view(owner.current,model,kind,now).allowed)continue;
+   // Token-metered plans (Build channel) use their own ledger instead of per-request model counters.
+   const metered=typeof plan.admit==='function';
+   if(!metered&&!this.quotas.view(owner.current,model,kind,now).allowed)continue;
    if((this.pool.cooldowns.get(owner.current)||0)>Date.now())continue;
-   if(!this.quotas.charge(owner.current,model,kind))continue;
+   if(metered?!plan.admit(owner.current,id):!this.quotas.charge(owner.current,model,kind))continue;
    const ticket={slot,account:owner.current,id,workerEpoch:s.workerEpoch,kind,model,phase:"running",createdAt:now,admissionDeadline:now+30000};
    s.executions||={};s.executions[id]={...ticket};
    s.active++;s.requests.add(id);

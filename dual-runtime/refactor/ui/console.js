@@ -1,6 +1,6 @@
  'use strict';
 const $=id=>document.getElementById(id);
-const titles={overview:'概览',accounts:'账号',models:'模型',usage:'统计',history:'请求记录',settings:'设置'};
+const titles={overview:'概览',accounts:'账号',models:'模型',usage:'统计',build:'Build 通道',history:'请求记录',settings:'设置'};
 const pageAlias={add:'accounts'};
 let state=null,reading=false,mutating=false,fresh=false,readTask=null,statusError=false;
 let accountPage=1;

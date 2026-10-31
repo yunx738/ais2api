@@ -35,8 +35,8 @@ assert.equal(r.rotationPlan('B',[{model:'gemini-3.8-flash',quotaFamily:'flash'}]
  const logs=[];const h={currentAuthIndex:7,logger:{info(){},warn:m=>logs.push(m)},
   _switchToSpecificAuth(){},_switchToNextAuth(){},connectionRegistry:{messageQueues:new Map()},
   sent:[],_sendErrorResponse(res,code){this.sent.push(code);},
-  async processRequest(req,res){this.reached=(this.reached||0)+1;if(req.fail)await this._handleRequestFailureAndSwitch({status:req.fail,message:'x'});},
-  async processOpenAIRequest(req,res){this.reached=(this.reached||0)+1;if(req.fail)await this._handleRequestFailureAndSwitch({status:req.fail,message:'x'});}};
+  async processRequest(req,res){this.reached=(this.reached||0)+1;if(req.fail)await this._handleRequestFailureAndSwitch({status:req.fail,message:req.msg||'x'});},
+  async processOpenAIRequest(req,res){this.reached=(this.reached||0)+1;if(req.fail)await this._handleRequestFailureAndSwitch({status:req.fail,message:req.msg||'x'});}};
  install(h);
  const res=()=>({destroyed:false,writableEnded:true,on(){},removeListener(){},setHeader(){}});
  await h.processOpenAIRequest({body:{model:'gemini-3.8-flash'},path:'/v1/chat/completions',fail:429},res());
@@ -49,6 +49,9 @@ assert.equal(r.rotationPlan('B',[{model:'gemini-3.8-flash',quotaFamily:'flash'}]
  let ran=0;const orig=h._handleRequestFailureAndSwitch;h._handleRequestFailureAndSwitch=async e=>{ran++;return orig.call(h,e);};
  await h.processRequest({path:'/v1beta/models/gemini-4-argon:generateContent',fail:0},res());
  assert.equal(ran,0);assert.equal(h.reached,2);assert.deepEqual(h.sent,[429]);
+ // random signature 403 cools nothing
+ await h.processRequest({path:'/v1beta/models/gemini-3.9-flash:generateContent',fail:403,msg:'Google API返回错误: 403 Forbidden [,[7,"The caller does not have permission"]]'},res());
+ assert.equal(h.accountCooldowns.size,0);assert.equal(h.modelCooldowns.has('7|gemini-3.9-flash'),false);
  // a 403 on pro is per-model too
  await h.processRequest({path:'/v1beta/models/gemini-3.1-pro-preview:generateContent',fail:403},res());
  assert.equal(h.accountCooldowns.size,0);assert.ok(h.modelCooldowns.get('7|gemini-3.1-pro-preview').status===403);

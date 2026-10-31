@@ -58,3 +58,6 @@ dual-runtime/usage-missing.jsonl*
 dual-runtime/frontend-verified.json
 dual-runtime/login/nightly-relogin.json
 dual-runtime/at-prompt.json
+dual-runtime/build-apps.json
+dual-runtime/build-tokens.json
+dual-runtime/build-applet-rotation.json

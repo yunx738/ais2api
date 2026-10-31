@@ -1,0 +1,42 @@
+'use strict';
+const assert=require('assert'),fs=require('fs'),os=require('os'),path=require('path');
+const {BuildChannel}=require('./build-coordinator');
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bc-'));
+const appsFile=path.join(dir,'build-apps.json'),ledgerFile=path.join(dir,'build-tokens.json');
+const APP='d5df4c44-02ed-4b2f-b71a-34fbc28e8861';
+const tiers={31:'ultra',22:'standard'};
+const ch=new BuildChannel({appsFile,ledgerFile,tierOf:id=>tiers[id]||'standard',isPremium:id=>(tiers[id]||'standard')!=='standard'});
+const body=o=>Buffer.from(JSON.stringify(o));
+(async()=>{
+ // non-Build model -> null (normal routing)
+ assert.strictEqual(ch.resolve('/v1/chat/completions',body({model:'gemini-4-argon',messages:[]})),null);
+ // no project configured -> 503
+ assert.throws(()=>ch.resolve('/v1/chat/completions',body({model:'build/gemini-4-argon',messages:[{role:'user',content:'x'}]})),e=>e.statusCode===503);
+ fs.writeFileSync(appsFile,JSON.stringify({31:APP,22:APP}));
+ // native route rejected
+ assert.throws(()=>ch.resolve('/v1beta/models/x:generateContent',body({model:'build/gemini-4-argon'})),e=>e.statusCode===400);
+ const plan=ch.resolve('/v1/chat/completions',body({model:'build/gemini-4-argon-low',messages:[{role:'user',content:'hello world'}]}));
+ assert.strictEqual(plan.quotaFamily,'ultra');assert.strictEqual(plan.build.thinking,1);
+ assert.strictEqual(plan.eligible('A',31),true);assert.strictEqual(plan.eligible('A',22),false);   // standard account excluded
+ // admission reserves; forward adds __build and charges usage
+ const id='11111111-1111-1111-1111-111111111111';
+ assert.strictEqual(plan.admit(31,id),true);assert.ok(ch.ledger.view(31).reserved>0);
+ let sent;
+ const fwd=ch.wrapForward(async(t,r,b)=>{sent=JSON.parse(b.toString());return {status:200,metrics:{usage:{input:145021,output:46,total:145067}}};});
+ await fwd({id,account:31,slot:'B'},'/v1/chat/completions',body({model:'build/gemini-4-argon-low',messages:[{role:'user',content:'hello world'}]}),{},{});
+ assert.deepStrictEqual(sent.__build,{app:APP,model:'gemini-4-argon',thinking:1});
+ assert.strictEqual(ch.ledger.view(31).used,145067);assert.strictEqual(ch.ledger.view(31).reserved,0);
+ // non-Build requests pass straight through, untouched
+ let passed;const fwd2=ch.wrapForward(async(t,r,b)=>{passed=b;return {status:200};});
+ const plain=body({model:'gemini-4-argon',messages:[]});await fwd2({id,account:31},'/v1/chat/completions',plain,{},{});assert.strictEqual(passed,plain);
+ // 429 -> account cooled down for Build
+ const id2='22222222-2222-2222-2222-222222222222';plan.admit(31,id2);
+ await ch.wrapForward(async()=>({status:429}))({id:id2,account:31},'/v1/chat/completions',body({model:'build/gemini-4-argon',messages:[]}),{},{});
+ assert.strictEqual(ch.ledger.view(31).allowed,false);assert.strictEqual(plan.eligible('A',31),false);
+ // all exhausted -> 429 with reset hint at resolve time
+ assert.throws(()=>ch.resolve('/v1/chat/completions',body({model:'build/gemini-4-argon',messages:[{role:'user',content:'x'}]})),e=>e.statusCode===429&&e.retryAfter>0);
+ // queued requests are still admitted while unavailable (allowUnavailable)
+ assert.ok(ch.resolve('/v1/chat/completions',body({model:'build/gemini-4-argon',messages:[{role:'user',content:'x'}]}),{allowUnavailable:true}));
+ assert.strictEqual(ch.models().length,16);
+ console.log('build-coordinator: all tests passed');
+})().catch(e=>{console.error(e);process.exit(1);});
