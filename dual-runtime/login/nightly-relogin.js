@@ -5,7 +5,10 @@
 // Each login runs on the worker network where the account failed, through that worker's egress.
 const fs=require('fs'),path=require('path'),crypto=require('crypto');
 const REG='/opt/ais2api/auto-register/data';
-const GAP_MS=20*60000,TICK_MS=60000;
+// No pacing: a failed account is logged in again as soon as no other login runs.
+const GAP_MS=0,TICK_MS=30000,RECENT_OK_MS=30*60000;
+// Errors from pausing/leasing a worker are not login failures; never hold an account on them.
+const LEASE_ERR=/未就绪，暂不暂停|已有登录占用|实例正在执行其他操作|运行模式切换中|等待请求结束超时|暂停实例失败|暂停失败|单实例模式尚未就绪|调度不可用/;
 function day(t){const d=new Date(t);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function registered(){
  const out={};
@@ -24,6 +27,7 @@ class NightlyRelogin{
   this.state={scanDay:null,queue:[],lastStartAt:0,triedDay:{},results:{},held:{},manual:[]};
   try{Object.assign(this.state,JSON.parse(fs.readFileSync(file,'utf8')));}catch{}
   this.state.held||={};this.state.manual||=[];
+  for(const [id,h] of Object.entries(this.state.held))if(LEASE_ERR.test(h?.message||''))delete this.state.held[id];
   // First start: do not sweep existing failures now; wait for midnight.
   if(!this.state.scanDay){this.state.scanDay=day(this.now());this.state.scanAt=this.now();}
   this.job=null;this.ticking=false;
@@ -47,7 +51,8 @@ class NightlyRelogin{
   const q=new Set(this.state.queue);let added=0;
   for(const a of list){
    if(!this.eligible(a,reg))continue;
-   if(!full&&(this.state.triedDay[a.id]===today||!((a.invalidAt||0)>=(this.state.scanAt||0))))continue;
+   // Just logged in but still flagged (revalidation unconfirmed): do not loop on it.
+   {const r=this.state.results[a.id];if(!full&&r?.result==='ok'&&this.now()-r.at<RECENT_OK_MS)continue;}
    if(!q.has(a.id)){q.add(a.id);added++;}
   }
   // Drop queued accounts that recovered meanwhile.
@@ -66,7 +71,6 @@ class NightlyRelogin{
    if(this.state.scanDay!==today)await this.scan(true);
    else await this.scan(false);
    if(this.job||!this.state.queue.length)return;
-   if(now-this.state.lastStartAt<GAP_MS)return;
    if(this.busy()){this.waiting='另一登录任务进行中';return;}
    if(!this.memOk()){this.waiting='服务器内存不足';return;}
    const list=await this.accounts(),reg=registered();
@@ -77,13 +81,13 @@ class NightlyRelogin{
    const c=reg[email];
    this.state.queue.shift();this.state.lastStartAt=now;this.state.triedDay[id]=today;this.waiting=null;this.save();
    this.log('[NightlyRelogin] #'+id+' '+mask(email)+' start on '+(slot?'worker '+slot+' network':'default login network')+(c.totp?'':' (no TOTP secret)'));
-   const job=this.job=this.startJob(email,c.password,{target:id,auto:true,slot,totp:c.totp});
+   const job=this.job=this.startJob(email,c.password,{target:id,auto:true,slot,totp:c.totp,noLease:true});
    job.nightly=true;
    await new Promise(res=>{const t=setInterval(()=>{
     if(job.status==='need'){job.verify=true;job.message='需要人工验证：'+(job.need?.prompt||job.need?.kind||'');this.cancel(job);}
     if(job.status==='done'||job.status==='failed'){clearInterval(t);res();}},3000);});
    // A paused worker that could not be leased is not an attempt: put it back for the next window.
-   if(job.status==='failed'&&/未就绪，暂不暂停|已有登录占用|实例正在执行其他操作|运行模式切换中/.test(job.message||'')){
+   if(job.status==='failed'&&LEASE_ERR.test(job.message||'')){
     delete this.state.triedDay[id];this.state.queue.push(id);this.result(id,'deferred',job.message);}
    else if(job.status==='done')this.result(id,'ok',job.message);
    else{

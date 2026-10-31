@@ -92,9 +92,12 @@ function startJob(email,password,opts={}){
  const job={id,name,email,tier:['pro','ultra','ultra20'].includes(opts.tier)?opts.tier:'standard',alias:String(opts.alias||'').replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,40),target:opts.target||null,auto:!!opts.auto,slot:opts.slot==='A'||opts.slot==='B'?opts.slot:null,status:'running',step:'starting',need:null,message:'',account:null,created:Date.now(),updated:Date.now()};
  jobs.set(id,job);
  (async()=>{
+ // Re-login of a failed account uses its own throwaway browser; it never pauses or drains a worker.
+ if(!opts.noLease){
  try{job.step='pausing_worker';await leaseAcquire('login:'+id.slice(0,8),job.slot);job.leased=true;}
  catch(e){job.status='failed';job.message=e.message;job.updated=Date.now();password=null;return;}
  if(job.status!=='running'){password=null;job.leased=false;await leaseRelease();return;}
+ }
  job.step='starting';job.updated=Date.now();
  const wn=job.slot?workerNet(job.slot):null;
  if(job.slot&&!wn){job.status='failed';job.message='读取实例 '+job.slot+' 出口配置失败';password=null;job.leased=false;await leaseRelease();return;}
@@ -260,7 +263,7 @@ async function autoRelogin(){
    if(!owner.includes('@')){cred.password=null;continue;}
    if(owner!==cred.email.toLowerCase()){cred.password=null;creds.remove(a.id);continue;}
    creds.mark(a.id,'running');
-   const job=startJob(cred.email,cred.password,{target:a.id,auto:true});cred.password=null;
+   const job=startJob(cred.email,cred.password,{target:a.id,auto:true,noLease:true});cred.password=null;
    const done=setInterval(()=>{
     if(job.status==='need'){job.verify=true;cancel(job);}
     if(job.status==='done'||job.status==='failed'){
