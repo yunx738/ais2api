@@ -77,7 +77,13 @@ async function main(){
   isStopping:()=>stopping,hasWaiting:()=>scheduler.queue.length>0});
  rotation.onRetired=(slot,marker)=>cleanup.record(slot,marker);
  const frontendGuard=new (require('./frontend-guard').FrontendGuard)({file:path.join(root,'frontend-verified.json')});
- dispatch.onWorkerStatus=(slot,status)=>frontendGuard.observe(slot,status);
+ dispatch.onWorkerStatus=(slot,status)=>{
+  frontendGuard.observe(slot,status);
+  // Account switched onto a slot without a Build project: create one automatically once the worker is ready.
+  const acct=dispatch.pool.slots.get(slot)?.current;
+  if(status?.ready===true&&status.account===acct&&Number.isSafeInteger(acct)&&!build.appFor(acct)&&cfg.buildAutoProvision!==false)
+   appletRotation.ensure(acct,slot).then(r=>{if(r!=='present'&&r!=='busy'&&r!=='backoff')console.log('[BuildProvision] #'+acct+' '+slot+' '+r);}).catch(e=>console.error('[BuildProvision]',e.message));
+ };
  rotation.frontendHold=slot=>frontendGuard.hold(slot);
  const {CoordinatorMonitor}=require('./coordinator-monitor');
  const monitor=new CoordinatorMonitor({dispatch,client,catalogs,recovery,rotation,routing,scheduler});

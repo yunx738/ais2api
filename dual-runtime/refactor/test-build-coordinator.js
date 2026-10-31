@@ -42,6 +42,15 @@ const body=o=>Buffer.from(JSON.stringify(o));
  // queued requests are still admitted while unavailable (allowUnavailable)
  assert.ok(ch.resolve('/v1/chat/completions',body({model:'build/gemini-4-argon',messages:[{role:'user',content:'x'}]}),{allowUnavailable:true}));
  assert.strictEqual(ch.models().length,16);
+ // per-account Build in-flight cap (default 1): a second call on the same account waits until the first finishes
+ {const d2=fs.mkdtempSync(path.join(os.tmpdir(),'bc2-'));fs.writeFileSync(path.join(d2,'a.json'),JSON.stringify({31:APP,22:APP}));
+  const c=new BuildChannel({appsFile:path.join(d2,'a.json'),ledgerFile:path.join(d2,'l.json'),tierOf:id=>tiers[id]||'standard',isPremium:()=>true});
+  const p=c.resolve('/v1/chat/completions',body({model:'build/gemini-3.8-flash',messages:[{role:'user',content:'x'}]}));
+  assert.strictEqual(c.maxInflight,1);
+  assert.strictEqual(p.admit(31,'c1'),true);assert.strictEqual(p.admit(31,'c2'),false);assert.strictEqual(p.admit(22,'c3'),true);
+  await c.wrapForward(async()=>({status:502}))({id:'c1',account:31},'/v1/chat/completions',body({model:'build/gemini-3.8-flash',messages:[]}),{},{});
+  assert.strictEqual(p.admit(31,'c2'),true);assert.strictEqual(c.stats.waitedInflight,1);
+  fs.rmSync(d2,{recursive:true,force:true});}
  console.log('build-coordinator: all tests passed');
 })().catch(e=>{console.error(e);process.exit(1);});
 // 403 for a model -> that account skips that model only

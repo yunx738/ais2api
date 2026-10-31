@@ -12,6 +12,11 @@ class BuildChannel{
   this.appsFile=appsFile;this.isPremium=isPremium;this.tierOf=tierOf;this.log=log;this.presets=presets;
   this.ledger=new BuildTokenLedger(ledgerFile,{tierOf,limits});
   this.reservations=new Map();
+  // Per-account in-flight Build generations. Google silently drops some generations (no model turn ever
+  // appears) when one account runs several Build generations at once; extra requests wait in the queue.
+  const cap=Number(process.env.BUILD_MAX_INFLIGHT_PER_ACCOUNT);
+  this.maxInflight=Number.isSafeInteger(cap)&&cap>=1&&cap<=10?cap:1;
+  this.inflight=new Map(); // account -> Map(id -> startedAt)
   this.denied=new Map(); // 'account|model' -> until: Google refused this model for this account (e.g. free tier vs pro models)
   this.stats={requests:0,charged:0,missingUsage:0,rejected:0};
  }
@@ -21,6 +26,13 @@ class BuildChannel{
   }catch{return {};}
  }
  appFor(id){return this.apps()[id]||null;}
+ busy(account){
+  const m=this.inflight.get(account);if(!m)return 0;
+  const stale=Date.now()-15*60000;for(const [k,t] of m)if(t<stale)m.delete(k); // safety: never wedge an account
+  return m.size;
+ }
+ hold(account,id){let m=this.inflight.get(account);if(!m)this.inflight.set(account,m=new Map());m.set(id,Date.now());}
+ free(id){for(const m of this.inflight.values())m.delete(id);}
  // Free (standard) accounts can only use flash models in Build.
  canUse(id,model){return !model||/flash/.test(model)||(this.tierOf?this.tierOf(id):'standard')!=='standard';}
  blocked(id,model){return !this.canUse(id,model)||this.denied.get(id+'|'+model)>Date.now();}
@@ -46,6 +58,8 @@ class BuildChannel{
    eligible:(slot,account)=>self.ready(account,spec.model),
    admit(account,id){
     if(!self.ready(account,spec.model))return false;
+    if(self.busy(account)>=self.maxInflight){self.stats.waitedInflight=(self.stats.waitedInflight||0)+1;return false;}
+    self.hold(account,id);
     self.reservations.set(id,{account,n:self.ledger.reserve(account,estimate)});
     return true;
    }
@@ -70,6 +84,7 @@ class BuildChannel{
     result=await forward(ticket,route,Buffer.from(JSON.stringify(parsed)),res,credentials,options);
     return result;
    }finally{
+    this.free(ticket.id);
     this.ledger.release(ticket.account,reserved);
     const u=result?.metrics?.usage;
     const total=u&&Number.isSafeInteger(u.total)?u.total:u&&Number.isSafeInteger(u.input)&&Number.isSafeInteger(u.output)?u.input+u.output:null;

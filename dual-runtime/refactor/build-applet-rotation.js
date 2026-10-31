@@ -23,14 +23,38 @@ class BuildAppletRotation{
  constructor({appsFile,stateFile,rpc,slotOf,now=Date.now,log=console,window=[3,6],minGapMs=20*3600000}){
   Object.assign(this,{appsFile,stateFile,rpc,slotOf,now,log,window,minGapMs});
   this.running=false;this.last=null;
+  this.ensuring=new Set();this.ensureAfter=new Map(); // account -> earliest next auto-provision attempt
+ }
+ // Auto-provision: an account that is live on a slot but has no Build project gets a fresh one.
+ // Called on worker status; never runs concurrently with rotation or for the same account twice.
+ async ensure(id,slot,{retryMs=120000}={}){
+  if(!Number.isSafeInteger(id)||id<1||!slot)return 'invalid';
+  const apps=this.readApps();if(apps===null&&fs.existsSync(this.appsFile))return 'apps_unreadable';
+  if(apps&&APP.test(String(apps[id]||'').toLowerCase()))return 'present';
+  if(this.running||this.ensuring.has(id))return 'busy';
+  if((this.ensureAfter.get(id)||0)>this.now())return 'backoff';
+  this.ensuring.add(id);
+  try{
+   let out;try{out=await this.rpc(slot,'CreateApplet',createRequest());}catch(e){out=null;this.ensureAfter.set(id,this.now()+retryMs);return 'create_failed:'+String(e.message||e).slice(0,60);}
+   const created=parseCreated(out);
+   if(!created){this.ensureAfter.set(id,this.now()+retryMs);return 'create_failed';}
+   const fresh=this.readApps()||{};
+   if(APP.test(String(fresh[id]||'').toLowerCase())){try{await this.rpc(slot,'DeleteApplet',[created]);}catch{}return 'present';}
+   fresh[id]=created;this.writeApps(fresh);
+   // Mark as just created so the nightly rotation does not immediately replace it.
+   const state=this.readState();state.accounts[id]={...(state.accounts[id]||{pendingDelete:[]}),lastAt:this.now(),app:created,provisionedAt:this.now()};this.writeState(state);
+   this.ensureAfter.delete(id);
+   this.log.log('[BuildProvision] #'+id+' on '+slot+' -> new Build project '+created.slice(0,8));
+   return 'created';
+  }finally{this.ensuring.delete(id);}
  }
  readApps(){try{return JSON.parse(fs.readFileSync(this.appsFile,'utf8'));}catch{return null;}}
- writeApps(d){const t=this.appsFile+'.tmp';fs.writeFileSync(t,JSON.stringify(d));fs.renameSync(t,this.appsFile);}
+ writeApps(d){const t=this.appsFile+'.tmp';fs.writeFileSync(t,JSON.stringify(d),{mode:0o600});fs.renameSync(t,this.appsFile);}
  readState(){try{const s=JSON.parse(fs.readFileSync(this.stateFile,'utf8'));return s&&s.accounts&&typeof s.accounts==='object'?s:{accounts:{}};}catch{return {accounts:{}};}}
  writeState(s){const t=this.stateFile+'.tmp';fs.writeFileSync(t,JSON.stringify(s,null,1));fs.renameSync(t,this.stateFile);}
  inWindow(){const h=bjHour(this.now());return h>=this.window[0]&&h<this.window[1];}
  async tick({force=false,only=null}={}){
-  if(this.running)return {skipped:'running'};
+  if(this.running||this.ensuring.size)return {skipped:'running'};
   if(!force&&!this.inWindow())return {skipped:'window'};
   const apps=this.readApps();if(!apps)return {skipped:'apps_unreadable'};
   this.running=true;

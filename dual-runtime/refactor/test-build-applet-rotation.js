@@ -47,3 +47,25 @@ test('busy worker (409) leaves the old applet queued and retries the delete late
 test('account not online is skipped',async()=>{
  const t=setup(ok,{slot:null});assert.strictEqual((await t.r.tick())[32],'offline');assert.strictEqual(t.calls.length,0);
 });
+test('auto-provision: account without a project gets one, existing is left alone',async()=>{
+ const t=setup(ok);
+ assert.strictEqual(await t.r.ensure(32,'B'),'present');assert.strictEqual(t.calls.length,0);
+ assert.strictEqual(await t.r.ensure(24,'A'),'created');
+ assert.deepStrictEqual(t.calls.map(c=>[c[0],c[1]]),[['A','CreateApplet']]);
+ assert.strictEqual(t.apps()[24],NEW);assert.strictEqual(t.apps()[32],OLD);
+ assert.ok(t.state().accounts[24].provisionedAt>0);
+ assert.strictEqual(await t.r.ensure(24,'A'),'present');assert.strictEqual(t.calls.length,1);
+});
+test('auto-provision: failed create backs off and never touches build-apps.json',async()=>{
+ const t=setup(m=>({status:403,text:'denied'}));
+ assert.strictEqual(await t.r.ensure(24,'A'),'create_failed');
+ assert.strictEqual(await t.r.ensure(24,'A'),'backoff');assert.strictEqual(t.calls.length,1);
+ assert.deepStrictEqual(t.apps(),{32:OLD});
+ const t2=setup(async()=>{throw Error('worker 409 busy');});
+ assert.match(await t2.r.ensure(24,'A'),/^create_failed:/);assert.deepStrictEqual(t2.apps(),{32:OLD});
+});
+test('auto-provision: concurrent calls create only one project',async()=>{
+ let n=0;const t=setup(async m=>{n++;await new Promise(r=>setTimeout(r,20));return ok(m);});
+ const [a,b]=await Promise.all([t.r.ensure(24,'A'),t.r.ensure(24,'A')]);
+ assert.deepStrictEqual([a,b].sort(),['busy','created']);assert.strictEqual(n,1);
+});

@@ -55,7 +55,9 @@ function install(system,{log=console}={}){
   }catch(e){res.removeListener('close',onClose);return send(res,502,'页面执行失败：'+String(e&&e.message||e).slice(0,160),'page_eval_failed');}
   res.removeListener('close',onClose);
   let r;try{r=JSON.parse(raw);}catch{return send(res,502,'页面返回无法解析','page_unparseable');}
-  log.info?.('[Build] '+spec.model+' t'+spec.thinking+' '+packed.mode+' bytes='+packed.bytes+' stage='+r.stage+' status='+r.s+' tries='+(r.tries||0)+' ms='+(Date.now()-t0));
+  // Diagnostics only: one line per signing attempt (length/prefix of the signature, never the signature itself).
+  try{for(const [i,x] of (Array.isArray(r.sd)?r.sd:[]).entries())log.info?.('[SigDiag] '+JSON.stringify({ch:'build',acct:process.env.WORKER_ACCOUNT||null,model:spec.model,attempt:i,...x}));}catch{}
+  log.info?.('[Build] '+spec.model+' t'+spec.thinking+' '+packed.mode+' bytes='+packed.bytes+' stage='+r.stage+' status='+r.s+' tries='+(r.tries||0)+' resent='+(r.resent||0)+' polls='+(r.polls||0)+' firstModel='+(r.firstModel||0)+' pollMs='+(r.pollMs||0)+' ms='+(Date.now()-t0));
   if(closed||r.s===499)return;
   if(r.stage!=='stream'||r.s!==200){
    // 401 would make the scheduler cool the whole account for a day; a Build-only failure must not do that.
@@ -64,7 +66,12 @@ function install(system,{log=console}={}){
    return send(res,status,'Build 上游错误 ('+r.stage+' '+r.s+')：'+String(r.t||'').slice(0,300),'build_upstream_'+r.s);
   }
   const out=parse(r.t);
-  if(!out.ok)return send(res,502,'Build 回复解析失败：'+out.error,'build_parse_failed');
+  if(!out.ok){
+   // Diagnostics: keep the last unparseable/no-model-turn upstream body (model output only; no signature/auth).
+   try{require('fs').writeFileSync('/tmp/build-last-parsefail.txt',String(r.t||''));}catch{}
+   log.warn?.('[Build] parse failed error='+out.error+' polls='+(r.polls||0)+' bytes='+String(r.t||'').length+' head='+JSON.stringify(String(r.t||'').slice(0,160)));
+   return send(res,502,'Build 回复解析失败：'+out.error,'build_parse_failed');
+  }
   if(!out.complete||!out.text.trim()){
    // Diagnostics: keep the last incomplete upstream body (model output only; no signature/auth) for inspection.
    try{require('fs').writeFileSync('/tmp/build-last-incomplete.txt',String(r.t||''));}catch{}
