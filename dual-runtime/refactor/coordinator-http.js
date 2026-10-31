@@ -155,6 +155,14 @@ function createServer({keys,models,scheduler,status,actions,auth}){
     }
    }
    if(req.method==='GET'&&url.pathname==='/internal/build-status')return json(res,200,actions.buildStatus());
+   if(url.pathname==='/internal/build/presets'&&actions.buildPresets){
+    if(req.method==='GET')return json(res,200,actions.buildPresets());
+    if(req.method==='POST'){
+     try{const body=await readBody(4*1024*1024);const fn={add:actions.buildPresetAdd,remove:actions.buildPresetRemove,enable:actions.buildPresetEnable}[body.action];
+      if(!fn)return json(res,400,{error:'未知操作'});return json(res,200,fn(body));}
+     catch(e){return json(res,[400,404,413].includes(e.statusCode)?e.statusCode:500,{error:e.statusCode===413?'预设文件超过 4MB':e.message});}
+    }
+   }
    if(req.method==='POST'&&url.pathname==='/internal/build/rotate-applets'&&actions.rotateBuildApplets){const body=await readBody();return json(res,200,await actions.rotateBuildApplets(body||{}));}
    if(req.method==='GET'&&url.pathname==='/internal/usage-counts')return json(res,200,actions.usageCounts());
    if(req.method==='POST'&&url.pathname==='/internal/accounts/name'){

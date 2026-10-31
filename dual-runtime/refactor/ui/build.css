@@ -13,3 +13,10 @@
 .build-table .empty{color:var(--muted);text-align:center;padding:22px 8px}
 @media(max-width:900px){.build-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.build-stats{gap:10px}.build-stats .stat{min-height:96px;padding:11px 12px}.build-stats .stat>strong{font-size:20px}}
+#build .section-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.build-upload{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.build-preset-msg{font-size:12px;margin:0 0 8px}
+.build-preset-msg:empty{display:none}
+.build-preset-msg.bad{color:var(--danger)}
+.build-table .prompts{display:block;color:var(--muted);font-size:11px;max-width:360px;overflow:hidden;text-overflow:ellipsis}
+.build-table button.small{padding:3px 9px;font-size:12px}

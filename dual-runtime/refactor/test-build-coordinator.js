@@ -43,3 +43,16 @@ const body=o=>Buffer.from(JSON.stringify(o));
  assert.strictEqual(ch.models().length,16);
  console.log('build-coordinator: all tests passed');
 })().catch(e=>{console.error(e);process.exit(1);});
+// 403 for a model -> that account skips that model only
+;(async()=>{
+ const fs2=require('fs'),os2=require('os'),p2=require('path'),{BuildChannel:BC}=require('./build-coordinator');
+ const d=fs2.mkdtempSync(p2.join(os2.tmpdir(),'bc-'));fs2.writeFileSync(p2.join(d,'a.json'),JSON.stringify({23:'d5df4c44-02ed-4b2f-b71a-34fbc28e8861',32:'d5df4c44-02ed-4b2f-b71a-34fbc28e8862'}));
+ const c=new BC({appsFile:p2.join(d,'a.json'),ledgerFile:p2.join(d,'t.json'),tierOf:()=>'standard',isPremium:()=>false,log:{warn(){},error(){}}});
+ const b=o=>Buffer.from(JSON.stringify(o)),m=[{role:'user',content:'x'}];
+ const pa=c.resolve('/v1/chat/completions',b({model:'build/gemini-4-argon',messages:m}));
+ await c.wrapForward(async()=>({status:403}))({id:'x',account:23},'/v1/chat/completions',b({model:'build/gemini-4-argon',messages:m}),{},{});
+ require('assert').strictEqual(pa.eligible('A',23),false);require('assert').strictEqual(pa.eligible('B',32),true);
+ const pf=c.resolve('/v1/chat/completions',b({model:'build/gemini-3.8-flash',messages:m}));require('assert').strictEqual(pf.eligible('A',23),true);
+ require('assert').deepStrictEqual(c.status().accounts.find(a=>a.account===23).deniedModels,['gemini-4-argon']);
+ fs2.rmSync(d,{recursive:true,force:true});console.log('build-coordinator: 403 per-model skip ok');
+})();

@@ -13,6 +13,8 @@ async function main(){
  allowed.add("POST /api/models/policy");
  allowed.add('GET /api/requests');
  allowed.add('GET /api/build-status');
+ allowed.add('GET /api/build/presets');
+ allowed.add('POST /api/build/presets');
  allowed.add('GET /api/usage');
  allowed.add('POST /api/login/start');
  for(const r of ['GET /api/client-script','GET /api/target-app','POST /api/target-app','GET /api/run-mode','POST /api/run-mode','GET /api/ws/config','POST /api/ws/config','POST /api/login-proxy','POST /api/ws/start','GET /api/ws/job','POST /api/ws/cancel'])allowed.add(r);
@@ -185,6 +187,8 @@ require('./console-routes').install(dashboard);
   const r=await call('POST','/internal/rotate',payload);
   if(!res.destroyed)res.status(r.status).json(r.body);
  });
+ dashboard.get('/api/build/presets',async(req,res)=>{const r=await call('GET','/internal/build/presets');res.status(r.status).json(r.body);});
+ dashboard.post('/api/build/presets',async(req,res)=>{const b=req.body||{};const r=await call('POST','/internal/build/presets',{action:b.action,id:b.id,enabled:b.enabled,name:b.name,preset:b.preset});res.status(r.status).json(r.body);});
  dashboard.get('/api/build-status',async(req,res)=>{const r=await call('GET','/internal/build-status');res.status(r.status).json(r.body);});
  dashboard.get('/api/usage-counts',async(req,res)=>{const r=await call('GET','/internal/usage-counts');res.status(r.status).json(r.body);});
  dashboard.get('/api/ultra-mode',async(req,res)=>{const r=await call('GET','/internal/ultra-mode');res.status(r.status).json(r.body);});

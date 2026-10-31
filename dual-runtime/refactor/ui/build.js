@@ -29,9 +29,11 @@
  function state(a,now){
   if(a.cooldownUntil>now)return badge('冷却至 '+clock(a.cooldownUntil),'warn');
   if(!a.allowed)return badge('额度已用完','bad');
+  if(a.deniedModels&&a.deniedModels.length){const b=badge('可用 · 不支持 '+a.deniedModels.join('、'),'warn');b.title='Google 拒绝了这些模型，6 小时内不会把它们分给这个账号';return b;}
   return badge('可用','good');
  }
  function render(d){
+  presets(d.presets||[]);
   const acc=d.accounts||[],now=Date.now();
   const sum=k=>acc.reduce((n,a)=>n+(a[k]||0),0);
   const input=sum('input'),cached=sum('cached'),ready=acc.filter(a=>a.allowed&&!(a.cooldownUntil>now)).length;
@@ -59,7 +61,37 @@
    cell(tr,x.input==null?'—':two(fmt(x.input),x.cached?'缓存 '+fmt(x.cached):''),'num');
    cell(tr,x.output==null?'—':fmt(x.output),'num');cell(tr,(x.ms/1000).toFixed(1)+'s','num');return tr;}));
  }
- const init=()=>{const b=$('build-refresh');if(b)b.addEventListener('click',load);load();};
+ // Uploaded SillyTavern presets: their prompt text goes into the Build composer, everything else into the attachment.
+ const post=async body=>{const r=await fetch('/api/build/presets',{method:'POST',credentials:'same-origin',redirect:'error',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(typeof d.error==='string'?d.error:'操作失败');return d;};
+ const pmsg=(text,bad)=>{const m=$('build-preset-message');if(m){m.textContent=text||'';m.classList.toggle('bad',!!bad);}};
+ function presets(list){
+  const body=$('build-presets');if(!body)return;
+  if(!list.length)return empty(body,6,'还没有上传预设');
+  body.replaceChildren(...list.map(p=>{const tr=el('tr');
+   const name=el('td');name.append(document.createTextNode(p.name),el('span','prompts',p.prompts.join('、')));name.title=p.prompts.join('\n');tr.append(name);
+   cell(tr,fmt(p.prompts.length),'num');cell(tr,fmt(p.requests),'num');cell(tr,time(p.lastHitAt));
+   const box=el('input');box.type='checkbox';box.checked=p.enabled;box.setAttribute('aria-label','启用 '+p.name);
+   box.addEventListener('change',async()=>{box.disabled=true;try{await post({action:'enable',id:p.id,enabled:box.checked});pmsg('');}catch(e){box.checked=!box.checked;pmsg(e.message,true);}finally{box.disabled=false;}});
+   cell(tr,box);
+   const del=el('button','small','删除');del.type='button';
+   del.addEventListener('click',async()=>{if(!confirm('删除预设“'+p.name+'”？'))return;del.disabled=true;try{await post({action:'remove',id:p.id});load();}catch(e){pmsg(e.message,true);del.disabled=false;}});
+   cell(tr,del);return tr;}));
+ }
+ async function upload(files){
+  const done=[];
+  for(const f of files){
+   try{
+    if(f.size>4*1024*1024)throw Error('文件超过 4MB');
+    let preset;try{preset=JSON.parse(await f.text());}catch{throw Error('不是有效的 JSON 文件');}
+    const r=await post({action:'add',name:f.name,preset});done.push(r.name+'（'+r.prompts+' 个条目）');
+   }catch(e){pmsg(f.name+'：'+e.message,true);load();return;}
+  }
+  pmsg('已上传 '+done.join('、'));load();
+ }
+ const init=()=>{const b=$('build-refresh');if(b)b.addEventListener('click',load);
+  const f=$('build-preset-file');if(f)f.addEventListener('change',()=>{const list=[...f.files];f.value='';if(list.length)upload(list);});
+  load();};
  addEventListener('hashchange',load);
  document.addEventListener('ais-refresh',load);
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
