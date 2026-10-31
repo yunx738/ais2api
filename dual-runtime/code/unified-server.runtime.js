@@ -59,6 +59,25 @@ const AT_PROMPTS = {
 function atPromptKey(key) {
   return typeof key === "string" && Object.prototype.hasOwnProperty.call(AT_PROMPTS, key) ? key : "classic";
 }
+// Continuation prompt. {tool} = tool name, {partial} = "Previous partial answer: ...\n\n" or "".
+const AT_CONT_DEFAULT = "Your previous {tool} call was incomplete or missing. {partial}Call {tool} again with the COMPLETE final answer (key \"answer\").";
+const AT_CUSTOM_LIMITS = { desc: 1000, hint: 6000, cont: 2000 };
+// Custom prompt sent by the coordinator (X-AT-Prompt-Custom: base64 JSON {desc,hint,cont}). Invalid -> null.
+function atDecodeCustom(raw) {
+  if (typeof raw !== "string" || !raw || raw.length > 12000) return null;
+  try {
+    const o = JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+    if (!o || typeof o !== "object") return null;
+    const out = {};
+    for (const k of ["desc", "hint", "cont"]) {
+      if (typeof o[k] !== "string" || o[k].length > AT_CUSTOM_LIMITS[k]) return null;
+      out[k] = o[k];
+    }
+    if (!out.hint.trim() || !out.desc.trim()) return null;
+    return out;
+  } catch { return null; }
+}
+function atFill(t) { return String(t).split("{tool}").join(AT_TOOL_NAME); }
 
 // Google rejects a conversation whose last turn is the model. Turn trailing
 // plain-text model turns into user turns; tool-call turns are left untouched.
@@ -82,8 +101,9 @@ function atIsEnabled(modelName) {
 function atRealModel(modelName) {
   return atIsEnabled(modelName) ? modelName.slice(AT_PREFIX.length) : modelName;
 }
-function atInjectTools(googleBody, promptKey) {
-  const preset = AT_PROMPTS[atPromptKey(promptKey)];
+function atInjectTools(googleBody, promptKey, custom) {
+  const preset = custom ? { desc: atFill(custom.desc), hint: "\n\n" + atFill(custom.hint) } : AT_PROMPTS[atPromptKey(promptKey)];
+  if (googleBody && custom && custom.cont && custom.cont.trim()) Object.defineProperty(googleBody, "__atCont", { value: custom.cont, enumerable: false });
   if (!googleBody || !Array.isArray(googleBody.contents)) return googleBody;
   const alreadyInjected = (googleBody.tools || []).some((t) =>
     (t.functionDeclarations || []).some((d) => AT_TOOL_NAMES.includes(d.name)),
@@ -137,10 +157,9 @@ function atBuildContinuationBody(googleBody, googleResponse, prevAnswer) {
     if (modelParts.length) newContents.push({ role: "model", parts: modelParts });
     const calls = modelParts.filter(p=>p.functionCall); if (calls.length) newContents.push({role:/user/.source,parts:calls.map(p=>({functionResponse:{name:p.functionCall.name,...(p.functionCall.id?{id:p.functionCall.id}:{}),response:{status:/incomplete/.source}}}))});
   }
-  const contText =
-    "Your previous " + AT_TOOL_NAME + " call was incomplete or missing. " +
-    (prevAnswer ? "Previous partial answer: " + prevAnswer + "\n\n" : "") +
-    "Call " + AT_TOOL_NAME + " again with the COMPLETE final answer (key \"answer\").";
+  const contTpl = typeof googleBody.__atCont === "string" ? googleBody.__atCont : AT_CONT_DEFAULT;
+  const partial = prevAnswer ? "Previous partial answer: " + prevAnswer + "\n\n" : "";
+  const contText = atFill(contTpl).split("{partial}").join(partial);
   newContents.push({ role: "user", parts: [{ text: contText }] });
   const body = Object.assign({}, googleBody, { contents: newContents });
   if (body.generationConfig) {
@@ -229,7 +248,7 @@ function atCleanPlainAnswer(plain) {
   }
   return { answer: plain, info };
 }
-  return { AT_PROMPTS, AT_TOOL_NAMES, atPromptKey, atCleanPlainAnswer, atDecodeJsonString, AT_PREFIX, AT_TOOL_NAME, AT_MAX_ATTEMPTS, AT_CONTINUE_DEADLINE_MS, AT_MAX_RETRIES, AT_STOP_TEXT_MIN_CHARS, AT_EMPTY_RETRY_DELAY_MS, fixTrailingModelTurn, atIsEnabled, atRealModel, atInjectTools, atExtractAnswer, atBuildContinuationBody, atBlockInfo, atBlockMessage, atBlockPayload, atFinishPayload };
+  return { AT_PROMPTS, AT_TOOL_NAMES, AT_CONT_DEFAULT, AT_CUSTOM_LIMITS, atDecodeCustom, atFill, atPromptKey, atCleanPlainAnswer, atDecodeJsonString, AT_PREFIX, AT_TOOL_NAME, AT_MAX_ATTEMPTS, AT_CONTINUE_DEADLINE_MS, AT_MAX_RETRIES, AT_STOP_TEXT_MIN_CHARS, AT_EMPTY_RETRY_DELAY_MS, fixTrailingModelTurn, atIsEnabled, atRealModel, atInjectTools, atExtractAnswer, atBuildContinuationBody, atBlockInfo, atBlockMessage, atBlockPayload, atFinishPayload };
 })();
 
 // ===================================================================================
@@ -523,17 +542,6 @@ return window.__tb?'ok':'wait';})()`;
         global.__gcbPage = pg; let gcbKey = null; const gcbHx = {}; const gcbWaa = 'AIzaSyBGb5fGAyC-pRcRU6MUHb__b_vKha71HRE'; const GCB_MS_KEY = 'AIzaSyDdP816MREB3SkjZO04QXbjsigfcI0GWOs'; const GCB_HARD_MS = Number(process.env.GCB_HARD_MS) || 660000; const gcbOps = new Map(); const gcbCancelled = new Set(); let gcbSeq = 0;
         this.gcbCancel = rid => { gcbCancelled.add(rid); setTimeout(() => gcbCancelled.delete(rid), 120000).unref?.(); const op = gcbOps.get(rid); if (!op) return false; gcbOps.delete(rid); log.info('[GCBridge] client cancelled ' + rid + '; aborting upstream call ' + op); pg.evaluate(o => window.wrappedJSObject.__gcAbort(o), op).catch(() => {}); return true; }; // Google itself cuts at ~600s
         this.context.on('request', r => { try { if (!/alkalimakersuite-pa\.clients6\.google\.com\/\$rpc\/.*MakerSuiteService\//.test(r.url())) return; const k = r.headers()['x-goog-api-key']; if (k && k !== gcbWaa && /^AIza/.test(k) && k !== gcbKey) { log.info('[GCBridge] page key ' + (gcbKey ? gcbKey.slice(0, 8) : 'none') + ' -> ' + k.slice(0, 8) + ' via ' + r.url().split('/').pop().slice(0, 40)); gcbKey = k; } const h = r.headers(); if (h['x-aistudio-g1-tier']) gcbHx.tier = h['x-aistudio-g1-tier']; if (h['x-goog-ext-519733851-bin']) gcbHx.ext = h['x-goog-ext-519733851-bin']; if (h['x-aistudio-visit-id']) gcbHx.visit = h['x-aistudio-visit-id']; } catch {} });
-        // Diagnostics (no content logged): header set and body shape of every GenerateContent the page sends,
-        // page-originated (bootstrap) or ours (__gcCall), plus the response status. Used to find why some are rejected with 403.
-        { const GCD = /MakerSuiteService\/GenerateContent$/; const gcdSeen = new WeakMap(); let gcdN = 0;
-          const gcdShape = v => v == null ? '-' : typeof v === 'string' ? 's' + v.length : Array.isArray(v) ? 'a' + v.length : typeof v;
-          const gcdOpen = new Set(['content-type', 'x-user-agent', 'x-goog-authuser', 'x-aistudio-g1-tier', 'origin', 'referer', 'sec-fetch-site', 'sec-fetch-mode', 'sec-fetch-dest']);
-          this.context.on('request', r => { try { if (!GCD.test(r.url())) return; const n = ++gcdN; gcdSeen.set(r, { n, t: Date.now() }); const h = r.headers();
-            const hs = Object.keys(h).sort().map(k => k + (gcdOpen.has(k) ? '=' + String(h[k]).slice(0, 60) : ':' + String(h[k]).length + (k === 'x-goog-ext-519733851-bin' ? (h[k] === gcbHx.ext ? 'same' : 'diff') : k === 'x-aistudio-visit-id' ? (h[k] === gcbHx.visit ? 'same' : 'diff') : k === 'x-goog-api-key' ? String(h[k]).slice(0, 8) : ''))).join(' ');
-            let b = '-'; try { const a = JSON.parse(r.postData() || 'null'); if (Array.isArray(a)) b = 'len' + a.length + ' ' + a.map((v, i) => v == null ? null : i + ':' + gcdShape(v)).filter(Boolean).join(',') + (typeof a[4] === 'string' ? ' snap=' + a[4].slice(0, 6) : '') + (Array.isArray(a[3]) ? ' cfg=' + JSON.stringify(a[3]).slice(0, 160) : '') + (a[13] != null ? ' t13=' + JSON.stringify(a[13]).slice(0, 80) : '') + (a[10] != null ? ' t10=' + JSON.stringify(a[10]) : '') + (a[11] != null ? ' t11=' + JSON.stringify(a[11]).slice(0, 80) : '') + (a[12] != null ? ' t12=' + JSON.stringify(a[12]).slice(0, 80) : '') + (a[7] != null ? ' t7=' + JSON.stringify(a[7]).slice(0, 80) : '') + (a[8] != null ? ' t8=' + JSON.stringify(a[8]).slice(0, 80) : '') + (a[9] != null ? ' t9=' + JSON.stringify(a[9]).slice(0, 80) : ''); } catch (e) { b = 'parse-failed'; }
-            log.info('[GCDiag] req#' + n + ' ' + (this._gcbBooting ? 'PAGE' : 'OURS') + ' hdr{' + hs + '} body{' + b + '}'); } catch (e) {} });
-          this.context.on('response', resp => { try { const r = resp.request(); const m = gcdSeen.get(r); if (!m) return; log.info('[GCDiag] res#' + m.n + ' status=' + resp.status() + ' ms=' + (Date.now() - m.t)); } catch (e) {} });
-          this.context.on('requestfailed', r => { try { const m = gcdSeen.get(r); if (!m) return; log.info('[GCDiag] res#' + m.n + ' failed=' + String((r.failure() || {}).errorText || '-').slice(0, 60) + ' ms=' + (Date.now() - m.t)); } catch (e) {} }); }
         const gcbInstall = () => pg.evaluate(c => window.wrappedJSObject.eval(c), GCB_INSTALL).catch(e => 'err:' + String(e && e.message || e).slice(0, 120)).then(r => { const v = typeof r === 'string' ? r : JSON.stringify(r); try { gcbAssess(v); } catch (e) {} pg.evaluate(() => { try { const w = window.wrappedJSObject; return 'hash=' + (w.__gcHn || '-') + ' tb=' + (w.__tb ? 'yes' : 'no') + ' v=' + (w.__gcCall ? w.__gcCall.v : '-') + ' cn=' + (w.__cnSeen || '-') + ' gm=' + w.__gmCnt + ' via=' + (w.__tbVia || '-') + ' seen=' + (w.__gmSeen || '-') + ' snap=' + (w.__gcSn || '-') + ' vis=' + (w.__gcVisN || 0) + ' mk=' + (w.__gcMk || '-') + '/' + (w.__gcMkN || 0) + ' nb=' + (w.__gcMkNb || '-') } catch (e) { return 'probe err ' + e.message; } }).then(x => { const k = v + ' ' + x; if (k !== gcbLast) { gcbLast = k; log.warn('[GCBridge] install result=' + String(v).slice(0, 80) + ' ' + String(x).slice(0, 900)); } }).catch(() => {}); return r; }); let gcbLast = null;
         // ---- Signer self-check: readiness must include "can this page actually sign a request" ----
         const GCB_SIGN_MSG = { frontend_object_missing: '找不到 AI Studio 前端对象', hash_fn_missing: '没找到哈希函数', signer_missing: '没找到签名函数', token_service_missing: '没拿到签名服务（已尝试自唤醒）', sign_probe_failed: '本地试签失败', frontend_incompatible: '连续签名报错，前端可能不兼容', install_error: '签名模块安装出错' };
@@ -660,6 +668,7 @@ return window.__tb?'ok':'wait';})()`;
           const si = g.systemInstruction || g.system_instruction;
           const sys = si && (si.parts || []).length ? [(si.parts || []).map(toPart).filter(Boolean), 'user'] : null;
           const body = ['models/' + model, contents, safety, cfg, null, sys, encTools(g.tools), null, null, null, 1, null, null, [[null, null, 'UTC']]];
+          { const tcf = g.toolConfig || g.tool_config; const fcc = tcf && (tcf.functionCallingConfig || tcf.function_calling_config); let tcSlot = null; try { tcSlot = parseInt(require('fs').readFileSync('/tmp/gcb-tc-slot', 'utf8').trim(), 10); } catch (e) {} let tcOps = null; try { const tf = require('fs').readFileSync('/tmp/gcb-tc-slot', 'utf8').trim(); if (tf.startsWith('{')) tcOps = JSON.parse(tf).ops; } catch (e) {} if (fcc && Array.isArray(tcOps)) { for (const op of tcOps) { const segs = String(op.p).split('.'); let o = body; if (segs[0] === 'cfg') { o = body[3]; segs.shift(); } else if (segs[0] === 'tool') { o = body[6] && body[6][0]; segs.shift(); } else if (segs[0] === 'b') segs.shift(); if (!Array.isArray(o)) continue; for (let i = 0; i < segs.length - 1; i++) { const k = +segs[i]; while (o.length <= k) o.push(null); if (!Array.isArray(o[k])) o[k] = []; o = o[k]; } const k = +segs[segs.length - 1]; while (o.length <= k) o.push(null); o[k] = op.v; } log.info('[GCTool] ops ' + JSON.stringify(tcOps)); } else if (fcc && Number.isInteger(tcSlot) && tcSlot >= 4 && tcSlot <= 20) { const MODE = { MODE_UNSPECIFIED: 0, AUTO: 1, ANY: 2, NONE: 3, VALIDATED: 4 }; const md = MODE[String(fcc.mode || 'AUTO').toUpperCase()] || 1; const an = Array.isArray(fcc.allowedFunctionNames || fcc.allowed_function_names) ? (fcc.allowedFunctionNames || fcc.allowed_function_names) : null; while (body.length <= tcSlot) body.push(null); body[tcSlot] = [[md, an]]; log.info('[GCTool] toolConfig slot=' + tcSlot + ' mode=' + md + ' allowed=' + JSON.stringify(an)); } else if (fcc) log.info('[GCTool] toolConfig present, slot not set (dropped)'); }
           const ht = contents.flatMap(c => c[0]).map(p => p[1] != null ? p[1] : (p[2] ? p[2][1] : '')).join(' ');
           return { body, ht };
         };
@@ -718,7 +727,7 @@ return window.__tb?'ok':'wait';})()`;
             const code = 'window.__gcCall(' + JSON.stringify(body) + ',' + JSON.stringify(ht) + ',' + JSON.stringify(gcbKey) + ',' + JSON.stringify(Object.assign({}, gcbHx, { hardMs: GCB_HARD_MS, op: gcbOp })) + ')';
             let gcbBk; const raw = await Promise.race([pg.evaluate(c => window.wrappedJSObject.eval(c), code), new Promise(rs => { gcbBk = setTimeout(() => rs(JSON.stringify({ s: 504, t: JSON.stringify({ error: { code: 504, status: 'UPSTREAM_NO_RESPONSE', message: '浏览器页面超过 ' + Math.round((GCB_HARD_MS + 30000) / 60000) + ' 分钟没有返回，已主动中止，请重试。' } }) })), GCB_HARD_MS + 30000); })]).finally(() => clearTimeout(gcbBk)); // backstop only: Google cuts at ~600s
             let r = JSON.parse(raw); // new_chat signatures are occasionally rejected with 403 'caller does not have permission' (~1 in 3, no quota used): re-sign and resend
-            for (let gcbTry = 1; gcbTry <= 2 && r.s === 403 && /caller does not have permission/i.test(String(r.t)) && !(gcbRid && gcbCancelled.has(gcbRid)); gcbTry++) { log.warn('[GCBridge] ' + mm[1] + ' signature rejected (403), re-signing and retrying ' + gcbTry + '/2'); await new Promise(x => setTimeout(x, 1500 * gcbTry)); await gcbInstall(); r = JSON.parse(await pg.evaluate(c => window.wrappedJSObject.eval(c), code)); if (r.s === 200) log.info('[GCBridge] ' + mm[1] + ' retry ' + gcbTry + ' accepted'); }
+            for (let gcbTry = 1; gcbTry <= 3 && r.s === 403 && /caller does not have permission/i.test(String(r.t)) && !(gcbRid && gcbCancelled.has(gcbRid)); gcbTry++) { log.warn('[GCBridge] ' + mm[1] + ' signature rejected (403), re-signing and retrying ' + gcbTry + '/3'); await new Promise(x => setTimeout(x, 1500 * gcbTry)); await gcbInstall(); r = JSON.parse(await pg.evaluate(c => window.wrappedJSObject.eval(c), code)); if (r.s === 200) log.info('[GCBridge] ' + mm[1] + ' retry ' + gcbTry + ' accepted'); }
             if (gcbRid) gcbOps.delete(gcbRid);
             if (r.s === 499) { log.info('[GCBridge] ' + mm[1] + ' upstream call ' + gcbOp + ' cancelled after ' + (Date.now() - gcbT0) + 'ms'); return route.abort().catch(() => {}); }
             if (r.s !== 200) { log.warn('[GCBridge] ' + mm[1] + ' status ' + r.s + ' tier=' + (r.tier || '-') + ' key=' + (gcbKey ? gcbKey.slice(0, 8) : 'none') + ' hx=' + Object.keys(gcbHx).join('/') + ' ms=' + (Date.now() - gcbT0) + ' ' + String(r.t).slice(0, 300)); gcbOutcome(false, r.t); pg.evaluate(() => { const w = window.wrappedJSObject; return 'via=' + w.__tbVia + ' seen=' + w.__gmSeen + ' cn=' + String(w.__cnSeen || '').slice(0, 60); }).then(d => log.warn('[GCBridge] fail diag ' + d)).catch(() => {}); return route.fulfill({ status: r.s, headers: GCB_CORS, contentType: 'application/json; charset=UTF-8', body: gcbErrBody(r.s, r.t) }); }
@@ -728,6 +737,7 @@ return window.__tb?'ok':'wait';})()`;
             if (streamed) { out = chunks.map(c => 'data: ' + JSON.stringify(c) + '\r\n\r\n').join(''); }
             else out = JSON.stringify(merge(chunks));
             { const lf = (chunks[chunks.length - 1] && chunks[chunks.length - 1].candidates[0] && chunks[chunks.length - 1].candidates[0].finishReason) || '-'; if (lf !== 'STOP') { try { const sh = v => v == null ? null : typeof v === 'string' ? 's' + v.length : Array.isArray(v) ? 'a' + JSON.stringify(v).length : typeof v; const raw = arr.filter(isChunk).map(m => (m[0] || []).map(c => [(Array.isArray(c && c[0] && c[0][0]) ? c[0][0] : []).map(p2 => Array.isArray(p2) ? p2.map((v, i) => v == null ? null : i + ':' + sh(v)).filter(Boolean).join('|') : sh(p2)).join(' ; '), 'cand=' + (Array.isArray(c) ? c.map((v, i) => v == null ? null : i + ':' + sh(v)).filter(Boolean).join('|') : sh(c))].join(' / ')).join(' || ')); log.warn('[GCBridge] shape ' + mm[1] + ' finish=' + lf + ' top=' + arr0.length + ' chunks=' + raw.length + ' :: ' + raw.slice(-3).join(' ## ').slice(0, 1500)); } catch (e) { log.warn('[GCBridge] shape failed ' + e.message); } } }
+            { const lc = chunks[chunks.length - 1]; if (chunks.length && !(lc.candidates[0] && lc.candidates[0].finishReason)) { let sealLen = -1; for (const c of chunks) for (const p of ((c.candidates[0] && c.candidates[0].content && c.candidates[0].content.parts) || [])) { const f = p.functionCall; if (f && ['seal_final_reply','final_answer','emit_answer'].includes(f.name) && f.args && typeof f.args.answer === 'string' && f.args.answer.trim().length) sealLen = f.args.answer.length; } if (sealLen >= 0) { lc.candidates[0].finishReason = 'STOP'; log.warn('[GCBridge] ' + mm[1] + ' upstream cut after a complete seal call (answer=' + sealLen + 'ch); returning the tool content, text after it dropped'); out = streamed ? chunks.map(c => 'data: ' + JSON.stringify(c) + '\r\n\r\n').join('') : JSON.stringify(merge(chunks)); } } }
             { const lc = chunks[chunks.length - 1]; if (chunks.length && !(lc.candidates[0] && lc.candidates[0].finishReason)) { let chars = 0; for (const c of chunks) for (const p of ((c.candidates[0] && c.candidates[0].content && c.candidates[0].content.parts) || [])) { if (typeof p.text === 'string' && !p.thought) chars += p.text.length; const fa = p.functionCall && p.functionCall.args; if (fa && typeof fa.answer === 'string') chars += fa.answer.length; } const sec = Math.round((Date.now() - gcbT0) / 1000); log.warn('[GCBridge] ' + mm[1] + ' upstream cut: no finishReason after ' + sec + 's chunks=' + chunks.length + ' bytes=' + String(r.t || '').length + ' chars=' + chars); return route.fulfill({ status: 504, headers: GCB_CORS, contentType: 'application/json; charset=UTF-8', body: JSON.stringify({ error: { code: 504, status: 'UPSTREAM_CUT', message: 'Google 在约 ' + Math.max(1, Math.round(sec / 60)) + ' 分钟时断开连接，回答未写完（已生成约 ' + chars + ' 字被丢弃）。请重试，或让回答短一些。' } }) }); } }
             gcbOutcome(true); log.info('[GCBridge] ' + mm[1] + (streamed ? ' stream' : ' unary') + ' ok chunks=' + chunks.length + ' tier=' + (r.tier || '-') + ' ms=' + (Date.now() - gcbT0) + ' bytes=' + String(r.t || '').length + ' finish=' + ((chunks[chunks.length - 1] && chunks[chunks.length - 1].candidates[0] && chunks[chunks.length - 1].candidates[0].finishReason) || '-'));
             return route.fulfill({ status: 200, headers: GCB_CORS, contentType: streamed ? 'text/event-stream; charset=UTF-8' : 'application/json; charset=UTF-8', body: out });
@@ -984,7 +994,7 @@ return window.__tb?'ok':'wait';})()`;
   // Make the page warm up its own anti-abuse token service: type a tiny prompt and send it,
   // but abort that GenerateContent before it leaves the browser (no quota used).
   async _gcbBootstrap() {
-    const pg = this.page, log = this.logger; const t0 = Date.now(); this._gcbBooting = true; try {
+    const pg = this.page, log = this.logger; const t0 = Date.now();
     let caught = false;
     const pat = /MakerSuiteService\/GenerateContent/;
     const handler = async route => { if (!caught) { caught = true; } return route.abort().catch(() => {}); };
@@ -1016,7 +1026,6 @@ return window.__tb?'ok':'wait';})()`;
     await pg.evaluate(() => { const e = document.querySelector('textarea, [contenteditable="true"]'); if (e) { if ('value' in e) e.value = ''; else e.textContent = ''; e.dispatchEvent(new Event('input', { bubbles: true })); } }).catch(() => {});
     log.info('[GCBridge] bootstrap ' + (caught ? 'ok (page request intercepted, not sent)' : 'no page request seen') + ' ms=' + (Date.now() - t0));
     return caught;
-    } finally { this._gcbBooting = false; }
   }
   // Inject the relay client (black-browser.js) into the page; it connects back over ws://127.0.0.1:<wsPort>.
   async _injectRelay() {
@@ -1792,8 +1801,9 @@ class RequestHandler {
     if (atEnabled) {
       const atReal = AT.atRealModel(model);
       proxyRequestModel = atReal;
-      const atPrompt = AT.atPromptKey(req.headers && req.headers['x-at-prompt']);
-      AT.atInjectTools(googleBody, atPrompt);
+      const atCustom = req.headers && req.headers['x-at-prompt'] === 'custom' ? AT.atDecodeCustom(req.headers['x-at-prompt-custom']) : null;
+      const atPrompt = atCustom ? 'custom' : AT.atPromptKey(req.headers && req.headers['x-at-prompt']);
+      AT.atInjectTools(googleBody, atPrompt, atCustom);
       this.logger.info("[AT] anti-truncation enabled for " + atReal + ", tools injected, prompt=" + atPrompt);
     }
     } catch (error) {
@@ -2498,7 +2508,9 @@ class RequestHandler {
       attempt++;
       const r = AT.atExtractAnswer(current);
       atRoundLog(attempt, current, r);
-      if (r.found ? /^STOP$/.test(r.finishReason || String()) : false) {
+      // A complete seal_final_reply call IS the answer. Text after it may be cut / finish may be OTHER or MAX_TOKENS: return the call's content.
+      if (r.found && (r.finishReason === 'STOP' || (r.answer.trim().length > 0 && !(r.finishReason && /^(SAFETY|PROHIBITED_CONTENT|BLOCKLIST|SPII|RECITATION|IMAGE_SAFETY|OTHER_SAFETY|MALFORMED_FUNCTION_CALL)$/.test(r.finishReason))))) {
+        if (r.finishReason !== 'STOP') this.logger.warn('[AT] seal call complete but finish=' + (r.finishReason || '-') + ' (text after it cut); returning the tool content len=' + r.answer.length);
         if (atUsage.complete && Number.isSafeInteger(atUsage.sum.promptTokenCount)) r.usageMetadata = atUsage.sum;
         else this.logger.warn("[AT] usage missing in at least one round; tokens for this request will be unknown");
         this.logger.info("[AT] emit_answer found on attempt " + attempt + ", len=" + r.answer.length);
@@ -2823,6 +2835,10 @@ class RequestHandler {
     if (Array.isArray(openaiBody.functions)) for (const f of openaiBody.functions) if (f && f.name) oaiTools.push({ name: f.name, description: f.description || "", ...(f.parameters ? { parameters: f.parameters } : {}) });
     if (oaiTools.length) {
       googleRequest.tools = [{ functionDeclarations: oaiTools }];
+      const tch = openaiBody.tool_choice;
+      if (tch === "required") googleRequest.toolConfig = { functionCallingConfig: { mode: "ANY" } };
+      else if (tch === "none") googleRequest.toolConfig = { functionCallingConfig: { mode: "NONE" } };
+      else if (tch && typeof tch === "object" && tch.function && tch.function.name) googleRequest.toolConfig = { functionCallingConfig: { mode: "ANY", allowedFunctionNames: [tch.function.name] } };
       this.logger.info(`[Adapter] 已转换 ${oaiTools.length} 个工具定义。`);
     }
     // 5. 安全设置
