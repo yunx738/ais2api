@@ -187,7 +187,31 @@ class RotationController {
     const login=await this.driver.loginFailure?.(slot,marker.account);unchanged();
     if(login||this.dispatch.accountFlags[marker.account]?.reason==='login_required'){
      const failed=await this.driver.describe(slot);unchanged();
-     return this.skipInvalid(slot,ticket,marker,failed);
+     if(!this.relogin)return this.skipInvalid(slot,ticket,marker,failed);
+     // Target account is logged out: log that same account in again and start it. Never skip to another.
+     const rl=marker.relogin||(marker.relogin={attempts:0});rl.attempts++;rl.at=Date.now();this.dispatch.checkpoint();
+     console.warn('[Rotation]',slot,'target',marker.account,'logged out; re-login in place, attempt',rl.attempts);
+     const r=await this.relogin(marker.account,slot);unchanged();
+     if(!r.ok){
+      rl.error=String(r.message||'登录失败').slice(0,160);this.dispatch.checkpoint();
+      const wait=Math.min(10,2*rl.attempts)*60000;
+      this.failures.set(slot,{account:ticket.id,token:ticket.token,retryable:true,reason:'重新登录失败：'+rl.error,retryAt:Date.now()+wait});
+      console.error('[Rotation]',slot,'target',marker.account,'re-login failed:',rl.error,'; retry in',wait/60000,'min');
+      return false;
+     }
+     await this.driver.refreshAuth(slot,marker.account,failed.Id);unchanged();
+     delete this.dispatch.accountFlags[marker.account];this.dispatch.pool.cooldowns.delete(marker.account);
+     delete marker.relogin;marker.restartAttempts=[];this.dispatch.checkpoint();
+     await this.driver.restartStopped(slot,marker.account,failed.Id);unchanged();
+     const st=await this.driver.waitReady(slot,ticket.id);unchanged();
+     if(!this.ready(st,ticket.id))throw Error('Target readiness unconfirmed');
+     const g=this.dispatch.rotationThrottle;
+     if(g?.slot===slot && g.token===ticket.token){delete g.slot;delete g.token;}
+     this.dispatch.commitRotation(ticket,true);
+     this.failures.delete(slot);this.dispatch.update(slot,st);this.dispatch.checkpoint();
+     try{this.onRetired?.(slot,marker);}catch{}
+     console.log('[Rotation]',slot,'target',marker.account,'re-logged in and serving');
+     return true;
     }
     const now=Date.now(),attempts=(marker.restartAttempts||[]).filter(t=>now-t<3600000);
     if(!this.forced.has(slot)&&(attempts.length>=3||attempts.some(t=>now-t<300000)))return false;

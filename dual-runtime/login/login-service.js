@@ -194,6 +194,22 @@ http.createServer(async(req,res)=>{
   const url=new URL(req.url,'http://x');
   if(req.method==='GET'&&url.pathname==='/login/nightly')return send(res,200,nightly.status());
   if(req.method==='POST'&&url.pathname==='/login/nightly/retry'){const b=await body(req);try{return send(res,200,nightly.retry(b.id));}catch(e){return send(res,409,{error:e.message});}}
+  // Immediate re-login of one account by id, also while a worker owns it (the coordinator calls this
+  // when an account turns out to be logged out). Runs its own browser; never pauses a worker.
+  if(req.method==='POST'&&url.pathname==='/login/relogin'){
+   const b=await body(req);const id=Number(b.id),slot=b.slot==='A'||b.slot==='B'?b.slot:null;
+   if(!Number.isSafeInteger(id)||id<1)return send(res,400,{error:'账号编号无效'});
+   const cur=[...jobs.values()].find(j=>j.target===id&&(j.status==='running'||j.status==='need'));
+   if(cur)return send(res,202,view(cur));
+   if(busy())return send(res,409,{error:'已有登录在进行，请稍候'});
+   let email='';try{email=String(JSON.parse(fs.readFileSync(path.join(AUTH,'auth-'+id+'.json'),'utf8')).accountName||'').toLowerCase();}catch{}
+   if(!email.includes('@'))return send(res,409,{error:'该账号没有登录邮箱，无法自动登录'});
+   const reg=registeredEmails()[email];let pw=reg?.password||null;const totp=reg?.totp||undefined;
+   if(!pw){try{const c=creds.get(id);if(c&&String(c.email).toLowerCase()===email)pw=c.password;}catch{}}
+   if(!pw)return send(res,409,{error:'没有该账号的登录密码，无法自动登录'});
+   console.log('[Relogin] #'+id+' immediate re-login requested'+(slot?' on worker '+slot+' network':''));
+   return send(res,202,view(startJob(email,pw,{target:id,auto:true,slot,totp,noLease:true})));
+  }
   if(req.method==='POST'&&url.pathname==='/login/start'){
    const b=await body(req);const email=String(b.email||'').trim().toLowerCase(),password=String(b.password||'');
    if(!EMAIL.test(email)||!password||password.length>256)return send(res,400,{error:'邮箱或密码格式不正确'});

@@ -124,6 +124,20 @@ class WorkerDriver extends DockerLifecycle {
    throw Error('Worker restart identity or closure unconfirmed');
   await this.run('docker',['start',id],{timeout:30000,maxBuffer:16384});
  }
+ // After an in-place re-login: copy the fresh login file into the stopped worker's own auth directory.
+ async refreshAuth(slot,account,id){
+  const d=await this.describeId(slot,id,account);
+  if(d.State?.Running!==false||d.State?.Pid!==0)throw Error('Worker not stopped');
+  this.validateAccount(account);
+  const base=path.join(this.root,'slots',slot),auth=path.join(base,'auth');
+  this.validatePrepared(auth,account);
+  const content=fs.readFileSync(path.join(this.authSource,'auth-'+account+'.json'));
+  const tmp=path.join(base,'.auth-refresh-'+crypto.randomBytes(6).toString('hex'));
+  const fd=fs.openSync(tmp,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_NOFOLLOW,384);
+  try{fs.writeFileSync(fd,content);fs.fchownSync(fd,1000,1000);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+  fs.renameSync(tmp,path.join(auth,'auth-'+account+'.json'));this.syncDirectory(auth);
+  this.validatePrepared(auth,account);
+ }
  async loginFailure(slot,account){
   const d=await this.describe(slot);
   if(d.Config?.Labels?.['operit.account']!==String(account)||

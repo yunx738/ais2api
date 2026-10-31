@@ -20,6 +20,33 @@ class QuarantineRecovery {
  }
  attempts(state){return (state.recoveryAttempts||[]).filter(t=>Date.now()-t<3600000);}
  mayRestart(state){const attempts=this.attempts(state);return attempts.length<3&&!attempts.some(t=>Date.now()-t<300000);}
+ // The current account was logged out: log the same account in again, then restart the same worker on it.
+ // Never switches to another account. A failed login is retried with backoff.
+ async reloginInPlace(slot,state,owner,account,current,marker){
+  const rl=marker.relogin||(marker.relogin={attempts:0});
+  rl.attempts++;rl.at=Date.now();this.dispatch.checkpoint();
+  console.warn('[Recovery]',slot,'account',account,'logged out; re-login in place, attempt',rl.attempts);
+  const r=await this.relogin(account,slot);
+  if(!this.idle(slot,state,owner,account)||state.recovery!==marker)return;
+  if(!r.ok){
+   rl.error=String(r.message||'登录失败').slice(0,160);this.dispatch.checkpoint();
+   const wait=Math.min(10,2*rl.attempts)*60000;
+   this.rotation.failures.set(slot,{reason:'重新登录失败：'+rl.error,retryable:true,retryAt:Date.now()+wait});
+   console.error('[Recovery]',slot,'account',account,'re-login failed:',rl.error,'; retry in',wait/60000,'min');
+   return;
+  }
+  await this.driver.refreshAuth(slot,account,current.Id);
+  delete this.dispatch.accountFlags[account];this.dispatch.pool.cooldowns.delete(account);
+  marker.phase='starting';delete marker.relogin;this.dispatch.checkpoint();
+  await this.driver.restartStopped(slot,account,current.Id);
+  marker.phase='waiting';this.dispatch.checkpoint();
+  const fresh=await this.client.waitReady(slot,account,180000);
+  if(!this.rotation.ready(fresh,account))throw Error('Recovery readiness unconfirmed');
+  if(!this.idle(slot,state,owner,account)||state.recovery!==marker)return;
+  delete state.recovery;this.rotation.failures.delete(slot);
+  this.dispatch.update(slot,fresh);this.dispatch.checkpoint();
+  console.log('[Recovery]',slot,'account',account,'re-logged in and serving again');
+ }
  async check(slot){
   if(this.dispatch.operations.has(slot)||this.checking.has(slot)||this.dispatch.halted||this.scheduler.closed||this.occupied(slot)||this.rotation.running.has(slot))return;
   this.checking.add(slot);
@@ -67,6 +94,7 @@ class QuarantineRecovery {
      const current=await this.driver.describe(slot);
      if(!this.owned(current,account,failed.id)||!this.stopped(current)||
         !this.idle(slot,state,owner,account))throw Error('Failed login closure changed');
+     if(this.relogin)return await this.reloginInPlace(slot,state,owner,account,current,marker);
      this.dispatch.accountFlags[account]||={status:'invalid',reason:'login_required',at:Date.now(),slot};
      this.dispatch.checkpoint();
      const target=this.dispatch.rotationCandidate(undefined,undefined,slot);
