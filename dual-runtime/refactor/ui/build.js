@@ -46,7 +46,7 @@
   const rows=$('build-accounts');
   if(!acc.length)empty(rows,7,'还没有账号开通 Build');
   else rows.replaceChildren(...acc.map(a=>{const tr=el('tr');
-   cell(tr,'#'+a.account);cell(tr,badge(tierName[a.tier]||a.tier,a.tier==='standard'?'muted':''));
+   cell(tr,'#'+a.account);cell(tr,badge((tierName[a.tier]||a.tier)+(a.tier==='standard'?' · 仅 Flash':''),a.tier==='standard'?'muted':''));
    cell(tr,fmt(a.used),'num');cell(tr,two(fmt(a.input),fmt(a.output)),'num');cell(tr,fmt(a.cached),'num');
    cell(tr,two(fmt(a.requests),a.failed?'失败 '+a.failed:''),'num');cell(tr,state(a,now));return tr;}));
   const agg={};for(const a of acc)for(const [m,v] of Object.entries(a.models||{})){const x=agg[m]||(agg[m]={requests:0,tokens:0});x.requests+=v.requests;x.tokens+=v.tokens;}

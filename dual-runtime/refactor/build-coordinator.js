@@ -9,7 +9,7 @@ const {tokens}=require('./build-context');
 const APP=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 class BuildChannel{
  constructor({appsFile,ledgerFile,tierOf,isPremium,limits,presets=null,log=console}){
-  this.appsFile=appsFile;this.isPremium=isPremium;this.log=log;this.presets=presets;
+  this.appsFile=appsFile;this.isPremium=isPremium;this.tierOf=tierOf;this.log=log;this.presets=presets;
   this.ledger=new BuildTokenLedger(ledgerFile,{tierOf,limits});
   this.reservations=new Map();
   this.denied=new Map(); // 'account|model' -> until: Google refused this model for this account (e.g. free tier vs pro models)
@@ -21,7 +21,10 @@ class BuildChannel{
   }catch{return {};}
  }
  appFor(id){return this.apps()[id]||null;}
- ready(id,model){return !!this.appFor(id)&&this.ledger.view(id).allowed&&!(model&&this.denied.get(id+'|'+model)>Date.now());}
+ // Free (standard) accounts can only use flash models in Build.
+ canUse(id,model){return !model||/flash/.test(model)||(this.tierOf?this.tierOf(id):'standard')!=='standard';}
+ blocked(id,model){return !this.canUse(id,model)||this.denied.get(id+'|'+model)>Date.now();}
+ ready(id,model){return !!this.appFor(id)&&this.ledger.view(id).allowed&&!(model&&this.blocked(id,model));}
  // Returns null for non-Build models so the normal routing runs.
  resolve(route,body,{allowUnavailable=false,accountIds=[]}={}){
   let parsed;try{parsed=Buffer.isBuffer(body)||typeof body==='string'?JSON.parse(body.toString()):body;}catch{return null;}
@@ -30,7 +33,7 @@ class BuildChannel{
   if(route!=='/v1/chat/completions')throw Object.assign(Error('Build 通道只支持 /v1/chat/completions'),{statusCode:400});
   const candidates=Object.keys(this.apps()).map(Number);
   if(!candidates.length)throw Object.assign(Error('没有已开通 Build 项目的账号'),{statusCode:503});
-  if(!allowUnavailable&&candidates.length&&candidates.every(id=>this.denied.get(id+'|'+spec.model)>Date.now()))throw Object.assign(Error('没有账号能使用 '+spec.model+'（Google 拒绝），请换模型'),{statusCode:403});
+  if(!allowUnavailable&&candidates.length&&candidates.every(id=>this.blocked(id,spec.model)))throw Object.assign(Error(/flash/.test(spec.model)?'没有账号能使用 '+spec.model+'（Google 拒绝），请换模型':spec.model+' 需要 Pro/Ultra 账号，当前只有 Free 账号可用，请改用 flash 模型'),{statusCode:403});
   if(!allowUnavailable&&!candidates.some(id=>this.ledger.view(id).allowed)){
    const soon=Math.min(...candidates.map(id=>{const v=this.ledger.view(id);return v.remaining===null||v.remaining>0?v.cooldownUntil:v.windowEnd;}));
    const at=new Date(soon+8*3600000).toISOString().slice(0,16).replace('T',' ');

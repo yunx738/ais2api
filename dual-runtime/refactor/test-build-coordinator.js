@@ -17,7 +17,8 @@ const body=o=>Buffer.from(JSON.stringify(o));
  assert.throws(()=>ch.resolve('/v1beta/models/x:generateContent',body({model:'build/gemini-4-argon'})),e=>e.statusCode===400);
  const plan=ch.resolve('/v1/chat/completions',body({model:'build/gemini-4-argon-low',messages:[{role:'user',content:'hello world'}]}));
  assert.strictEqual(plan.quotaFamily,'ultra');assert.strictEqual(plan.build.thinking,1);
- assert.strictEqual(plan.eligible('A',31),true);assert.strictEqual(plan.eligible('A',22),true);   // standard (free) accounts can use Build too
+ assert.strictEqual(plan.eligible('A',31),true);assert.strictEqual(plan.eligible('A',22),false);   // free accounts: flash models only
+ assert.strictEqual(ch.resolve('/v1/chat/completions',body({model:'build/gemini-3.8-flash',messages:[{role:'user',content:'x'}]})).eligible('A',22),true);
  // admission reserves; forward adds __build and charges usage
  const id='11111111-1111-1111-1111-111111111111';
  assert.strictEqual(plan.admit(31,id),true);assert.ok(ch.ledger.view(31).reserved>0);
@@ -47,7 +48,7 @@ const body=o=>Buffer.from(JSON.stringify(o));
 ;(async()=>{
  const fs2=require('fs'),os2=require('os'),p2=require('path'),{BuildChannel:BC}=require('./build-coordinator');
  const d=fs2.mkdtempSync(p2.join(os2.tmpdir(),'bc-'));fs2.writeFileSync(p2.join(d,'a.json'),JSON.stringify({23:'d5df4c44-02ed-4b2f-b71a-34fbc28e8861',32:'d5df4c44-02ed-4b2f-b71a-34fbc28e8862'}));
- const c=new BC({appsFile:p2.join(d,'a.json'),ledgerFile:p2.join(d,'t.json'),tierOf:()=>'standard',isPremium:()=>false,log:{warn(){},error(){}}});
+ const c=new BC({appsFile:p2.join(d,'a.json'),ledgerFile:p2.join(d,'t.json'),tierOf:()=>'ultra',isPremium:()=>true,log:{warn(){},error(){}}});
  const b=o=>Buffer.from(JSON.stringify(o)),m=[{role:'user',content:'x'}];
  const pa=c.resolve('/v1/chat/completions',b({model:'build/gemini-4-argon',messages:m}));
  await c.wrapForward(async()=>({status:403}))({id:'x',account:23},'/v1/chat/completions',b({model:'build/gemini-4-argon',messages:m}),{},{});
@@ -55,4 +56,18 @@ const body=o=>Buffer.from(JSON.stringify(o));
  const pf=c.resolve('/v1/chat/completions',b({model:'build/gemini-3.8-flash',messages:m}));require('assert').strictEqual(pf.eligible('A',23),true);
  require('assert').deepStrictEqual(c.status().accounts.find(a=>a.account===23).deniedModels,['gemini-4-argon']);
  fs2.rmSync(d,{recursive:true,force:true});console.log('build-coordinator: 403 per-model skip ok');
+})();
+// Free accounts: flash only; Pro/Ultra: everything
+;(()=>{
+ const fs3=require('fs'),os3=require('os'),p3=require('path'),A=require('assert'),{BuildChannel:BC}=require('./build-coordinator');
+ const d=fs3.mkdtempSync(p3.join(os3.tmpdir(),'bc-'));fs3.writeFileSync(p3.join(d,'a.json'),JSON.stringify({23:'d5df4c44-02ed-4b2f-b71a-34fbc28e8861',32:'d5df4c44-02ed-4b2f-b71a-34fbc28e8862'}));
+ const t={23:'standard',32:'ultra'};
+ const c=new BC({appsFile:p3.join(d,'a.json'),ledgerFile:p3.join(d,'t.json'),tierOf:id=>t[id],isPremium:id=>t[id]!=='standard',log:{warn(){},error(){}}});
+ const b=o=>Buffer.from(JSON.stringify(o)),m=[{role:'user',content:'x'}];
+ const pa=c.resolve('/v1/chat/completions',b({model:'build/gemini-4-argon',messages:m}));A.strictEqual(pa.eligible('A',23),false);A.strictEqual(pa.eligible('B',32),true);
+ const pf=c.resolve('/v1/chat/completions',b({model:'build/gemini-3.8-flash-low',messages:m}));A.strictEqual(pf.eligible('A',23),true);A.strictEqual(pf.eligible('B',32),true);
+ fs3.writeFileSync(p3.join(d,'a.json'),JSON.stringify({23:'d5df4c44-02ed-4b2f-b71a-34fbc28e8861'}));
+ A.throws(()=>c.resolve('/v1/chat/completions',b({model:'build/gemini-4-argon',messages:m})),e=>e.statusCode===403&&/flash/.test(e.message));
+ A.ok(c.resolve('/v1/chat/completions',b({model:'build-st/gemini-3.8-flash',messages:m})));
+ fs3.rmSync(d,{recursive:true,force:true});console.log('build-coordinator: free=flash only ok');
 })();
