@@ -7,43 +7,65 @@
 const fs=require('fs'),crypto=require('crypto');
 const {tokens,LIMITS,WIRE_PREFIX}=require('./build-context');
 const BACKGROUND=new Set(['worldInfoBefore','worldInfoAfter','charDescription','charPersonality','scenario','personaDescription','dialogueExamples','chatHistory','summary','authorsNote','vectorsMemory','vectorsDataBank','smartContext']);
-const MACRO=/\{\{[\s\S]*?\}\}|<(?:USER|BOT|CHAR|CHARIFNOTGROUP|GROUP)>/gi;
-const MIN_LITERAL=12,MAX_GAP=20000,MAX_PRESETS=20,MAX_PROMPTS=1000;
+const MIN_LITERAL=12,MAX_GAP=300000,GAP_FILE=1500,MAX_PRESETS=20,MAX_PROMPTS=1000,MAX_DEPTH=8;
 const fail=(m,s=400)=>Object.assign(Error(m),{statusCode:s});
-const norm=t=>String(t).replace(/\r\n?/g,'\n');
-function chunksOf(text){return norm(text).split(MACRO).map(s=>s.trim()).filter(Boolean);}
+const norm=t=>String(t).replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n');
+// Literal text pieces of a prompt. Removed as wildcards: {{...}} (nested, e.g. {{random::..{{random::..}}}}),
+// <% ... %> templates, <USER>/<BOT>/<CHAR> and $X placeholders ($8 user input, $U persona, $C card ...).
+function chunksOf(text){
+ text=norm(text);const out=[];let buf='',i=0;
+ const flush=()=>{const t=buf.trim();if(t)out.push(t);buf='';};
+ while(i<text.length){
+  if(text.startsWith('{{',i)){let d=0,j=i;while(j<text.length){if(text.startsWith('{{',j)){d++;j+=2;}else if(text.startsWith('}}',j)){d--;j+=2;if(!d)break;}else j++;}flush();i=j;continue;}
+  if(text.startsWith('<%',i)){const j=text.indexOf('%>',i+2);flush();i=j<0?text.length:j+2;continue;}
+  if(text[i]==='<'){const m=/^<(?:USER|BOT|CHAR|CHARIFNOTGROUP|GROUP)>/i.exec(text.slice(i,i+20));if(m){flush();i+=m[0].length;continue;}}
+  if(text[i]==='$'&&/^\$[0-9A-Z](?![0-9A-Za-z])/.test(text.slice(i,i+3))){flush();i+=2;continue;}
+  buf+=text[i++];
+ }
+ flush();return out;
+}
+// Every object with a string `content` anywhere in the file: ST chat presets (prompts[]), plot presets
+// (top-level array, promptGroup[], plotTasks[].promptGroup[]) and wrapped exports alike.
+function collect(node,depth,out){
+ if(depth>MAX_DEPTH||!node||typeof node!=='object'||out.length>=MAX_PROMPTS*4)return;
+ if(Array.isArray(node)){for(const x of node){if(x&&typeof x==='object'&&!Array.isArray(x)&&typeof x.content==='string')out.push(x);else collect(x,depth+1,out);}}
+ else for(const v of Object.values(node))collect(v,depth+1,out);
+}
 function parsePreset(preset){
- if(!preset||typeof preset!=='object'||Array.isArray(preset))throw fail('预设文件不是 JSON 对象');
- if(!Array.isArray(preset.prompts))throw fail('这不是酒馆的对话补全预设（缺少 prompts 列表）');
+ if(!preset||typeof preset!=='object')throw fail('文件内容不是预设（需要 JSON 对象或数组）');
+ const items=[];collect(preset,0,items);
+ if(!items.length)throw fail('文件里没有找到提示词条目（带 content 的条目）');
  const out=[],seen=new Set();
- for(const p of preset.prompts.slice(0,MAX_PROMPTS)){
-  if(!p||typeof p!=='object'||p.marker===true||typeof p.content!=='string')continue;
-  const id=String(p.identifier||'').slice(0,128);
-  if(BACKGROUND.has(id))continue;
+ for(const p of items){
+  if(out.length>=MAX_PROMPTS)break;
+  if(p.marker===true)continue;
+  const ident=String(p.identifier||p.id||'').slice(0,100);
+  if(BACKGROUND.has(ident))continue;
   const chunks=chunksOf(p.content);
   if(chunks.join('').length<MIN_LITERAL)continue;
   const key=chunks.join('\u0000');if(seen.has(key))continue;seen.add(key);
-  out.push({id:id||crypto.randomBytes(4).toString('hex'),name:String(p.name||id||'条目').slice(0,128),chunks});
+  const label=p.name||p.identifier||(chunks.reduce((a,b)=>b.length>a.length?b:a,'').replace(/\s+/g,' ').slice(0,18)+'…');
+  out.push({id:(ident||'p')+'#'+out.length,name:String(label).slice(0,128),chunks});
  }
  if(!out.length)throw fail('预设里没有可识别的条目（条目需有正文，且不能只有宏）');
  return out;
 }
-// One prompt inside text from `from`: anchor on its longest literal chunk, then extend to the nearest
-// neighbours on both sides (macro gaps between them). Returns [start,end] or null.
+// One prompt inside text from `from`: anchor on its longest literal chunk, extend to neighbours on both sides.
+// Returns chunk positions [[s,e],...] or null.
 function findOne(text,chunks,from){
  let k=0;for(let i=1;i<chunks.length;i++)if(chunks[i].length>chunks[k].length)k=i;
  let pos=text.indexOf(chunks[k],from);
  while(pos>=0){
-  let start=pos,end=pos+chunks[k].length,ok=true;
+  const hit=new Array(chunks.length);hit[k]=[pos,pos+chunks[k].length];let ok=true;
   for(let i=k-1;i>=0&&ok;i--){
-   const at=start-chunks[i].length<from?-1:text.lastIndexOf(chunks[i],start-chunks[i].length);
-   if(at<from||start-(at+chunks[i].length)>MAX_GAP)ok=false;else start=at;
+   const lim=hit[i+1][0]-chunks[i].length;const at=lim<from?-1:text.lastIndexOf(chunks[i],lim);
+   if(at<from||hit[i+1][0]-(at+chunks[i].length)>MAX_GAP)ok=false;else hit[i]=[at,at+chunks[i].length];
   }
   for(let i=k+1;i<chunks.length&&ok;i++){
-   const at=text.indexOf(chunks[i],end);
-   if(at<0||at-end>MAX_GAP)ok=false;else end=at+chunks[i].length;
+   const at=text.indexOf(chunks[i],hit[i-1][1]);
+   if(at<0||at-hit[i-1][1]>MAX_GAP)ok=false;else hit[i]=[at,at+chunks[i].length];
   }
-  if(ok)return [start,end];
+  if(ok)return hit;
   pos=text.indexOf(chunks[k],pos+1);
  }
  return null;
@@ -54,8 +76,9 @@ function spans(text,prompts){
  for(const p of prompts){
   let from=0,hit;
   while(from<text.length&&(hit=findOne(text,p.chunks,from))){
-   if(free(hit[0],hit[1]))found.push({start:hit[0],end:hit[1],source:p.id});
-   from=hit[1];
+   const start=hit[0][0],end=hit[hit.length-1][1];
+   if(free(start,end))found.push({start,end,source:p.id,pos:hit});
+   from=end;
   }
  }
  return found.sort((a,b)=>a.start-b.start);
@@ -88,7 +111,15 @@ function segment(messages,prompts){
   const rest=i===current?['inline','currentUser']:['file','context'];
   let part=0,at=0;
   const push=(text,placement,source)=>{if(text.trim())segments.push({...base,part:part++,source,placement,text});};
-  for(const s of list){push(r.text.slice(at,s.start),...rest);push(r.text.slice(s.start,s.end),'inline',s.source);hits++;matched.add(s.source);at=s.end;}
+  for(const s of list){
+   push(r.text.slice(at,s.start),...rest);hits++;matched.add(s.source);
+   let piece=s.start;
+   for(let k=1;k<s.pos.length;k++){
+    const gs=s.pos[k-1][1],ge=s.pos[k][0];
+    if(ge-gs>GAP_FILE){push(r.text.slice(piece,gs),'inline',s.source);push(r.text.slice(gs,ge),...rest);piece=ge;}
+   }
+   push(r.text.slice(piece,s.end),'inline',s.source);at=s.end;
+  }
   push(r.text.slice(at),...rest);
   if(!segments.some(x=>x.message===i))segments.push({...base,part:0,source:rest[1],placement:rest[0],text:r.text});
  });
