@@ -2,7 +2,7 @@
 const path = require('path');
 const assets=Object.freeze(['console.css','console-panels.css','models.css','analytics.css',
   'proxies.js','console.js','shell.js','models.js','prices.js','analytics.js','admin.css','admin-tools.js',
-  'theme-nai.css','theme-nai.js','security.js','build.js',
+  'theme-nai.css','theme-nai.js','security.js','build.js','build.css',
   // Generated artwork: every ui/nai-<name>.webp present at startup.
   ...require('fs').readdirSync(path.join(__dirname,'ui')).filter(n=>/^nai-[a-z0-9-]{1,40}\.webp$/.test(n)).sort()]);
 // Served before login (login page artwork and favicon). Static images only.

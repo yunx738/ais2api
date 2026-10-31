@@ -9,7 +9,7 @@ const BASES=['gemini-4-argon','gemini-3.8-flash'];
 const LEVELS={low:1,medium:2,high:3};
 const PREFIXES=['build/','build-st/'];
 // null = no daily cap (usage is still recorded); 0 = not allowed.
-const DEFAULT_LIMITS=Object.freeze({standard:0,pro:null,ultra:null,ultra20:null});
+const DEFAULT_LIMITS=Object.freeze({standard:null,pro:null,ultra:null,ultra20:null});
 function parseBuildModel(name){
  if(typeof name!=='string')return null;
  const prefix=PREFIXES.find(p=>name.startsWith(p));

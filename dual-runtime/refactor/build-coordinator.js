@@ -20,15 +20,15 @@ class BuildChannel{
   }catch{return {};}
  }
  appFor(id){return this.apps()[id]||null;}
- ready(id){return !!this.appFor(id)&&this.isPremium(id)&&this.ledger.view(id).allowed;}
+ ready(id){return !!this.appFor(id)&&this.ledger.view(id).allowed;}
  // Returns null for non-Build models so the normal routing runs.
  resolve(route,body,{allowUnavailable=false,accountIds=[]}={}){
   let parsed;try{parsed=Buffer.isBuffer(body)||typeof body==='string'?JSON.parse(body.toString()):body;}catch{return null;}
   const spec=parseBuildModel(parsed?.model);
   if(!spec)return null;
   if(route!=='/v1/chat/completions')throw Object.assign(Error('Build 通道只支持 /v1/chat/completions'),{statusCode:400});
-  const candidates=Object.keys(this.apps()).map(Number).filter(id=>this.isPremium(id));
-  if(!candidates.length)throw Object.assign(Error('没有已开通 Build 项目的 Pro/Ultra 账号'),{statusCode:503});
+  const candidates=Object.keys(this.apps()).map(Number);
+  if(!candidates.length)throw Object.assign(Error('没有已开通 Build 项目的账号'),{statusCode:503});
   if(!allowUnavailable&&!candidates.some(id=>this.ledger.view(id).allowed)){
    const soon=Math.min(...candidates.map(id=>{const v=this.ledger.view(id);return v.remaining===null||v.remaining>0?v.cooldownUntil:v.windowEnd;}));
    const at=new Date(soon+8*3600000).toISOString().slice(0,16).replace('T',' ');

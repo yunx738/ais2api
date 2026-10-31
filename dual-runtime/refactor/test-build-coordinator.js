@@ -17,7 +17,7 @@ const body=o=>Buffer.from(JSON.stringify(o));
  assert.throws(()=>ch.resolve('/v1beta/models/x:generateContent',body({model:'build/gemini-4-argon'})),e=>e.statusCode===400);
  const plan=ch.resolve('/v1/chat/completions',body({model:'build/gemini-4-argon-low',messages:[{role:'user',content:'hello world'}]}));
  assert.strictEqual(plan.quotaFamily,'ultra');assert.strictEqual(plan.build.thinking,1);
- assert.strictEqual(plan.eligible('A',31),true);assert.strictEqual(plan.eligible('A',22),false);   // standard account excluded
+ assert.strictEqual(plan.eligible('A',31),true);assert.strictEqual(plan.eligible('A',22),true);   // standard (free) accounts can use Build too
  // admission reserves; forward adds __build and charges usage
  const id='11111111-1111-1111-1111-111111111111';
  assert.strictEqual(plan.admit(31,id),true);assert.ok(ch.ledger.view(31).reserved>0);
@@ -33,6 +33,9 @@ const body=o=>Buffer.from(JSON.stringify(o));
  const id2='22222222-2222-2222-2222-222222222222';plan.admit(31,id2);
  await ch.wrapForward(async()=>({status:429}))({id:id2,account:31},'/v1/chat/completions',body({model:'build/gemini-4-argon',messages:[]}),{},{});
  assert.strictEqual(ch.ledger.view(31).allowed,false);assert.strictEqual(plan.eligible('A',31),false);
+ // free account still serves while #31 cools down
+ assert.ok(ch.resolve('/v1/chat/completions',body({model:'build/gemini-4-argon',messages:[{role:'user',content:'x'}]})));
+ ch.ledger.defer(22,Date.now()+60000);
  // all exhausted -> 429 with reset hint at resolve time
  assert.throws(()=>ch.resolve('/v1/chat/completions',body({model:'build/gemini-4-argon',messages:[{role:'user',content:'x'}]})),e=>e.statusCode===429&&e.retryAfter>0);
  // queued requests are still admitted while unavailable (allowUnavailable)

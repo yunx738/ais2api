@@ -12,10 +12,10 @@ const file=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'btl-')),'build-tokens
 let now=Date.UTC(2026,9,31,8,0,0);
 const tiers={31:'ultra',22:'standard',5:'pro'};
 let L=new B.BuildTokenLedger(file,{clock:()=>now,tierOf:id=>tiers[id]||'standard'});
-// Pro/Ultra: no daily cap, standard: not allowed
+// every tier: no daily cap (usage still recorded)
 assert.strictEqual(L.view(31).limit,null);assert.strictEqual(L.view(31).unlimited,true);assert.strictEqual(L.view(31).allowed,true);
 assert.strictEqual(L.view(5).limit,null);assert.strictEqual(L.view(5).allowed,true);
-assert.strictEqual(L.view(22).limit,0);assert.strictEqual(L.view(22).allowed,false);
+assert.strictEqual(L.view(22).limit,null);assert.strictEqual(L.view(22).allowed,true);
 // usage breakdown + per model
 L.charge(31,145067,{model:'build/gemini-3.8-flash',input:145000,output:67,cached:9000});
 let v=L.view(31);assert.strictEqual(v.used,145067);assert.strictEqual(v.requests,1);assert.strictEqual(v.input,145000);assert.strictEqual(v.output,67);assert.strictEqual(v.cached,9000);

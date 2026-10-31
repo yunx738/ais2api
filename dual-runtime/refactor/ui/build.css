@@ -1,0 +1,15 @@
+/* Build channel page */
+#build .usage-toolbar{margin-bottom:14px}
+#build-message{font-size:12px}
+.build-stats{grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 20px}
+.build-stats .stat{display:flex;flex-direction:column;gap:5px;min-height:112px;padding:12px 14px}
+.build-stats .stat>strong{margin:0;font-size:24px}
+#build .card{margin-bottom:16px}
+.build-table td,.build-table th{white-space:nowrap}
+.build-table td.num{font-variant-numeric:tabular-nums;text-align:right}
+.build-table th.num{text-align:right}
+.build-table .sub{display:block;color:var(--muted);font-size:11px}
+.build-table .badge{font-size:11px}
+.build-table .empty{color:var(--muted);text-align:center;padding:22px 8px}
+@media(max-width:900px){.build-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.build-stats{gap:10px}.build-stats .stat{min-height:96px;padding:11px 12px}.build-stats .stat>strong{font-size:20px}}
