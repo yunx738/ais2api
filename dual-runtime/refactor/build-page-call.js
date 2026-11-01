@@ -10,6 +10,18 @@ const PAGE_FN=String(async function(parts,model,think,hx,app,key,opts){
  var base='https://alkalimakersuite-pa.clients6.google.com/$rpc/google.internal.alkali.applications.makersuite.v1.MakerSuiteService/';
  var hd={'content-type':'application/json+protobuf','x-user-agent':'grpc-web-javascript/0.1','x-goog-api-key':key||waa,'authorization':md.Authorization,'x-goog-authuser':String(md['X-Goog-AuthUser']!=null?md['X-Goog-AuthUser']:'0')};
  if(hx.tier)hd['x-aistudio-g1-tier']=hx.tier;if(hx.ext)hd['x-goog-ext-519733851-bin']=hx.ext;if(hx.visit)hd['x-aistudio-visit-id']=hx.visit;
+
+ // bridge/ files: upload to AI Studio /_/upload (same as the official page), then reference by path (Part field 18).
+ for(var ui=0;ui<parts.length;ui++){var pu=parts[ui];if(!pu||!pu.__upload)continue;
+  var um=pu.__upload[0],ub=atob(pu.__upload[1]),ubytes=new Uint8Array(ub.length);for(var bi=0;bi<ub.length;bi++)ubytes[bi]=ub.charCodeAt(bi);
+  var udg=new Uint8Array(await crypto.subtle.digest('SHA-256',ubytes)),uds='';for(var di=0;di<udg.length;di++)uds+=String.fromCharCode(udg[di]);
+  var uh='sha256='+btoa(uds),uau=String(md['X-Goog-AuthUser']!=null?md['X-Goog-AuthUser']:'0');
+  var us=await fetch(location.origin+'/_/upload',{method:'POST',credentials:'include',headers:{'X-Goog-Upload-Header-Content-Length':String(ubytes.length),'X-Goog-Upload-Header-Content-Type':um,'X-Goog-Hash':uh,'X-Goog-Upload-Protocol':'resumable','X-Goog-Upload-Command':'start','X-Goog-Authuser':uau}});
+  var uurl=us.headers.get('X-Goog-Upload-URL');if(us.status!==200||!uurl)return JSON.stringify({s:502,stage:'upload',t:'upload start '+us.status+' '+(await us.text()).slice(0,300)});
+  var uf=await fetch(uurl,{method:'POST',credentials:'include',headers:{'Content-Type':um,'X-Goog-Hash':uh,'X-Goog-Upload-Command':'upload, finalize','X-Goog-Upload-Offset':'0','X-Goog-Authuser':uau},body:ubytes});
+  var upath=(await uf.text()).trim();if(uf.status!==200||!upath)return JSON.stringify({s:502,stage:'upload',t:'upload finalize '+uf.status+' '+upath.slice(0,300)});
+  var uw=[];for(var wi=0;wi<18;wi++)uw.push(null);uw[17]=[um,upath,pu.__upload[2],String(ubytes.length)];parts[ui]=uw;
+ }
  var ht=parts.map(function(p){return p[1]!=null?p[1]:(p[2]?p[2][1]:'');}).join(' ');
  var ac=new AbortController(),hm=opts.hardMs||600000,wd=setTimeout(function(){ac.abort();},hm);
  var ab=w.__gcAb=w.__gcAb||{};if(opts.op)ab[opts.op]=ac;

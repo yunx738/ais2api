@@ -70,6 +70,15 @@ assert.strictEqual(C.prepare([{role:'user',content:'x'}]).dropped.parts,0);
 // nothing left after filtering -> clear 400
 assert.throws(()=>C.prepare([{role:'user',content:[{type:'image_url',image_url:{url:'x'}}]}]),e=>e.statusCode===400&&/文字内容/.test(e.message));
 assert.throws(()=>C.prepare([{role:'tool',content:'x'}]),e=>e.statusCode===400);
+// plugin refused locally: clear message, no forwarding
+assert.throws(()=>C.prepare([{role:'user',content:C.WIRE_PREFIX+JSON.stringify({version:1,error:'text_only'})}]),e=>e.statusCode===400&&e.code==='build_plugin_refused'&&/图片/.test(e.message));
+// plugin envelope: placements are used exactly as sent
+{
+ const env=C.WIRE_PREFIX+JSON.stringify({version:1,generationType:'swipe',segments:[{role:'system',placement:'inline',source:'main',text:'S'},{role:'user',placement:'file',source:'chatHistory',text:'H'},{role:'user',placement:'inline',source:'current',text:'Q'}]});
+ const p=C.prepare([{role:'user',content:env}]);
+ assert.deepStrictEqual(p.segments.map(x=>[x.role,x.placement,x.source,x.text]),[['system','inline','main','S'],['user','file','chatHistory','H'],['user','inline','current','Q']]);
+ assert.strictEqual(p.generationType,'swipe');
+}
 // envelope: bad segments skipped
 {
  const env=C.WIRE_PREFIX+JSON.stringify({version:1,segments:[{role:'tool',placement:'file',text:'x'},{role:'user',placement:'inline',text:'ok'}]});
@@ -77,3 +86,13 @@ assert.throws(()=>C.prepare([{role:'tool',content:'x'}]),e=>e.statusCode===400);
  assert.strictEqual(p.segments.length,1);assert.strictEqual(p.dropped.segments,1);
 }
 console.log('build-context: all tests passed');
+
+// bridge/: files kept as inline-data parts, default prefixes still drop them
+{const img='data:image/png;base64,iVBORw0KGgo=';
+ const msgs=[{role:'user',content:[{type:'text',text:'see'},{type:'image_url',image_url:{url:img}},{type:'file',file:{filename:'a.pdf',file_data:'data:application/pdf;base64,JVBERi0='}}]}];
+ const d=C.pack(C.prepare(msgs));assert.strictEqual(d.parts.length,1);assert.strictEqual(C.prepare(msgs).dropped.parts,2);
+ const k=C.pack(C.prepare(msgs,{keepMedia:true}));
+ assert.deepStrictEqual(k.parts.slice(0,2),[{__upload:['image/png','iVBORw0KGgo=','attachment-1']},{__upload:['application/pdf','JVBERi0=','a.pdf']}]);
+ assert.ok(/attached file #2 a.pdf/.test(k.parts[2][1]));assert.ok(!/text-only/.test(k.parts[2][1]));
+ assert.strictEqual(k.mode,'inline+media2');
+ console.log('build-context: bridge keeps media ok');}

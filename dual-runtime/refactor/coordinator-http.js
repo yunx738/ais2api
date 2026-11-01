@@ -233,7 +233,7 @@ function createServer({keys,models,scheduler,status,actions,auth}){
    let outgoing=body;
    // Build channel is text-only: tool / format fields are unused there, so drop them instead of validating
    // (a malformed tool schema must not 400 a Build request). Playground requests are untouched.
-   if(typeof parsed.model==='string'&&/^build(-st)?\//.test(parsed.model)){
+   if(typeof parsed.model==='string'&&/^(build(-st)?|bridge)\//.test(parsed.model)){
     let n=0;for(const k of ['tools','tool_choice','functions','function_call','parallel_tool_calls','response_format'])if(k in parsed){delete parsed[k];n++;}
     if(n){outgoing=Buffer.from(JSON.stringify(parsed));console.info('[Gateway] build: dropped '+n+' tool/format field(s)');}
    }

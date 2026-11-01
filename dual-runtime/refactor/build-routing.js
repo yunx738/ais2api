@@ -7,7 +7,9 @@ const fs=require('fs'),path=require('path');
 const {periodStart,WINDOW}=require('./model-quota-ledger');
 const BASES=['gemini-4-argon','gemini-3.8-flash'];
 const LEVELS={low:1,medium:2,high:3};
-const PREFIXES=['build/','build-st/'];
+// bridge/: same Build channel, but the name has no 'build' in it, so the build-standalone SillyTavern
+// extension does not intercept it; the client sends a plain OpenAI conversation and the gateway packs it.
+const PREFIXES=['build/','build-st/','bridge/'];
 // null = no daily cap (usage is still recorded); 0 = not allowed.
 const DEFAULT_LIMITS=Object.freeze({standard:null,pro:null,ultra:null,ultra20:null});
 function parseBuildModel(name){

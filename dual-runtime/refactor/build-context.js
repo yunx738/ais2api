@@ -3,7 +3,7 @@
 // Gateway-side replacement for the build-standalone SillyTavern extension; no client plugin needed.
 const crypto=require('crypto');
 const WIRE_PREFIX='BUILD_ST_CONTEXT_V1\n';
-const LIMITS=Object.freeze({shortPreset:2000,inlineBudget:45000,maxBytes:200*1024});
+const LIMITS=Object.freeze({shortPreset:2000,inlineBudget:45000,maxBytes:200*1024,maxMediaBytes:20*1024*1024});
 const fail=(message,status=400,code='build_context_invalid')=>Object.assign(Error(message),{statusCode:status,code});
 // Rough token estimate: CJK ~1 token/char, other text ~4 chars/token.
 function tokens(text){
@@ -13,7 +13,14 @@ function tokens(text){
 // Build only accepts text. Non-text parts (images, audio, files, ...) are dropped instead of failing the request;
 // `st` counts what was dropped. The Playground channel does not use this file and is unaffected.
 const ROLES=['system','developer','user','assistant'];
-function textOf(content,st){
+// media: optional array; when given (bridge/ models), non-text parts are kept as inline files instead of dropped.
+function mediaOf(p){
+ const url=p&&(p.image_url&&(p.image_url.url||p.image_url)||p.file&&(p.file.file_data||p.file.url)||p.url);
+ if(typeof url==='string'){const m=/^data:([^;,]+)(?:;[^,]*)?;base64,(.*)$/s.exec(url);if(m)return {mime:m[1],data:m[2].replace(/\s+/g,''),name:p.file&&p.file.filename};return {link:url};}
+ if(p&&p.input_audio&&typeof p.input_audio.data==='string')return {mime:'audio/'+(p.input_audio.format||'wav'),data:p.input_audio.data};
+ return null;
+}
+function textOf(content,st,media){
  if(typeof content==='string')return content;
  if(content==null)return '';
  const list=Array.isArray(content)?content:[content];
@@ -21,6 +28,9 @@ function textOf(content,st){
  for(const p of list){
   if(typeof p==='string'){out.push(p);continue;}
   if(p&&typeof p.text==='string'&&(p.type==null||p.type==='text'||p.type==='input_text')){out.push(p.text);continue;}
+  const f=media&&mediaOf(p);
+  if(f&&f.data){media.push(f);out.push('[attached file #'+media.length+(f.name?' '+String(f.name).slice(0,80):'')+' ('+f.mime+')]');continue;}
+  if(f&&f.link){out.push('[file link: '+f.link.slice(0,500)+']');continue;}
   if(st)st.parts++;
  }
  return out.join('\n');
@@ -36,16 +46,16 @@ function override(text){
 // 3 leading system run before any conversation: short (<=2000 tok) -> inline, long -> file
 // 4 everything else (history, examples, mid-history injections) -> file
 // 5 inline over 45000 tok: earliest movable inline segments move to file, never truncated
-function classify(messages){
+function classify(messages,{keepMedia=false}={}){
  if(!Array.isArray(messages)||!messages.length||messages.length>10000)throw fail('messages 必须为非空数组');
  const st={parts:0,messages:0,toolCalls:0};
- const rows=[];
+ const rows=[],media=keepMedia?[]:null;
  messages.forEach((m,i)=>{
   // tool / function results and unknown roles are dropped; tool calls are stripped from assistant turns
   if(!m||!ROLES.includes(m.role)){st.messages++;return;}
   const hadTool=!!(m.tool_calls||m.function_call);if(hadTool)st.toolCalls++;
   const before=st.parts;
-  const o=override(textOf(m.content,st));
+  const o=override(textOf(m.content,st,media));
   if(!o.text.trim()&&(hadTool||st.parts>before)){st.messages++;return;}
   rows.push({message:i,part:0,role:m.role,...(typeof m.name==='string'&&m.name?{name:m.name.slice(0,128)}:{}),text:o.text,forced:o.placement});
  });
@@ -72,14 +82,19 @@ function classify(messages){
   r.placement='file';r.source+='+overflow';inline-=tokens(r.text);
  }
  if(inline>LIMITS.inlineBudget)throw fail('当前这条用户消息超过 45000 token，请缩短',413,'inline_too_large');
- return {segments:rows,generationType,inlineTokens:inline,dropped:st};
+ return {segments:rows,generationType,inlineTokens:inline,dropped:st,...(media&&media.length?{media}:{})};
 }
 // Original extension envelope (BUILD_ST_CONTEXT_V1): trust its placements instead of guessing.
 function fromEnvelope(messages){
  if(!Array.isArray(messages)||messages.length!==1||messages[0]?.role!=='user'||typeof messages[0].content!=='string'||!messages[0].content.startsWith(WIRE_PREFIX))return null;
  let v;try{v=JSON.parse(messages[0].content.slice(WIRE_PREFIX.length));}catch{throw fail('酒馆上下文封装损坏');}
  if(!v||v.version!==1)throw fail('不支持的酒馆适配版本');
- if(v.error)throw fail('酒馆适配器已阻止请求：'+String(v.error).slice(0,60));
+ // The plugin refused locally and sent no context at all (only an error marker), so there is nothing to forward.
+ if(v.error){
+  const why=String(v.error).slice(0,60);
+  const hint=why==='text_only'?'对话里有图片等非文字内容':'原因：'+why;
+  throw fail('酒馆 Build 插件（build-standalone）在本地拦下了这次请求（'+hint+'），没有发送任何对话内容，网关无法转发。请删除对话里的图片后重试，或关闭该插件直接使用 build-st/ 模型，由网关自动去掉图片后转发。',400,'build_plugin_refused');
+ }
  if(!Array.isArray(v.segments)||!v.segments.length||v.segments.length>20000)throw fail('酒馆分段数量无效');
  const st={parts:0,messages:0,toolCalls:0,segments:0};
  const segments=[];
@@ -91,7 +106,7 @@ function fromEnvelope(messages){
  const generationType=['normal','regenerate','swipe','continue','quiet','impersonate'].includes(v.generationType)?v.generationType:'normal';
  return {segments,generationType,inlineTokens:segments.filter(x=>x.placement==='inline').reduce((n,x)=>n+tokens(x.text),0),dropped:st};
 }
-function prepare(messages){return fromEnvelope(messages)||classify(messages);}
+function prepare(messages,opts={}){return fromEnvelope(messages)||classify(messages,opts);}
 // Pack prepared segments into Build request parts: [attachment?, composer text].
 // Composer = instruction + outline; inline segments appear verbatim in order, file segments are referenced by number.
 // Returns {parts, hashText, bytes, mode}. hashText is the composer text (what Build signs).
@@ -121,8 +136,18 @@ function pack(prepared,{requestedMaxOutputTokens,nonce=crypto.randomBytes(12).to
   parts=[[null,prompt]];
  }
  if(Buffer.byteLength(prompt)>LIMITS.maxBytes)throw fail('Build 输入框内容过大',413,'inline_too_large');
+ // bridge/: user files (images, audio, documents) go through untouched as extra inline-data parts before the composer.
+ const media=Array.isArray(prepared.media)?prepared.media:[];
+ if(media.length){
+  const total=media.reduce((n,f)=>n+Math.floor(f.data.length*3/4),0);
+  if(total>LIMITS.maxMediaBytes)throw fail('附件共 '+Math.round(total/1048576)+'MB，超过 '+Math.round(LIMITS.maxMediaBytes/1048576)+'MB 上限',413,'media_too_large');
+  prompt='Attached files #1..#'+media.length+' are user-provided files referenced in the conversation as [attached file #N]; look at them directly.\n'+prompt.replace('This is a text-only conversation','This is a conversation');
+  // Build rejects inline image data (Invalid argument); the page uploads each file to /_/upload and sends an upload reference.
+  parts=[...media.map((f,i)=>({__upload:[f.mime,f.data,f.name?String(f.name).slice(0,120):'attachment-'+(i+1)]})),...parts.slice(0,-1),[null,prompt]];
+  bytes+=total;
+ }
  // Same hash input as the verified probe: each part's text, or its inline data, joined by spaces.
  const hashText=parts.map(x=>x[1]!=null?x[1]:(x[2]?x[2][1]:'')).join(' ');
- return {parts,hashText,bytes:bytes+Buffer.byteLength(prompt),mode:hasFile?'attachment':'inline',nonce,segments:segments.length};
+ return {parts,hashText,bytes:bytes+Buffer.byteLength(prompt),mode:(hasFile?'attachment':'inline')+(media.length?'+media'+media.length:''),nonce,segments:segments.length};
 }
 module.exports={classify,fromEnvelope,prepare,pack,tokens,LIMITS,WIRE_PREFIX};

@@ -29,6 +29,12 @@ function install(system,{log=console}={}){
  const send=(res,status,message,code='build_error')=>{
   if(res.headersSent||res.destroyed)return;
   res.status(status).json({error:{message,type:status>=500?'upstream_error':'invalid_request_error',code}});
+  if(status<500){
+   // Diagnostics: why a Build request was refused, plus its shape (roles, part types, keys; never the text).
+   let shape=null;try{const b=res.req&&res.req.body||{};shape={keys:Object.keys(b).filter(k=>k!=='messages'&&k!=='__build').slice(0,30),spec:b.__build?{model:b.__build.model,thinking:b.__build.thinking,app:!!b.__build.app}:null,
+    msgs:(Array.isArray(b.messages)?b.messages:[]).slice(-12).map(m=>m&&({r:m.role,c:typeof m.content==='string'?'s'+m.content.length:Array.isArray(m.content)?m.content.map(x=>x&&x.type||typeof x):m.content===null?'null':typeof m.content,k:Object.keys(m).filter(k=>k!=='role'&&k!=='content')})),n:Array.isArray(b.messages)?b.messages.length:-1};}catch{}
+   log.warn?.('[Build] refused '+status+' '+code+': '+String(message).slice(0,160)+' shape='+JSON.stringify(shape).slice(0,1500));
+  }
  };
  h.processOpenAIRequest=async(req,res)=>{
   const spec=req.body&&req.body.__build;
@@ -39,7 +45,7 @@ function install(system,{log=console}={}){
   let packed;
   try{
    const max=req.body.max_completion_tokens??req.body.max_tokens;
-   const prepared=prepare(req.body.messages);
+   const prepared=prepare(req.body.messages,{keepMedia:spec.keepMedia===true});
    const d=prepared.dropped;
    if(d&&(d.parts||d.messages||d.toolCalls||d.segments))log.info?.('[Build] dropped unsupported content '+JSON.stringify(d));
    packed=pack(prepared,{requestedMaxOutputTokens:Number.isSafeInteger(max)&&max>0?max:undefined});
@@ -72,7 +78,7 @@ function install(system,{log=console}={}){
   if(!out.ok){
    // Diagnostics: keep the last unparseable/no-model-turn upstream body (model output only; no signature/auth).
    try{require('fs').writeFileSync('/tmp/build-last-parsefail.txt',String(r.t||''));}catch{}
-   log.warn?.('[Build] parse failed error='+out.error+' polls='+(r.polls||0)+' bytes='+String(r.t||'').length+' head='+JSON.stringify(String(r.t||'').slice(0,160)));
+   log.warn?.('[Build] parse failed error='+out.error+' polls='+(r.polls||0)+' bytes='+String(r.t||'').length+' head='+JSON.stringify(String(r.t||'').slice(0,160))+' tail='+JSON.stringify(String(r.t||'').replace(/"[A-Za-z0-9+\/=]{200,}"/g,'"<b64>"').slice(-700)));
    return send(res,502,'Build 回复解析失败：'+out.error,'build_parse_failed');
   }
   if(!out.complete||!out.text.trim()){

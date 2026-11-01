@@ -7,7 +7,10 @@ assert.deepStrictEqual(B.parseBuildModel('build/gemini-4-argon'),{requested:'bui
 assert.strictEqual(B.parseBuildModel('build-st/gemini-3.8-flash-low').thinking,1);
 assert.strictEqual(B.parseBuildModel('build/gemini-3.8-flash-medium').thinking,2);
 assert.throws(()=>B.parseBuildModel('build/gemini-9'),e=>e.statusCode===404);
-assert.strictEqual(B.listModels().length,16);
+assert.strictEqual(B.parseBuildModel('bridge/gemini-4-argon-medium').thinking,2);
+assert.strictEqual(B.parseBuildModel('bridge/gemini-4-argon-medium').model,'gemini-4-argon');
+assert.ok(B.listModels().includes('bridge/gemini-3.8-flash-high'));
+assert.strictEqual(B.listModels().length,24);
 const file=path.join(fs.mkdtempSync(path.join(os.tmpdir(),'btl-')),'build-tokens.json');
 let now=Date.UTC(2026,9,31,8,0,0);
 const tiers={31:'ultra',22:'standard',5:'pro'};

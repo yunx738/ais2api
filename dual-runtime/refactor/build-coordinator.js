@@ -77,7 +77,7 @@ class BuildChannel{
    let result;const t0=Date.now();
    try{
     if(!app){res.statusCode=503;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({error:{message:'账号 #'+ticket.account+' 没有 Build 项目',code:'build_app_missing'}}));return {status:503};}
-    parsed.__build={app,model:spec.model,thinking:spec.thinking};
+    parsed.__build={app,model:spec.model,thinking:spec.thinking,...(spec.prefix==='bridge/'?{keepMedia:true}:{})};
     // Uploaded ST presets: mark preset text for the composer, the rest goes to the attachment.
     if(this.presets){try{const m=this.presets.apply(parsed.messages);if(m){parsed.messages=[{role:'user',content:m.content}];this.stats.presetHits=(this.stats.presetHits||0)+1;}}
      catch(e){this.log.error('[BuildPresets]',e.message);}}
