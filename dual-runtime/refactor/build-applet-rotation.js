@@ -90,6 +90,34 @@ class BuildAppletRotation{
    return results;
   }finally{this.running=false;}
  }
+ // Per-request renewal: after a Build request finishes, the account gets a fresh project and the used one is
+ // deleted, so no chat or uploaded file is visible to the next request. Worker must be idle (applet-rpc 409 otherwise);
+ // callers retry. Deletes that fail are queued in pendingDelete and retried on the next renew/tick.
+ async renew(id,slot){
+  if(!Number.isSafeInteger(id)||id<1||!slot)return 'invalid';
+  if(this.running||this.ensuring.has(id))return 'busy';
+  const apps=this.readApps();if(!apps)return 'apps_unreadable';
+  const key=String(id),cur=String(apps[key]||'').toLowerCase();
+  if(!APP.test(cur))return 'no_project';
+  this.ensuring.add(id);
+  try{
+   const state=this.readState();
+   const st=state.accounts[key]=state.accounts[key]||{lastAt:0,pendingDelete:[]};
+   st.pendingDelete=Array.isArray(st.pendingDelete)?st.pendingDelete:[];
+   let out;try{out=await this.rpc(slot,'CreateApplet',createRequest());}catch(e){return 'create_failed:'+String(e.message||e).slice(0,40);}
+   const created=parseCreated(out);if(!created)return 'create_failed';
+   const fresh=this.readApps();if(!fresh){try{await this.rpc(slot,'DeleteApplet',[created]);}catch{}return 'apps_unreadable';}
+   if(String(fresh[key]||'').toLowerCase()!==cur){try{await this.rpc(slot,'DeleteApplet',[created]);}catch{}return 'changed';}
+   fresh[key]=created;this.writeApps(fresh);
+   st.lastAt=this.now();st.app=created;delete st.lastError;
+   const queue=[...new Set([...st.pendingDelete,cur])],left=[];
+   for(const old of queue){let d;try{d=await this.rpc(slot,'DeleteApplet',[old]);}catch{d=null;}if(!deleted(d))left.push(old);}
+   st.pendingDelete=left;this.writeState(state);
+   const r=left.includes(cur)?'renewed_delete_pending':'renewed';
+   this.log.log('[BuildRenew] #'+key+' '+cur.slice(0,8)+' -> '+created.slice(0,8)+' '+r);
+   return r;
+  }finally{this.ensuring.delete(id);}
+ }
  status(){return {window:this.window,last:this.last,accounts:this.readState().accounts};}
 }
 module.exports={BuildAppletRotation,createRequest,parseCreated,bjHour};

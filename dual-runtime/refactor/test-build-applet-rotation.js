@@ -69,3 +69,27 @@ test('auto-provision: concurrent calls create only one project',async()=>{
  const [a,b]=await Promise.all([t.r.ensure(24,'A'),t.r.ensure(24,'A')]);
  assert.deepStrictEqual([a,b].sort(),['busy','created']);assert.strictEqual(n,1);
 });
+
+test('renew: fresh project, old one deleted',async()=>{
+ const t=setup(ok);
+ assert.strictEqual(await t.r.renew(32,'B'),'renewed');
+ assert.strictEqual(t.apps()[32],NEW);
+ assert.deepStrictEqual(t.calls.map(c=>c[1]),['CreateApplet','DeleteApplet']);
+ assert.deepStrictEqual(t.calls[1][2],[OLD]);
+ assert.deepStrictEqual(t.state().accounts[32].pendingDelete,[]);
+});
+test('renew: busy worker on create keeps the current project',async()=>{
+ const t=setup(async m=>{throw Error('worker 409 busy');});
+ assert.match(await t.r.renew(32,'B'),/^create_failed/);assert.strictEqual(t.apps()[32],OLD);
+});
+test('renew: failed delete is queued and retried next time',async()=>{
+ let fail=true;
+ const t=setup(async m=>{if(m==='DeleteApplet'&&fail)throw Error('worker 409');return ok(m);});
+ assert.strictEqual(await t.r.renew(32,'B'),'renewed_delete_pending');
+ assert.deepStrictEqual(t.state().accounts[32].pendingDelete,[OLD]);
+ fail=false;assert.strictEqual(await t.r.renew(32,'B'),'renewed');
+ assert.deepStrictEqual(t.state().accounts[32].pendingDelete,[]);
+});
+test('renew: account without project is left alone',async()=>{
+ const t=setup(ok);assert.strictEqual(await t.r.renew(24,'A'),'no_project');assert.strictEqual(t.calls.length,0);
+});

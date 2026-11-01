@@ -79,7 +79,8 @@ class BuildChannel{
     if(!app){res.statusCode=503;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({error:{message:'账号 #'+ticket.account+' 没有 Build 项目',code:'build_app_missing'}}));return {status:503};}
     parsed.__build={app,model:spec.model,thinking:spec.thinking,...(spec.prefix==='bridge/'?{keepMedia:true}:{})};
     // Uploaded ST presets: mark preset text for the composer, the rest goes to the attachment.
-    if(this.presets){try{const m=this.presets.apply(parsed.messages);if(m){parsed.messages=[{role:'user',content:m.content}];this.stats.presetHits=(this.stats.presetHits||0)+1;}}
+    // bridge/ is forwarded as sent: no server-side preset splitting.
+    if(this.presets&&spec.prefix!=='bridge/'){try{const m=this.presets.apply(parsed.messages);if(m){parsed.messages=[{role:'user',content:m.content}];this.stats.presetHits=(this.stats.presetHits||0)+1;}}
      catch(e){this.log.error('[BuildPresets]',e.message);}}
     result=await forward(ticket,route,Buffer.from(JSON.stringify(parsed)),res,credentials,options);
     return result;
@@ -98,6 +99,8 @@ class BuildChannel{
     if(result?.status===429)this.ledger.defer(ticket.account,Date.now()+60000);
     if(result?.status===403){this.denied.set(ticket.account+'|'+spec.model,Date.now()+6*3600000);this.log.warn('[Build] #'+ticket.account+' refused '+spec.model+'; skipped for 6h');}
     if(result?.status>=400)this.stats.rejected++;
+    // Fresh project after every request (see BuildAppletRotation.renew); never blocks the response.
+    if(app&&this.onFinished){try{this.onFinished(ticket.account);}catch(e){this.log.error('[BuildRenew]',e.message);}}
    }
   };
  }

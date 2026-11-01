@@ -70,6 +70,21 @@ async function main(){
  const appletRotation=new BuildAppletRotation({appsFile:path.join(root,'build-apps.json'),stateFile:path.join(root,'build-applet-rotation.json'),rpc:appletRpc,
   slotOf:id=>['A','B'].find(slot=>dispatch.pool.slots.get(slot)?.current===id)||null});
  const appletTimer=setInterval(()=>{appletRotation.tick().then(r=>{if(r&&!r.skipped)console.log('[BuildRotation]',JSON.stringify(r));}).catch(e=>console.error('[BuildRotation]',e.message));},600000);appletTimer.unref();
+ // Per-request project renewal: after each Build request the account switches to a new project and the used one
+ // is deleted. Waits until the account has no Build request in flight and its worker is idle; retries on 409.
+ const renewing=new Map();
+ const scheduleRenew=(acct,attempt=0)=>{
+  if(cfg.buildRenewPerRequest===false||renewing.has(acct))return;
+  const t=setTimeout(async()=>{
+   renewing.delete(acct);
+   const slot=['A','B'].find(s=>dispatch.pool.slots.get(s)?.current===acct)||null;
+   if(!slot)return;
+   if(build.busy(acct)>0){if(attempt<60)scheduleRenew(acct,attempt+1);return;}
+   let r;try{r=await appletRotation.renew(acct,slot);}catch(e){r='error:'+e.message;}
+   if(!/^renewed/.test(r)&&r!=='no_project'&&r!=='changed'){if(attempt<60)scheduleRenew(acct,attempt+1);else console.warn('[BuildRenew] #'+acct+' gave up: '+r);}
+  },attempt===0?2000:10000);if(t.unref)t.unref();renewing.set(acct,t);
+ };
+ build.onFinished=acct=>scheduleRenew(acct);
  dispatch.quotaExhausted=(slot,plan)=>routing.exhausted(slot,plan);
  let stopping=false;
  const {RetiredResourceCleanup}=require('./retired-resource-cleanup');
