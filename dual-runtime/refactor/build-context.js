@@ -10,14 +10,20 @@ function tokens(text){
  let cjk=0;for(const ch of text)if(/[\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]/.test(ch))cjk++;
  return cjk+Math.ceil((text.length-cjk)/4);
 }
-function textOf(content){
+// Build only accepts text. Non-text parts (images, audio, files, ...) are dropped instead of failing the request;
+// `st` counts what was dropped. The Playground channel does not use this file and is unaffected.
+const ROLES=['system','developer','user','assistant'];
+function textOf(content,st){
  if(typeof content==='string')return content;
- if(Array.isArray(content))return content.map(p=>{
-  if(p&&p.type==='text'&&typeof p.text==='string')return p.text;
-  throw fail('Build 通道目前只支持文本消息');
- }).join('\n');
  if(content==null)return '';
- throw fail('消息 content 必须为文本');
+ const list=Array.isArray(content)?content:[content];
+ const out=[];
+ for(const p of list){
+  if(typeof p==='string'){out.push(p);continue;}
+  if(p&&typeof p.text==='string'&&(p.type==null||p.type==='text'||p.type==='input_text')){out.push(p.text);continue;}
+  if(st)st.parts++;
+ }
+ return out.join('\n');
 }
 // Manual override: a segment starting with [[inline]] or [[file]] is placed accordingly; the tag is removed.
 function override(text){
@@ -32,17 +38,23 @@ function override(text){
 // 5 inline over 45000 tok: earliest movable inline segments move to file, never truncated
 function classify(messages){
  if(!Array.isArray(messages)||!messages.length||messages.length>10000)throw fail('messages 必须为非空数组');
- const rows=messages.map((m,i)=>{
-  if(!m||!['system','developer','user','assistant'].includes(m.role))throw fail('第 '+(i+1)+' 条消息角色无效');
-  if(m.tool_calls||m.function_call)throw fail('Build 通道不支持工具调用');
-  const o=override(textOf(m.content));
-  return {message:i,part:0,role:m.role,...(typeof m.name==='string'&&m.name?{name:m.name.slice(0,128)}:{}),text:o.text,forced:o.placement};
+ const st={parts:0,messages:0,toolCalls:0};
+ const rows=[];
+ messages.forEach((m,i)=>{
+  // tool / function results and unknown roles are dropped; tool calls are stripped from assistant turns
+  if(!m||!ROLES.includes(m.role)){st.messages++;return;}
+  const hadTool=!!(m.tool_calls||m.function_call);if(hadTool)st.toolCalls++;
+  const before=st.parts;
+  const o=override(textOf(m.content,st));
+  if(!o.text.trim()&&(hadTool||st.parts>before)){st.messages++;return;}
+  rows.push({message:i,part:0,role:m.role,...(typeof m.name==='string'&&m.name?{name:m.name.slice(0,128)}:{}),text:o.text,forced:o.placement});
  });
+ if(!rows.length)throw fail('过滤掉图片、附件和工具调用后，没有可以发送的文字内容');
  const conv=rows.filter(r=>r.role==='user'||r.role==='assistant');
- const first=conv.length?conv[0].message:rows.length;
+ const first=conv.length?conv[0].message:messages.length;
  const lastConv=conv.length?conv[conv.length-1].message:-1;
  const lastUser=[...rows].reverse().find(r=>r.role==='user'&&!r.name);
- const generationType=lastConv>=0&&rows[lastConv].role==='assistant'?'continue':'normal';
+ const generationType=conv.length&&conv[conv.length-1].role==='assistant'?'continue':'normal';
  for(const r of rows){
   let placement,source;
   if(generationType==='normal'&&lastUser&&r.message===lastUser.message){placement='inline';source='currentUser';}
@@ -60,7 +72,7 @@ function classify(messages){
   r.placement='file';r.source+='+overflow';inline-=tokens(r.text);
  }
  if(inline>LIMITS.inlineBudget)throw fail('当前这条用户消息超过 45000 token，请缩短',413,'inline_too_large');
- return {segments:rows,generationType,inlineTokens:inline};
+ return {segments:rows,generationType,inlineTokens:inline,dropped:st};
 }
 // Original extension envelope (BUILD_ST_CONTEXT_V1): trust its placements instead of guessing.
 function fromEnvelope(messages){
@@ -69,12 +81,15 @@ function fromEnvelope(messages){
  if(!v||v.version!==1)throw fail('不支持的酒馆适配版本');
  if(v.error)throw fail('酒馆适配器已阻止请求：'+String(v.error).slice(0,60));
  if(!Array.isArray(v.segments)||!v.segments.length||v.segments.length>20000)throw fail('酒馆分段数量无效');
- const segments=v.segments.map(x=>{
-  if(!x||!['system','developer','user','assistant'].includes(x.role)||!['inline','file'].includes(x.placement)||typeof x.text!=='string')throw fail('酒馆分段结构无效');
-  return {message:x.message|0,part:x.part|0,role:x.role,source:String(x.source||'context').slice(0,128),placement:x.placement,text:x.text,...(typeof x.name==='string'&&x.name?{name:x.name.slice(0,128)}:{})};
- });
+ const st={parts:0,messages:0,toolCalls:0,segments:0};
+ const segments=[];
+ for(const x of v.segments){
+  if(!x||!ROLES.includes(x.role)||!['inline','file'].includes(x.placement)||typeof x.text!=='string'){st.segments++;continue;}
+  segments.push({message:x.message|0,part:x.part|0,role:x.role,source:String(x.source||'context').slice(0,128),placement:x.placement,text:x.text,...(typeof x.name==='string'&&x.name?{name:x.name.slice(0,128)}:{})});
+ }
+ if(!segments.length)throw fail('酒馆分段里没有可以发送的文字内容');
  const generationType=['normal','regenerate','swipe','continue','quiet','impersonate'].includes(v.generationType)?v.generationType:'normal';
- return {segments,generationType,inlineTokens:segments.filter(x=>x.placement==='inline').reduce((n,x)=>n+tokens(x.text),0)};
+ return {segments,generationType,inlineTokens:segments.filter(x=>x.placement==='inline').reduce((n,x)=>n+tokens(x.text),0),dropped:st};
 }
 function prepare(messages){return fromEnvelope(messages)||classify(messages);}
 // Pack prepared segments into Build request parts: [attachment?, composer text].

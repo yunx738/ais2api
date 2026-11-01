@@ -231,6 +231,12 @@ function createServer({keys,models,scheduler,status,actions,auth}){
    if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))return json(res,400,{error:'JSON object required'});
    // Gateway repair: fix tool schemas Google rejects; refuse locally what cannot be fixed.
    let outgoing=body;
+   // Build channel is text-only: tool / format fields are unused there, so drop them instead of validating
+   // (a malformed tool schema must not 400 a Build request). Playground requests are untouched.
+   if(typeof parsed.model==='string'&&/^build(-st)?\//.test(parsed.model)){
+    let n=0;for(const k of ['tools','tool_choice','functions','function_call','parallel_tool_calls','response_format'])if(k in parsed){delete parsed[k];n++;}
+    if(n){outgoing=Buffer.from(JSON.stringify(parsed));console.info('[Gateway] build: dropped '+n+' tool/format field(s)');}
+   }
    try{
     const fixed=sanitizeRequest(url.pathname,parsed);
     if(fixed.changed){outgoing=Buffer.from(JSON.stringify(fixed.body));sanitizeStats.repaired++;if(fixed.notes&&fixed.notes.length){sanitizeStats.lastParams={at:Date.now(),fixes:fixed.notes.slice(0,8)};console.info("[Gateway] params adjusted: "+fixed.notes.join("; "));}}

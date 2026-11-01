@@ -45,6 +45,35 @@ r=C.prepare([{role:'user',content:env}]);
 assert.strictEqual(r.generationType,'swipe');assert.deepStrictEqual(r.segments.map(x=>x.placement),['inline','file']);
 assert.throws(()=>C.prepare([{role:'user',content:C.WIRE_PREFIX+'{bad'}]),e=>e.statusCode===400);
 // 10 rejects tools / non-text
-assert.throws(()=>C.prepare([{role:'user',content:[{type:'image_url',image_url:{url:'x'}}]}]),e=>e.statusCode===400);
+// Unsupported content is dropped, not rejected
+{
+ const p=C.prepare([{role:'system',content:'sys'},{role:'user',content:[{type:'text',text:'看图'},{type:'image_url',image_url:{url:'data:x'}}]}]);
+ assert.strictEqual(p.segments.length,2);assert.strictEqual(p.segments[1].text,'看图');assert.strictEqual(p.dropped.parts,1);
+ assert.strictEqual(p.segments[1].source,'currentUser');
+}
+{
+ const p=C.prepare([{role:'user',content:'查天气'},{role:'assistant',content:null,tool_calls:[{id:'1',type:'function',function:{name:'w',arguments:'{}'}}]},{role:'tool',tool_call_id:'1',content:'晴'},{role:'user',content:'谢谢'}]);
+ assert.deepStrictEqual(p.segments.map(x=>x.text),['查天气','谢谢']);
+ assert.strictEqual(p.dropped.toolCalls,1);assert.strictEqual(p.dropped.messages,2);
+ assert.strictEqual(p.generationType,'normal');assert.strictEqual(p.segments[1].placement,'inline');
+}
+{
+ // assistant with text and tool_calls keeps its text; a trailing assistant still means continue
+ const p=C.prepare([{role:'user',content:'a'},{role:'assistant',content:'部分',tool_calls:[{id:'1'}]},{role:'function',content:'x'}]);
+ assert.strictEqual(p.generationType,'continue');assert.strictEqual(p.segments.length,2);
+}
+{
+ const p=C.prepare([{role:'user',content:[{type:'input_audio',input_audio:{}},{type:'text',text:'hi'},'raw']}]);
+ assert.strictEqual(p.segments[0].text,'hi\nraw');assert.strictEqual(p.dropped.parts,1);
+}
+assert.strictEqual(C.prepare([{role:'user',content:'x'}]).dropped.parts,0);
+// nothing left after filtering -> clear 400
+assert.throws(()=>C.prepare([{role:'user',content:[{type:'image_url',image_url:{url:'x'}}]}]),e=>e.statusCode===400&&/文字内容/.test(e.message));
 assert.throws(()=>C.prepare([{role:'tool',content:'x'}]),e=>e.statusCode===400);
+// envelope: bad segments skipped
+{
+ const env=C.WIRE_PREFIX+JSON.stringify({version:1,segments:[{role:'tool',placement:'file',text:'x'},{role:'user',placement:'inline',text:'ok'}]});
+ const p=C.prepare([{role:'user',content:env}]);
+ assert.strictEqual(p.segments.length,1);assert.strictEqual(p.dropped.segments,1);
+}
 console.log('build-context: all tests passed');

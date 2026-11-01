@@ -39,7 +39,10 @@ function install(system,{log=console}={}){
   let packed;
   try{
    const max=req.body.max_completion_tokens??req.body.max_tokens;
-   packed=pack(prepare(req.body.messages),{requestedMaxOutputTokens:Number.isSafeInteger(max)&&max>0?max:undefined});
+   const prepared=prepare(req.body.messages);
+   const d=prepared.dropped;
+   if(d&&(d.parts||d.messages||d.toolCalls||d.segments))log.info?.('[Build] dropped unsupported content '+JSON.stringify(d));
+   packed=pack(prepared,{requestedMaxOutputTokens:Number.isSafeInteger(max)&&max>0?max:undefined});
   }catch(e){return send(res,e.statusCode||400,e.message,e.code||'build_context_invalid');}
   const page=system.browserManager?.page;
   if(!page||page.isClosed())return send(res,503,'工作页面不可用','page_unavailable');
