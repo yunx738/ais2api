@@ -11,7 +11,7 @@ const PAGE_FN=String(async function(parts,model,think,hx,app,key,opts){
  var hd={'content-type':'application/json+protobuf','x-user-agent':'grpc-web-javascript/0.1','x-goog-api-key':key||waa,'authorization':md.Authorization,'x-goog-authuser':String(md['X-Goog-AuthUser']!=null?md['X-Goog-AuthUser']:'0')};
  if(hx.tier)hd['x-aistudio-g1-tier']=hx.tier;if(hx.ext)hd['x-goog-ext-519733851-bin']=hx.ext;if(hx.visit)hd['x-aistudio-visit-id']=hx.visit;
 
- // bridge/ files: upload to AI Studio /_/upload (same as the official page), then reference by path (Part field 18).
+ // build-st/ files: upload to AI Studio /_/upload (same as the official page), then reference by path (Part field 18).
  for(var ui=0;ui<parts.length;ui++){var pu=parts[ui];if(!pu||!pu.__upload)continue;
   var um=pu.__upload[0],ub=atob(pu.__upload[1]),ubytes=new Uint8Array(ub.length);for(var bi=0;bi<ub.length;bi++)ubytes[bi]=ub.charCodeAt(bi);
   var udg=new Uint8Array(await crypto.subtle.digest('SHA-256',ubytes)),uds='';for(var di=0;di<udg.length;di++)uds+=String.fromCharCode(udg[di]);

@@ -13,7 +13,7 @@ function tokens(text){
 // Build only accepts text. Non-text parts (images, audio, files, ...) are dropped instead of failing the request;
 // `st` counts what was dropped. The Playground channel does not use this file and is unaffected.
 const ROLES=['system','developer','user','assistant'];
-// media: optional array; when given (bridge/ models), non-text parts are kept as inline files instead of dropped.
+// media: optional array; when given (build-st/ models), non-text parts are kept as inline files instead of dropped.
 function mediaOf(p){
  const url=p&&(p.image_url&&(p.image_url.url||p.image_url)||p.file&&(p.file.file_data||p.file.url)||p.url);
  if(typeof url==='string'){const m=/^data:([^;,]+)(?:;[^,]*)?;base64,(.*)$/s.exec(url);if(m)return {mime:m[1],data:m[2].replace(/\s+/g,''),name:p.file&&p.file.filename};return {link:url};}
@@ -136,7 +136,7 @@ function pack(prepared,{requestedMaxOutputTokens,nonce=crypto.randomBytes(12).to
   parts=[[null,prompt]];
  }
  if(Buffer.byteLength(prompt)>LIMITS.maxBytes)throw fail('Build 输入框内容过大',413,'inline_too_large');
- // bridge/: user files (images, audio, documents) go through untouched as extra inline-data parts before the composer.
+ // build-st/: user files (images, audio, documents) go through untouched as extra inline-data parts before the composer.
  const media=Array.isArray(prepared.media)?prepared.media:[];
  if(media.length){
   const total=media.reduce((n,f)=>n+Math.floor(f.data.length*3/4),0);

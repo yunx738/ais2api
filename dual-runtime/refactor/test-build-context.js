@@ -87,7 +87,7 @@ assert.throws(()=>C.prepare([{role:'user',content:C.WIRE_PREFIX+JSON.stringify({
 }
 console.log('build-context: all tests passed');
 
-// bridge/: files kept as inline-data parts, default prefixes still drop them
+// build-st/: files kept as inline-data parts, default prefixes still drop them
 {const img='data:image/png;base64,iVBORw0KGgo=';
  const msgs=[{role:'user',content:[{type:'text',text:'see'},{type:'image_url',image_url:{url:img}},{type:'file',file:{filename:'a.pdf',file_data:'data:application/pdf;base64,JVBERi0='}}]}];
  const d=C.pack(C.prepare(msgs));assert.strictEqual(d.parts.length,1);assert.strictEqual(C.prepare(msgs).dropped.parts,2);

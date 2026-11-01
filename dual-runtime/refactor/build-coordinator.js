@@ -5,7 +5,8 @@
 // Build projects per account live in build-apps.json: {"31":"<applet uuid>"}.
 const fs=require('fs');
 const {parseBuildModel,listModels,BuildTokenLedger}=require('./build-routing');
-const {tokens}=require('./build-context');
+const {tokens,WIRE_PREFIX}=require('./build-context');
+const isEnvelope=m=>Array.isArray(m)&&m.length===1&&m[0]&&m[0].role==='user'&&typeof m[0].content==='string'&&m[0].content.startsWith(WIRE_PREFIX);
 const APP=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 class BuildChannel{
  constructor({appsFile,ledgerFile,tierOf,isPremium,limits,presets=null,log=console}){
@@ -77,10 +78,17 @@ class BuildChannel{
    let result;const t0=Date.now();
    try{
     if(!app){res.statusCode=503;res.setHeader('Content-Type','application/json');res.end(JSON.stringify({error:{message:'账号 #'+ticket.account+' 没有 Build 项目',code:'build_app_missing'}}));return {status:503};}
-    parsed.__build={app,model:spec.model,thinking:spec.thinking,...(spec.prefix==='bridge/'?{keepMedia:true}:{})};
+    // build-st/: handled entirely by the SillyTavern build-standalone plugin. Only its envelope is accepted;
+    // the gateway never splits these requests itself. bridge/ and build/: gateway presets applied, files dropped.
+    const raw=spec.prefix==='build-st/';
+    if(raw&&!isEnvelope(parsed.messages)){
+     this.stats.rejected++;res.statusCode=400;res.setHeader('Content-Type','application/json');
+     res.end(JSON.stringify({error:{message:'build-st/ 只接收酒馆 build-standalone 插件打包好的请求，这条请求没有经过插件处理（插件未启用或没接管）。请启用插件，或改用 bridge/ 前缀由网关拆分。',code:'build_st_plugin_required'}}));
+     return {status:400};
+    }
+    parsed.__build={app,model:spec.model,thinking:spec.thinking,...(raw?{keepMedia:true}:{})};
     // Uploaded ST presets: mark preset text for the composer, the rest goes to the attachment.
-    // bridge/ is forwarded as sent: no server-side preset splitting.
-    if(this.presets&&spec.prefix!=='bridge/'){try{const m=this.presets.apply(parsed.messages);if(m){parsed.messages=[{role:'user',content:m.content}];this.stats.presetHits=(this.stats.presetHits||0)+1;}}
+    if(this.presets&&!raw){try{const m=this.presets.apply(parsed.messages);if(m){parsed.messages=[{role:'user',content:m.content}];this.stats.presetHits=(this.stats.presetHits||0)+1;}}
      catch(e){this.log.error('[BuildPresets]',e.message);}}
     result=await forward(ticket,route,Buffer.from(JSON.stringify(parsed)),res,credentials,options);
     return result;
