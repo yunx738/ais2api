@@ -44,12 +44,15 @@ const body=o=>Buffer.from(JSON.stringify(o));
  assert.strictEqual(ch.models().length,24);
  // per-account Build in-flight cap (default 1): a second call on the same account waits until the first finishes
  {const d2=fs.mkdtempSync(path.join(os.tmpdir(),'bc2-'));fs.writeFileSync(path.join(d2,'a.json'),JSON.stringify({31:APP,22:APP}));
-  const c=new BuildChannel({appsFile:path.join(d2,'a.json'),ledgerFile:path.join(d2,'l.json'),tierOf:id=>tiers[id]||'standard',isPremium:()=>true});
+  const c=new BuildChannel({appsFile:path.join(d2,'a.json'),ledgerFile:path.join(d2,'l.json'),tierOf:id=>tiers[id]||'standard',isPremium:id=>id!==31});
   const p=c.resolve('/v1/chat/completions',body({model:'build/gemini-3.8-flash',messages:[{role:'user',content:'x'}]}));
-  assert.strictEqual(c.maxInflight,1);
+  assert.strictEqual(c.maxInflight,1);assert.strictEqual(c.inflightCap(31),1);assert.strictEqual(c.inflightCap(22),2);
   assert.strictEqual(p.admit(31,'c1'),true);assert.strictEqual(p.admit(31,'c2'),false);assert.strictEqual(p.admit(22,'c3'),true);
   await c.wrapForward(async()=>({status:502}))({id:'c1',account:31},'/v1/chat/completions',body({model:'build/gemini-3.8-flash',messages:[]}),{},{});
   assert.strictEqual(p.admit(31,'c2'),true);assert.strictEqual(c.stats.waitedInflight,1);
+  // premium account (22): up to 2 at once (c3 already running), the 3rd waits
+  assert.strictEqual(p.admit(22,'c4'),true);
+  assert.strictEqual(p.admit(22,'c5'),false);
   fs.rmSync(d2,{recursive:true,force:true});}
  console.log('build-coordinator: all tests passed');
 })().catch(e=>{console.error(e);process.exit(1);});

@@ -1,0 +1,10 @@
+'use strict';
+const assert=require('assert'),fs=require('fs'),os=require('os'),path=require('path');
+const {BuildChannel:BuildCoordinator}=require('./build-coordinator');
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bit-'));
+const tiers={1:'standard',2:'pro',3:'ultra'};
+const b=new BuildCoordinator({appsFile:path.join(dir,'a.json'),ledgerFile:path.join(dir,'l.json'),tierOf:id=>tiers[id],isPremium:id=>tiers[id]!=='standard',log:{warn(){},error(){},info(){}}});
+assert.strictEqual(b.inflightCap(1),1);
+assert.strictEqual(b.inflightCap(2),2);
+assert.strictEqual(b.inflightCap(3),2);
+console.log('build-inflight-tier: all tests passed');

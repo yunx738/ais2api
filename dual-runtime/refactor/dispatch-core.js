@@ -59,7 +59,7 @@ class DispatchCore {
   const now=Date.now();
   for(let n=0;n<2;n++){
    const pos=(this.cursor+n)%2,slot=['A','B'][pos],s=this.slots.get(slot),owner=this.pool.slots.get(slot);
-   if(Object.keys(s.retirements||{}).length>=100||this.operations.has(slot)||s.active>=this.limitOf(slot)||s.proxyApply||s.ready===false||owner?.pending||owner?.current===undefined)continue;
+   if(Object.keys(s.retirements||{}).length>=100||this.operations.has(slot)||s.active>=(typeof plan.admit==='function'?10:this.limitOf(slot))||s.proxyApply||s.ready===false||owner?.pending||owner?.current===undefined)continue;
    if(this.accountFlags[owner.current]||!s.workerEpoch||!eligible(slot,owner.current))continue;
    // Quota is owned by account and canonical model, not slot.
    // Token-metered plans (Build channel) use their own ledger instead of per-request model counters.

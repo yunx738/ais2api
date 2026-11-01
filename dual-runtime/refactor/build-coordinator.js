@@ -17,6 +17,9 @@ class BuildChannel{
   // appears) when one account runs several Build generations at once; extra requests wait in the queue.
   const cap=Number(process.env.BUILD_MAX_INFLIGHT_PER_ACCOUNT);
   this.maxInflight=Number.isSafeInteger(cap)&&cap>=1&&cap<=10?cap:1;
+  // Pro / Ultra accounts may run more Build generations at once than standard ones.
+  const pcap=Number(process.env.BUILD_MAX_INFLIGHT_PREMIUM);
+  this.maxInflightPremium=Number.isSafeInteger(pcap)&&pcap>=1&&pcap<=10?pcap:2;
   this.inflight=new Map(); // account -> Map(id -> startedAt)
   this.denied=new Map(); // 'account|model' -> until: Google refused this model for this account (e.g. free tier vs pro models)
   this.stats={requests:0,charged:0,missingUsage:0,rejected:0};
@@ -27,6 +30,7 @@ class BuildChannel{
   }catch{return {};}
  }
  appFor(id){return this.apps()[id]||null;}
+ inflightCap(account){return this.isPremium&&this.isPremium(account)?this.maxInflightPremium:this.maxInflight;}
  busy(account){
   const m=this.inflight.get(account);if(!m)return 0;
   const stale=Date.now()-15*60000;for(const [k,t] of m)if(t<stale)m.delete(k); // safety: never wedge an account
@@ -59,7 +63,7 @@ class BuildChannel{
    eligible:(slot,account)=>self.ready(account,spec.model),
    admit(account,id){
     if(!self.ready(account,spec.model))return false;
-    if(self.busy(account)>=self.maxInflight){self.stats.waitedInflight=(self.stats.waitedInflight||0)+1;return false;}
+    if(self.busy(account)>=self.inflightCap(account)){self.stats.waitedInflight=(self.stats.waitedInflight||0)+1;return false;}
     self.hold(account,id);
     self.reservations.set(id,{account,n:self.ledger.reserve(account,estimate)});
     return true;
