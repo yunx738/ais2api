@@ -46,7 +46,7 @@ const APP='d5df4c44-02ed-4b2f-b71a-34fbc28e8861';
  assert.strictEqual(res.statusCode,502);assert.strictEqual(res.body.error.code,'build_incomplete');
  // oversize context rejected before the page is touched
  t=system('{}');res=fakeRes();
- await t.s.requestHandler.processOpenAIRequest({body:{model:'build/gemini-4-argon',messages:[{role:'system',content:'x'.repeat(260000)},{role:'user',content:'x'}],__build:{app:APP,model:'gemini-4-argon',thinking:3}}},res);
+ await t.s.requestHandler.processOpenAIRequest({body:{model:'build/gemini-4-argon',messages:[{role:'system',content:'x'.repeat(8*1024*1024+10)},{role:'user',content:'x'}],__build:{app:APP,model:'gemini-4-argon',thinking:3}}},res);
  assert.strictEqual(res.statusCode,413);assert.strictEqual(t.calls.length,0);
  // bad spec
  t=system('{}');res=fakeRes();

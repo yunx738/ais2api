@@ -36,7 +36,9 @@ r=C.prepare([{role:'system',content:'[[inline]]'+'甲'.repeat(30000)},{role:'sys
 assert.deepStrictEqual(r.segments.map(x=>x.placement),['file','inline','inline']);
 assert.ok(r.segments[0].source.endsWith('+overflow'));
 // 7 oversize -> 413 before any upstream call
-assert.throws(()=>C.pack(C.prepare([{role:'system',content:'x'.repeat(260000)},{role:'user',content:'go'}])),e=>e.statusCode===413&&e.code==='context_too_large');
+{const big=C.pack(C.prepare([{role:'system',content:'x'.repeat(260000)},{role:'user',content:'go'}]));assert.strictEqual(big.mode,'attachment-upload');assert.ok(big.parts[0].__upload&&big.parts[0].__upload[0]==='text/plain');}
+{const small=C.pack(C.prepare([{role:'system',content:'x'.repeat(150000)},{role:'user',content:'go'}]));assert.strictEqual(small.mode,'attachment');}
+assert.throws(()=>C.pack(C.prepare([{role:'system',content:'x'.repeat(8*1024*1024+10)},{role:'user',content:'go'}])),e=>e.statusCode===413&&e.code==='context_too_large');
 // 8 current user message alone too large
 assert.throws(()=>C.prepare([{role:'user',content:'字'.repeat(50000)}]),e=>e.statusCode===413);
 // 9 extension envelope honoured as-is
@@ -74,16 +76,20 @@ assert.throws(()=>C.prepare([{role:'tool',content:'x'}]),e=>e.statusCode===400);
 assert.throws(()=>C.prepare([{role:'user',content:C.WIRE_PREFIX+JSON.stringify({version:1,error:'text_only'})}]),e=>e.statusCode===400&&e.code==='build_plugin_refused'&&/图片/.test(e.message));
 // plugin envelope: placements are used exactly as sent
 {
- const env=C.WIRE_PREFIX+JSON.stringify({version:1,generationType:'swipe',segments:[{role:'system',placement:'inline',source:'main',text:'S'},{role:'user',placement:'file',source:'chatHistory',text:'H'},{role:'user',placement:'inline',source:'current',text:'Q'}]});
+ const env=C.WIRE_PREFIX+JSON.stringify({version:1,generationType:'swipe',segments:[{message:0,part:0,role:'system',placement:'inline',source:'main',text:'S'},{message:1,part:0,role:'user',placement:'file',source:'chatHistory',text:'H'},{message:2,part:0,role:'user',placement:'inline',source:'current',text:'Q'}]});
  const p=C.prepare([{role:'user',content:env}]);
  assert.deepStrictEqual(p.segments.map(x=>[x.role,x.placement,x.source,x.text]),[['system','inline','main','S'],['user','file','chatHistory','H'],['user','inline','current','Q']]);
  assert.strictEqual(p.generationType,'swipe');
 }
-// envelope: bad segments skipped
+// envelope: strict validation like the official server (bad role / gaps / role change -> 400)
 {
- const env=C.WIRE_PREFIX+JSON.stringify({version:1,segments:[{role:'tool',placement:'file',text:'x'},{role:'user',placement:'inline',text:'ok'}]});
- const p=C.prepare([{role:'user',content:env}]);
- assert.strictEqual(p.segments.length,1);assert.strictEqual(p.dropped.segments,1);
+ const E=o=>[{role:'user',content:C.WIRE_PREFIX+JSON.stringify(Object.assign({version:1,generationType:'normal'},o))}];
+ assert.throws(()=>C.prepare(E({segments:[{message:0,part:0,role:'tool',source:'x',placement:'file',text:'x'}]})),e=>e.statusCode===400);
+ assert.throws(()=>C.prepare(E({segments:[{message:0,part:1,role:'user',source:'x',placement:'inline',text:'x'}]})),e=>e.statusCode===400);
+ assert.throws(()=>C.prepare(E({segments:[{message:1,part:0,role:'user',source:'x',placement:'inline',text:'a'},{message:0,part:0,role:'user',source:'x',placement:'inline',text:'b'}]})),e=>e.statusCode===400);
+ assert.throws(()=>C.prepare(E({segments:[{message:0,part:0,role:'user',source:'x',placement:'inline',text:'a'},{message:0,part:1,role:'assistant',source:'x',placement:'inline',text:'b'}]})),e=>e.statusCode===400);
+ const ok=C.prepare(E({segments:[{message:0,part:0,role:'user',source:'x',placement:'file',text:'a'},{message:0,part:1,role:'user',source:'x',placement:'inline',text:'b'}]}));
+ assert.strictEqual(ok.segments.length,2);
 }
 console.log('build-context: all tests passed');
 

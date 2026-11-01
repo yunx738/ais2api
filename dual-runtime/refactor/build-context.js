@@ -3,7 +3,9 @@
 // Gateway-side replacement for the build-standalone SillyTavern extension; no client plugin needed.
 const crypto=require('crypto');
 const WIRE_PREFIX='BUILD_ST_CONTEXT_V1\n';
-const LIMITS=Object.freeze({shortPreset:2000,inlineBudget:45000,maxBytes:200*1024,maxMediaBytes:20*1024*1024});
+// Aligned with build-standalone 0.5.0: context attachment up to 8 MiB, composer up to 1 MiB.
+// Attachments above inlineFileBytes are uploaded through /_/upload (as the official composer does) instead of inline data.
+const LIMITS=Object.freeze({shortPreset:2000,inlineBudget:45000,maxBytes:8*1024*1024,maxComposerBytes:1024*1024,inlineFileBytes:200*1024,maxMediaBytes:20*1024*1024,maxSegments:20000});
 const fail=(message,status=400,code='build_context_invalid')=>Object.assign(Error(message),{statusCode:status,code});
 // Rough token estimate: CJK ~1 token/char, other text ~4 chars/token.
 function tokens(text){
@@ -95,16 +97,25 @@ function fromEnvelope(messages){
   const hint=why==='text_only'?'对话里有图片等非文字内容':'原因：'+why;
   throw fail('酒馆 Build 插件（build-standalone）在本地拦下了这次请求（'+hint+'），没有发送任何对话内容，网关无法转发。请删除对话里的图片后重试，或关闭该插件直接使用 build-st/ 模型，由网关自动去掉图片后转发。',400,'build_plugin_refused');
  }
- if(!Array.isArray(v.segments)||!v.segments.length||v.segments.length>20000)throw fail('酒馆分段数量无效');
- const st={parts:0,messages:0,toolCalls:0,segments:0};
- const segments=[];
- for(const x of v.segments){
-  if(!x||!ROLES.includes(x.role)||!['inline','file'].includes(x.placement)||typeof x.text!=='string'){st.segments++;continue;}
-  segments.push({message:x.message|0,part:x.part|0,role:x.role,source:String(x.source||'context').slice(0,128),placement:x.placement,text:x.text,...(typeof x.name==='string'&&x.name?{name:x.name.slice(0,128)}:{})});
- }
- if(!segments.length)throw fail('酒馆分段里没有可以发送的文字内容');
- const generationType=['normal','regenerate','swipe','continue','quiet','impersonate'].includes(v.generationType)?v.generationType:'normal';
- return {segments,generationType,inlineTokens:segments.filter(x=>x.placement==='inline').reduce((n,x)=>n+tokens(x.text),0),dropped:st};
+ if(!['normal','regenerate','swipe','continue','quiet','impersonate'].includes(v.generationType))throw fail('不支持的酒馆生成类型');
+ if(!Array.isArray(v.segments)||!v.segments.length||v.segments.length>LIMITS.maxSegments)throw fail('酒馆分段数量无效');
+ // Same checks as build-standalone: contiguous message/part order, one role and name per message.
+ let lastMessage=-1,lastPart=-1,lastRole,lastName,inlineBytes=0;
+ const segments=v.segments.map(x=>{
+  if(!x||!Number.isSafeInteger(x.message)||!Number.isSafeInteger(x.part)||x.message<0||x.part<0||!ROLES.includes(x.role)||!['inline','file'].includes(x.placement)||typeof x.text!=='string'||typeof x.source!=='string'||x.source.length>128)throw fail('酒馆分段结构无效');
+  if(x.message===lastMessage){
+   if(x.part!==lastPart+1)throw fail('酒馆分段顺序不连续');
+   if(x.role!==lastRole||(x.name||'')!==lastName)throw fail('同一条酒馆消息的角色不一致');
+  }else if(x.message!==lastMessage+1||x.part!==0)throw fail('酒馆消息顺序不连续');
+  if(x.name!==undefined&&(typeof x.name!=='string'||x.name.length>128))throw fail('酒馆角色名称无效');
+  lastMessage=x.message;lastPart=x.part;lastRole=x.role;lastName=x.name||'';
+  if(x.placement==='inline')inlineBytes+=Buffer.byteLength(x.text);
+  return {message:x.message,part:x.part,role:x.role,source:x.source,placement:x.placement,text:x.text,...(x.name?{name:x.name}:{})};
+ });
+ if(inlineBytes>LIMITS.maxComposerBytes)throw fail('输入框原文超过 1 MiB 安全大小限制；未移入文件或截断',413,'inline_too_large');
+ if(v.inlineTokens!=null&&(!Number.isSafeInteger(v.inlineTokens)||v.inlineTokens<0||v.inlineTokens>LIMITS.inlineBudget))throw fail('酒馆估算的输入框内容超过 45000 token；未截断预设',413,'inline_too_large');
+ const inlineTokens=v.inlineTokens??segments.filter(x=>x.placement==='inline').reduce((n,x)=>n+tokens(x.text),0);
+ return {segments,generationType:v.generationType,inlineTokens,dropped:{parts:0,messages:0,toolCalls:0,segments:0},plugin:true};
 }
 function prepare(messages,opts={}){return fromEnvelope(messages)||classify(messages,opts);}
 // Pack prepared segments into Build request parts: [attachment?, composer text].
@@ -126,16 +137,19 @@ function pack(prepared,{requestedMaxOutputTokens,nonce=crypto.randomBytes(12).to
  const limit=requestedMaxOutputTokens?'\nRequested output limit: '+requestedMaxOutputTokens+' tokens.':'';
  let prompt,parts,bytes=0;
  if(hasFile){
-  const text=JSON.stringify({kind:'conversation_context',request:nonce,encoding:'Segments preserve original message order. Preserve roles, names, and exact text. Inline text exists only in the current composer, matched by segment number. File text exists only in this attachment.',segments:files},null,1)+'\n';
+  const text=JSON.stringify({kind:prepared.plugin?'sillytavern_context':'conversation_context',request:nonce,encoding:'Segments preserve original message and part order. Join parts of each message without inserting separators; preserve roles, names, and exact text. Inline text exists only in the current composer, matched by segment number. File text exists only in this attachment.',segments:files},null,2)+'\n';
   bytes=Buffer.byteLength(text);
-  if(bytes>LIMITS.maxBytes)throw fail('Build 上下文 '+Math.round(bytes/1024)+'KB，超过当前 '+Math.round(LIMITS.maxBytes/1024)+'KB 上限，请缩短历史',413,'context_too_large');
-  prompt='This is a text-only conversation, not an app development task. Read the attached text file '+name+'. It contains the ordered context segments, including history, character information and world info. Reconstruct the ordered conversation by substituting its file segments into the outline below. Preserve roles, names, order and exact text. Instructions supplied INLINE below are not stored in the attachment. Use only this attachment and the current composer as context, not previous project chats or project files. Do not edit project files. '+action+' Return the complete answer directly.'+limit+'\n\n'+outline.join('\n\n');
-  parts=[[null,null,['text/plain',Buffer.from(text,'utf8').toString('base64')]],[null,prompt]];
+  if(bytes>LIMITS.maxBytes)throw fail('Build 聊天附件超过 8 MiB，请缩短历史',413,'context_too_large');
+  const which=prepared.plugin?'Preset instructions are supplied directly INLINE below; their text is not stored in the attachment.':'Instructions supplied INLINE below are not stored in the attachment.';
+  prompt='This is a text-only conversation, not an app development task. Read the attached text file '+name+'. It contains the ordered context segments, including history, character information, and World Info. Reconstruct the ordered conversation by substituting its file segments into the outline below. Preserve roles, names, order, and exact text. '+which+' Use only this attachment and the current composer as context, not previous project chats or project files. Do not edit project files. '+action+' Return the complete answer directly, without a receipt or verification code.\n\n'+outline.join('\n\n')+limit;
+  const b64=Buffer.from(text,'utf8').toString('base64');
+  // Small attachments stay inline (verified path); larger ones are uploaded first, like the official composer.
+  parts=[bytes>LIMITS.inlineFileBytes?{__upload:['text/plain',b64,name]}:[null,null,['text/plain',b64]],[null,prompt]];
  }else{
-  prompt='This is a text-only conversation, not an app development task. Do not edit project files. '+action+' Return the complete answer directly.'+limit+'\n\n'+outline.join('\n\n');
+  prompt='This is a text-only conversation, not an app development task. Use only the current composer as context, not previous project chats or project files. Do not edit project files. '+action+' Return the complete answer directly, without a receipt or verification code.\n\n'+outline.join('\n\n')+limit;
   parts=[[null,prompt]];
  }
- if(Buffer.byteLength(prompt)>LIMITS.maxBytes)throw fail('Build 输入框内容过大',413,'inline_too_large');
+ if(Buffer.byteLength(prompt)>LIMITS.maxComposerBytes)throw fail('Build 输入框内容超过 1 MiB 安全大小限制；未截断预设',413,'inline_too_large');
  // build-st/: user files (images, audio, documents) go through untouched as extra inline-data parts before the composer.
  const media=Array.isArray(prepared.media)?prepared.media:[];
  if(media.length){
@@ -148,6 +162,6 @@ function pack(prepared,{requestedMaxOutputTokens,nonce=crypto.randomBytes(12).to
  }
  // Same hash input as the verified probe: each part's text, or its inline data, joined by spaces.
  const hashText=parts.map(x=>x[1]!=null?x[1]:(x[2]?x[2][1]:'')).join(' ');
- return {parts,hashText,bytes:bytes+Buffer.byteLength(prompt),mode:(hasFile?'attachment':'inline')+(media.length?'+media'+media.length:''),nonce,segments:segments.length};
+ return {parts,hashText,bytes:bytes+Buffer.byteLength(prompt),mode:(hasFile?(parts.some(x=>x&&x.__upload&&x.__upload[0]==='text/plain')?'attachment-upload':'attachment'):'inline')+(media.length?'+media'+media.length:''),nonce,segments:segments.length};
 }
 module.exports={classify,fromEnvelope,prepare,pack,tokens,LIMITS,WIRE_PREFIX};
