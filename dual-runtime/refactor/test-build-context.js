@@ -84,7 +84,9 @@ assert.throws(()=>C.prepare([{role:'user',content:C.WIRE_PREFIX+JSON.stringify({
 // envelope: strict validation like the official server (bad role / gaps / role change -> 400)
 {
  const E=o=>[{role:'user',content:C.WIRE_PREFIX+JSON.stringify(Object.assign({version:1,generationType:'normal'},o))}];
- assert.throws(()=>C.prepare(E({segments:[{message:0,part:0,role:'tool',source:'x',placement:'file',text:'x'}]})),e=>e.statusCode===400);
+ // v2 envelopes may carry tool results; an unknown role is still refused.
+assert.strictEqual(C.prepare(E({segments:[{message:0,part:0,role:'tool',source:'x',placement:'file',text:'x'}]})).segments[0].role,'tool');
+assert.throws(()=>C.prepare(E({segments:[{message:0,part:0,role:'robot',source:'x',placement:'file',text:'x'}]})),e=>e.statusCode===400);
  assert.throws(()=>C.prepare(E({segments:[{message:0,part:1,role:'user',source:'x',placement:'inline',text:'x'}]})),e=>e.statusCode===400);
  assert.throws(()=>C.prepare(E({segments:[{message:1,part:0,role:'user',source:'x',placement:'inline',text:'a'},{message:0,part:0,role:'user',source:'x',placement:'inline',text:'b'}]})),e=>e.statusCode===400);
  assert.throws(()=>C.prepare(E({segments:[{message:0,part:0,role:'user',source:'x',placement:'inline',text:'a'},{message:0,part:1,role:'assistant',source:'x',placement:'inline',text:'b'}]})),e=>e.statusCode===400);

@@ -10,7 +10,9 @@ const LEVELS={low:1,medium:2,high:3};
 // bridge/: same Build channel, but the name has no 'build' in it, so the build-standalone SillyTavern
 // extension does not intercept it; gateway applies uploaded presets and drops files.
 // build-st/: plugin only. The build-standalone envelope is used as sent; plain requests are rejected (400).
-const PREFIXES=['build/','build-st/','bridge/'];
+// code/: same Build channel, tuned for coding agents (OpenCode, Cline ...): agent instructions and the current
+// tool-call chain stay in the composer, older turns and large tool results go to the attachment.
+const PREFIXES=['build/','build-st/','bridge/','code/'];
 // null = no daily cap (usage is still recorded); 0 = not allowed.
 const DEFAULT_LIMITS=Object.freeze({standard:null,pro:null,ultra:null,ultra20:null});
 function parseBuildModel(name){

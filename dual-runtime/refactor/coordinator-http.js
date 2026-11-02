@@ -233,9 +233,15 @@ function createServer({keys,models,scheduler,status,actions,auth}){
    let outgoing=body;
    // Build channel is text-only: tool / format fields are unused there, so drop them instead of validating
    // (a malformed tool schema must not 400 a Build request). Playground requests are untouched.
-   if(typeof parsed.model==='string'&&/^(build(-st)?|bridge)\//.test(parsed.model)){
-    let n=0;for(const k of ['tools','tool_choice','functions','function_call','parallel_tool_calls','response_format'])if(k in parsed){delete parsed[k];n++;}
-    if(n){outgoing=Buffer.from(JSON.stringify(parsed));console.info('[Gateway] build: dropped '+n+' tool/format field(s)');}
+   if(typeof parsed.model==='string'&&/^(build(-st)?|bridge|code)\//.test(parsed.model)){
+    // Tool fields move to __tools (text tool protocol in the worker); response_format is dropped.
+    // Client-supplied internal fields are never trusted.
+    let n=0;const tools={};
+    for(const k of ['__tools','__build','__tcprobe'])if(k in parsed){delete parsed[k];n++;}
+    for(const k of ['tools','tool_choice','functions','function_call','parallel_tool_calls'])if(k in parsed){tools[k]=parsed[k];delete parsed[k];n++;}
+    if('response_format' in parsed){delete parsed.response_format;n++;}
+    if((Array.isArray(tools.tools)&&tools.tools.length)||(Array.isArray(tools.functions)&&tools.functions.length))parsed.__tools=tools;
+    if(n)outgoing=Buffer.from(JSON.stringify(parsed));
    }
    try{
     const fixed=sanitizeRequest(url.pathname,parsed);

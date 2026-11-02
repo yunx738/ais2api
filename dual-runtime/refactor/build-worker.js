@@ -6,6 +6,7 @@ const crypto=require('crypto');
 const {prepare,pack}=require('./build-context');
 const {parse,openaiUsage}=require('./build-response');
 const {expression}=require('./build-page-call');
+const Tools=require('./build-tools');
 const APP=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MODELS=new Set(['gemini-4-argon','gemini-3.8-flash']);
 function install(system,{log=console}={}){
@@ -42,13 +43,17 @@ function install(system,{log=console}={}){
   watch();
   const id='chatcmpl-'+crypto.randomUUID();
   if(!APP.test(spec.app||'')||!MODELS.has(spec.model)||![1,2,3].includes(spec.thinking))return send(res,400,'Build 通道参数无效');
-  let packed;
+  let packed,toolSpec=null;const toolNonce=Tools.nonce();
   try{
    const max=req.body.max_completion_tokens??req.body.max_tokens;
-   const prepared=prepare(req.body.messages,{keepMedia:spec.keepMedia===true});
+   // Tools: client definitions arrive as __tools (moved there by the gateway). History tool calls/results are
+   // turned into text so they are kept. build-st/ envelopes already carry history as text.
+   toolSpec=Tools.normalize(req.body.__tools);
+   const msgs=Tools.flatten(req.body.messages).messages;
+   const prepared=prepare(msgs,{keepMedia:spec.keepMedia===true,mode:spec.mode});
    const d=prepared.dropped;
    if(d&&(d.parts||d.messages||d.toolCalls||d.segments))log.info?.('[Build] dropped unsupported content '+JSON.stringify(d));
-   packed=pack(prepared,{requestedMaxOutputTokens:Number.isSafeInteger(max)&&max>0?max:undefined});
+   packed=pack(prepared,{requestedMaxOutputTokens:Number.isSafeInteger(max)&&max>0?max:undefined,extra:Tools.instructions(toolSpec,toolNonce),code:spec.mode==='code'});
   }catch(e){return send(res,e.statusCode||400,e.message,e.code||'build_context_invalid');}
   const page=system.browserManager?.page;
   if(!page||page.isClosed())return send(res,503,'工作页面不可用','page_unavailable');
@@ -88,17 +93,21 @@ function install(system,{log=console}={}){
   }
   if(!out.complete||!out.text.trim())return send(res,502,'Build 回复不完整（未收到结束标记或正文为空），请重试','build_incomplete');
   const usage=openaiUsage(out.usage),model=req.body.model,created=Math.floor(Date.now()/1000);
-  const message={role:'assistant',content:out.text,...(out.thought?{reasoning_content:out.thought}:{})};
+  const tc=Tools.extract(out.text,toolSpec,toolNonce);
+  if(toolSpec)log.info?.('[BuildTools] tools='+toolSpec.tools.length+' mode='+toolSpec.mode+' calls='+tc.calls.length+(tc.rejected.length?' rejected='+JSON.stringify(tc.rejected.slice(0,4)):''));
+  const calls=tc.calls.length?tc.calls:null,finish=calls?'tool_calls':'stop';
+  const message={role:'assistant',content:calls&&!tc.content.trim()?null:tc.content,...(calls?{tool_calls:calls}:{}),...(out.thought?{reasoning_content:out.thought}:{})};
   if(req.body.stream===true){
    res.status(200);res.setHeader('Content-Type','text/event-stream; charset=utf-8');res.setHeader('Cache-Control','no-cache');
    const base={id,object:'chat.completion.chunk',created,model};
    const frames=[];
    if(out.thought)frames.push({...base,choices:[{index:0,delta:{role:'assistant',reasoning_content:out.thought},finish_reason:null}]});
-   frames.push({...base,choices:[{index:0,delta:{role:'assistant',content:out.text},finish_reason:null}]});
-   frames.push({...base,choices:[{index:0,delta:{},finish_reason:'stop'}],usage});
+   if(message.content)frames.push({...base,choices:[{index:0,delta:{role:'assistant',content:message.content},finish_reason:null}]});
+   if(calls)frames.push({...base,choices:[{index:0,delta:{role:'assistant',tool_calls:calls.map((c,index)=>({index,...c}))},finish_reason:null}]});
+   frames.push({...base,choices:[{index:0,delta:{},finish_reason:finish}],usage});
    return res.end(frames.map(f=>'data: '+JSON.stringify(f)+'\n\n').join('')+'data: [DONE]\n\n');
   }
-  res.status(200).json({id,object:'chat.completion',created,model,choices:[{index:0,message,finish_reason:'stop'}],usage});
+  res.status(200).json({id,object:'chat.completion',created,model,choices:[{index:0,message,finish_reason:finish}],usage});
  };
  return {hx};
 }

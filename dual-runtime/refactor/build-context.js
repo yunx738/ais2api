@@ -87,10 +87,12 @@ function classify(messages,{keepMedia=false}={}){
  return {segments:rows,generationType,inlineTokens:inline,dropped:st,...(media&&media.length?{media}:{})};
 }
 // Original extension envelope (BUILD_ST_CONTEXT_V1): trust its placements instead of guessing.
+// Version 2 (plugin 0.6.0) adds tool / function roles and messageMetadata (tool_calls, tool_call_id).
+const ENV_ROLES=[...ROLES,'tool','function'];
 function fromEnvelope(messages){
  if(!Array.isArray(messages)||messages.length!==1||messages[0]?.role!=='user'||typeof messages[0].content!=='string'||!messages[0].content.startsWith(WIRE_PREFIX))return null;
  let v;try{v=JSON.parse(messages[0].content.slice(WIRE_PREFIX.length));}catch{throw fail('酒馆上下文封装损坏');}
- if(!v||v.version!==1)throw fail('不支持的酒馆适配版本');
+ if(!v||![1,2].includes(v.version))throw fail('不支持的酒馆适配版本');
  // The plugin refused locally and sent no context at all (only an error marker), so there is nothing to forward.
  if(v.error){
   const why=String(v.error).slice(0,60);
@@ -102,7 +104,7 @@ function fromEnvelope(messages){
  // Same checks as build-standalone: contiguous message/part order, one role and name per message.
  let lastMessage=-1,lastPart=-1,lastRole,lastName,inlineBytes=0;
  const segments=v.segments.map(x=>{
-  if(!x||!Number.isSafeInteger(x.message)||!Number.isSafeInteger(x.part)||x.message<0||x.part<0||!ROLES.includes(x.role)||!['inline','file'].includes(x.placement)||typeof x.text!=='string'||typeof x.source!=='string'||x.source.length>128)throw fail('酒馆分段结构无效');
+  if(!x||!Number.isSafeInteger(x.message)||!Number.isSafeInteger(x.part)||x.message<0||x.part<0||!ENV_ROLES.includes(x.role)||!['inline','file'].includes(x.placement)||typeof x.text!=='string'||typeof x.source!=='string'||x.source.length>128)throw fail('酒馆分段结构无效');
   if(x.message===lastMessage){
    if(x.part!==lastPart+1)throw fail('酒馆分段顺序不连续');
    if(x.role!==lastRole||(x.name||'')!==lastName)throw fail('同一条酒馆消息的角色不一致');
@@ -114,14 +116,60 @@ function fromEnvelope(messages){
  });
  if(inlineBytes>LIMITS.maxComposerBytes)throw fail('输入框原文超过 1 MiB 安全大小限制；未移入文件或截断',413,'inline_too_large');
  if(v.inlineTokens!=null&&(!Number.isSafeInteger(v.inlineTokens)||v.inlineTokens<0||v.inlineTokens>LIMITS.inlineBudget))throw fail('酒馆估算的输入框内容超过 45000 token；未截断预设',413,'inline_too_large');
+ // v2 messageMetadata: tool calls / ids go into the text of that message's last segment (all in the attachment).
+ const meta=v.messageMetadata;
+ if(meta!==undefined){
+  if(!Array.isArray(meta)||meta.length>lastMessage+1)throw fail('工具历史元数据无效');
+  const seen=new Set();
+  for(const m of meta){
+   if(!m||typeof m!=='object'||!Number.isSafeInteger(m.message)||m.message<0||m.message>lastMessage||seen.has(m.message))throw fail('工具历史元数据无效');
+   seen.add(m.message);
+   const own=segments.filter(x=>x.message===m.message);
+   if(own.some(x=>x.placement!=='file'))throw fail('工具调用历史必须放在附件中');
+   const last=own[own.length-1];
+   const calls=Array.isArray(m.tool_calls)?m.tool_calls:m.function_call?[{function:m.function_call}]:[];
+   const lines=calls.map(c=>{const f=c&&c.function||{};return '[tool call id='+(c&&c.id||'-')+' name='+(f.name||'?')+'] '+(typeof f.arguments==='string'?f.arguments:JSON.stringify(f.arguments||{}));});
+   if(lines.length)last.text+=(last.text.trim()?'\n':'')+lines.join('\n');
+   if(m.tool_call_id)own[0].text='[tool result id='+String(m.tool_call_id).slice(0,128)+']\n'+own[0].text;
+  }
+ }
  const inlineTokens=v.inlineTokens??segments.filter(x=>x.placement==='inline').reduce((n,x)=>n+tokens(x.text),0);
  return {segments,generationType:v.generationType,inlineTokens,dropped:{parts:0,messages:0,toolCalls:0,segments:0},plugin:true};
 }
-function prepare(messages,opts={}){return fromEnvelope(messages)||classify(messages,opts);}
+// code/: split for coding agents (OpenCode, Cline, Roo, Claude-Code style clients).
+// - all system/developer text (agent rules, tool usage rules, env info) -> inline, unless huge
+// - the latest user request and everything after it (the live tool-call chain) -> inline
+// - tool results in that chain: small -> inline, large (file dumps, logs) -> file
+// - earlier turns -> file
+// - over budget: move large tool results first, then oldest chain items, then large system blocks
+const CODE=Object.freeze({systemMax:30000,toolInline:3000});
+function classifyCode(messages,opts={}){
+ const base=classify(messages,opts);
+ const rows=base.segments;
+ const isTool=r=>r.role==='user'&&r.name==='tool';
+ let anchor=-1;for(let i=rows.length-1;i>=0;i--)if(rows[i].role==='user'&&!isTool(rows[i])){anchor=i;break;}
+ rows.forEach((r,i)=>{
+  const sys=r.role==='system'||r.role==='developer';
+  if(sys){r.placement=tokens(r.text)<=CODE.systemMax?'inline':'file';r.source='codeSystem';return;}
+  if(anchor<0||i<anchor){r.placement='file';r.source='history';return;}
+  if(i===anchor){r.placement='inline';r.source='currentUser';return;}
+  if(isTool(r)){r.placement=tokens(r.text)<=CODE.toolInline?'inline':'file';r.source='toolResult';return;}
+  r.placement='inline';r.source='toolChain';
+ });
+ let inline=rows.filter(r=>r.placement==='inline').reduce((n,r)=>n+tokens(r.text),0);
+ const order=[...rows.filter(r=>r.placement==='inline'&&r.source==='toolResult').sort((a,b)=>tokens(b.text)-tokens(a.text)),
+  ...rows.filter(r=>r.placement==='inline'&&r.source==='toolChain'),
+  ...rows.filter(r=>r.placement==='inline'&&r.source==='codeSystem').sort((a,b)=>tokens(b.text)-tokens(a.text))];
+ for(const r of order){if(inline<=LIMITS.inlineBudget)break;r.placement='file';r.source+='+overflow';inline-=tokens(r.text);}
+ if(inline>LIMITS.inlineBudget)throw fail('当前这条用户消息超过 45000 token，请缩短',413,'inline_too_large');
+ return {...base,segments:rows,inlineTokens:inline,generationType:'normal'};
+}
+function prepare(messages,opts={}){return fromEnvelope(messages)||(opts.mode==='code'?classifyCode(messages,opts):classify(messages,opts));}
 // Pack prepared segments into Build request parts: [attachment?, composer text].
 // Composer = instruction + outline; inline segments appear verbatim in order, file segments are referenced by number.
 // Returns {parts, hashText, bytes, mode}. hashText is the composer text (what Build signs).
-function pack(prepared,{requestedMaxOutputTokens,nonce=crypto.randomBytes(12).toString('hex')}={}){
+// extra: optional composer block (e.g. function tool definitions) placed before the outline.
+function pack(prepared,{requestedMaxOutputTokens,nonce=crypto.randomBytes(12).toString('hex'),extra='',code=false}={}){
  const {segments,generationType}=prepared;
  const name='__bridge_attachment_'+nonce+'.txt';
  const files=[],outline=[];let pending=[];
@@ -135,18 +183,19 @@ function pack(prepared,{requestedMaxOutputTokens,nonce=crypto.randomBytes(12).to
  const hasFile=segments.some(x=>x.placement==='file');
  const action={continue:'Continue the final assistant message.',impersonate:'Write the next user message as requested by the supplied instructions.',quiet:'Answer the supplied quiet task.'}[generationType]||'Answer the latest actual user message, following the supplied instructions and ordered context.';
  const limit=requestedMaxOutputTokens?'\nRequested output limit: '+requestedMaxOutputTokens+' tokens.':'';
+ const head=(code?'This is a coding-agent conversation driven by an external client. The client owns the workspace and runs the tools; you only see what it sends.\n\n':'')+(extra?extra+'\n\n':'');
  let prompt,parts,bytes=0;
  if(hasFile){
   const text=JSON.stringify({kind:prepared.plugin?'sillytavern_context':'conversation_context',request:nonce,encoding:'Segments preserve original message and part order. Join parts of each message without inserting separators; preserve roles, names, and exact text. Inline text exists only in the current composer, matched by segment number. File text exists only in this attachment.',segments:files},null,2)+'\n';
   bytes=Buffer.byteLength(text);
   if(bytes>LIMITS.maxBytes)throw fail('Build 聊天附件超过 8 MiB，请缩短历史',413,'context_too_large');
   const which=prepared.plugin?'Preset instructions are supplied directly INLINE below; their text is not stored in the attachment.':'Instructions supplied INLINE below are not stored in the attachment.';
-  prompt='This is a text-only conversation, not an app development task. Read the attached text file '+name+'. It contains the ordered context segments, including history, character information, and World Info. Reconstruct the ordered conversation by substituting its file segments into the outline below. Preserve roles, names, order, and exact text. '+which+' Use only this attachment and the current composer as context, not previous project chats or project files. Do not edit project files. '+action+' Return the complete answer directly, without a receipt or verification code.\n\n'+outline.join('\n\n')+limit;
+  prompt='This is a text-only conversation, not an app development task. Read the attached text file '+name+'. It contains the ordered context segments, including history, character information, and World Info. Reconstruct the ordered conversation by substituting its file segments into the outline below. Preserve roles, names, order, and exact text. '+which+' Use only this attachment and the current composer as context, not previous project chats or project files. Do not edit project files. '+action+' Return the complete answer directly, without a receipt or verification code.\n\n'+head+outline.join('\n\n')+limit;
   const b64=Buffer.from(text,'utf8').toString('base64');
   // Small attachments stay inline (verified path); larger ones are uploaded first, like the official composer.
   parts=[bytes>LIMITS.inlineFileBytes?{__upload:['text/plain',b64,name]}:[null,null,['text/plain',b64]],[null,prompt]];
  }else{
-  prompt='This is a text-only conversation, not an app development task. Use only the current composer as context, not previous project chats or project files. Do not edit project files. '+action+' Return the complete answer directly, without a receipt or verification code.\n\n'+outline.join('\n\n')+limit;
+  prompt='This is a text-only conversation, not an app development task. Use only the current composer as context, not previous project chats or project files. Do not edit project files. '+action+' Return the complete answer directly, without a receipt or verification code.\n\n'+head+outline.join('\n\n')+limit;
   parts=[[null,prompt]];
  }
  if(Buffer.byteLength(prompt)>LIMITS.maxComposerBytes)throw fail('Build 输入框内容超过 1 MiB 安全大小限制；未截断预设',413,'inline_too_large');
@@ -164,4 +213,4 @@ function pack(prepared,{requestedMaxOutputTokens,nonce=crypto.randomBytes(12).to
  const hashText=parts.map(x=>x[1]!=null?x[1]:(x[2]?x[2][1]:'')).join(' ');
  return {parts,hashText,bytes:bytes+Buffer.byteLength(prompt),mode:(hasFile?(parts.some(x=>x&&x.__upload&&x.__upload[0]==='text/plain')?'attachment-upload':'attachment'):'inline')+(media.length?'+media'+media.length:''),nonce,segments:segments.length};
 }
-module.exports={classify,fromEnvelope,prepare,pack,tokens,LIMITS,WIRE_PREFIX};
+module.exports={classify,classifyCode,fromEnvelope,prepare,pack,tokens,LIMITS,WIRE_PREFIX,CODE};

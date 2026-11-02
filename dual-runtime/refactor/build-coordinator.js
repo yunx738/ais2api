@@ -90,9 +90,9 @@ class BuildChannel{
      res.end(JSON.stringify({error:{message:'build-st/ 只接收酒馆 build-standalone 插件打包好的请求，这条请求没有经过插件处理（插件未启用或没接管）。请启用插件，或改用 bridge/ 前缀由网关拆分。',code:'build_st_plugin_required'}}));
      return {status:400};
     }
-    parsed.__build={app,model:spec.model,thinking:spec.thinking,...(raw?{keepMedia:true}:{})};
+    parsed.__build={app,model:spec.model,thinking:spec.thinking,...(raw?{keepMedia:true}:{}),...(spec.prefix==='code/'?{mode:'code'}:{})};
     // Uploaded ST presets: mark preset text for the composer, the rest goes to the attachment.
-    if(this.presets&&!raw){try{const m=this.presets.apply(parsed.messages);if(m){parsed.messages=[{role:'user',content:m.content}];this.stats.presetHits=(this.stats.presetHits||0)+1;}}
+    if(this.presets&&!raw&&spec.prefix!=='code/'){try{const m=this.presets.apply(parsed.messages);if(m){parsed.messages=[{role:'user',content:m.content}];this.stats.presetHits=(this.stats.presetHits||0)+1;}}
      catch(e){this.log.error('[BuildPresets]',e.message);}}
     result=await forward(ticket,route,Buffer.from(JSON.stringify(parsed)),res,credentials,options);
     return result;
