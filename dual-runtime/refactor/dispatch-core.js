@@ -57,8 +57,14 @@ class DispatchCore {
   // account/model restrictions below govern admission now.
   if(this.halted)return;
   const now=Date.now();
-  for(let n=0;n<2;n++){
-   const pos=(this.cursor+n)%2,slot=['A','B'][pos],s=this.slots.get(slot),owner=this.pool.slots.get(slot);
+  // Optional plan.rank(slot,account): lower is tried first (e.g. Build flash -> standard accounts first). Default: round robin.
+  let order=[0,1].map(n=>(this.cursor+n)%2);
+  if(typeof plan.rank==='function'){
+   const r=pos=>{try{const v=Number(plan.rank(['A','B'][pos],this.pool.slots.get(['A','B'][pos])?.current));return Number.isFinite(v)?v:0;}catch{return 0;}};
+   order=order.map((pos,i)=>({pos,i,k:r(pos)})).sort((a,b)=>a.k-b.k||a.i-b.i).map(x=>x.pos);
+  }
+  for(const pos of order){
+   const slot=['A','B'][pos],s=this.slots.get(slot),owner=this.pool.slots.get(slot);
    if(Object.keys(s.retirements||{}).length>=100||this.operations.has(slot)||s.active>=(typeof plan.admit==='function'?10:this.limitOf(slot))||s.proxyApply||s.ready===false||owner?.pending||owner?.current===undefined)continue;
    if(this.accountFlags[owner.current]||!s.workerEpoch||!eligible(slot,owner.current))continue;
    // Quota is owned by account and canonical model, not slot.

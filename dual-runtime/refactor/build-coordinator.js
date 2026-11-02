@@ -61,6 +61,8 @@ class BuildChannel{
   return {
    model:'build-'+spec.model,quotaFamily:'ultra',build:spec,estimate,
    eligible:(slot,account)=>self.ready(account,spec.model),
+   // flash: standard (Free) accounts first, so Pro/Ultra capacity stays free for pro models and normal traffic.
+   ...(/flash/.test(spec.model)?{rank:(slot,account)=>self.isPremium&&self.isPremium(account)?1:0}:{}),
    admit(account,id){
     if(!self.ready(account,spec.model))return false;
     if(self.busy(account)>=self.inflightCap(account)){self.stats.waitedInflight=(self.stats.waitedInflight||0)+1;return false;}
