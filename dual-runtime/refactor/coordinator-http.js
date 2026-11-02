@@ -240,7 +240,8 @@ function createServer({keys,models,scheduler,status,actions,auth}){
     for(const k of ['__tools','__build','__tcprobe'])if(k in parsed){delete parsed[k];n++;}
     for(const k of ['tools','tool_choice','functions','function_call','parallel_tool_calls'])if(k in parsed){tools[k]=parsed[k];delete parsed[k];n++;}
     if('response_format' in parsed){delete parsed.response_format;n++;}
-    if((Array.isArray(tools.tools)&&tools.tools.length)||(Array.isArray(tools.functions)&&tools.functions.length))parsed.__tools=tools;
+    // bridge/ (SillyTavern via gateway split): tool fields are dropped, no tool protocol.
+    if(!parsed.model.startsWith('bridge/')&&((Array.isArray(tools.tools)&&tools.tools.length)||(Array.isArray(tools.functions)&&tools.functions.length)))parsed.__tools=tools;
     if(n)outgoing=Buffer.from(JSON.stringify(parsed));
    }
    try{
