@@ -274,3 +274,104 @@ table,.stat strong,.quota,.catalog-uses,.count-table,.account-summary strong{fon
 .settings-group{scroll-margin-top:16px}
 .settings-search{display:block;width:100%;max-width:360px;margin:0 0 18px}
 .settings-group.filter-hidden,.settings-cards>.filter-hidden{display:none}
+/* ================= Compact layer (shadcn-admin tokens) =================
+   Flat surfaces: 1px border, no shadow, one radius. Dense rows instead of
+   stacked cards. No decorative icon tiles. Tables fit the phone width. */
+:root{--bg:#f8fafc;--panel:#fff;--fg:#0f172a;--muted:#64748b;--border:#e2e8f0;--inset:#f1f5f9;--soft:#f1f5f9;--primary:#1e3a8a;--accent:#1e3a8a;--shadow:none}
+:root.dark{--bg:#0b1120;--panel:#0f172a;--fg:#e2e8f0;--muted:#94a3b8;--border:#1e293b;--inset:#162033;--soft:#162033;--primary:#93c5fd;--accent:#93c5fd}
+body{font-size:14px;line-height:1.5}
+.card,.worker,.mdl-card,.catalog-worker,.settings-group,dialog{box-shadow:none!important;border:1px solid var(--border)!important}
+h2{font-size:15px;font-weight:600}
+.page-header{min-height:0;margin-bottom:16px}
+.page-header h1{font-size:20px;font-weight:650}
+.page-description{font-size:13px;margin-top:2px}
+.section-head{margin:0 0 10px}
+.section-head h2{font-size:14px}
+.badge{font-size:11px;padding:2px 8px;font-weight:500}
+progress,.account-model-quota progress,.worker-model-quota progress{height:4px!important;margin:4px 0 0!important}
+/* decorative icon tiles carry no information */
+.worker-icon,.heading-icon>.icon,.heading-icon>svg,.stat-icon,.catalog-model-avatar{display:none!important}
+.heading-icon{gap:0}
+
+/* ---- Overview: instance cards ---- */
+.workers{gap:12px}
+.runtime-worker .worker-head{padding:14px 16px 10px}
+.worker-identity h2{font-size:15px;margin:0}
+.worker-identity small{font-size:12px;max-width:none}
+.runtime-worker .worker-cookie,.worker-cookie{margin:0 16px 8px;padding:0;border:0;background:none;font-size:12px}
+.worker-quota-list,.worker-quota-more{margin:0 16px}
+.runtime-worker .worker-model-quota{padding:8px 0}
+.worker-model-quota .quota-label{font-size:13px}
+.worker-quota-more summary{padding:8px 0;font-size:12px;color:var(--muted);text-align:left}
+.runtime-worker .worker-actions{margin:8px 16px 14px;gap:8px}
+.worker-actions .worker-target{flex:1 1 140px;min-height:36px}
+.worker-actions button{min-height:36px;padding:0 14px}
+.runtime-worker .worker-foot{padding:8px 16px;font-size:11px}
+
+/* ---- Accounts: dense rows in one panel instead of separate cards ---- */
+.view-cards .card.table-wrap{background:var(--panel);border:1px solid var(--border)!important;border-radius:var(--r)}
+.view-cards .account-table tbody{display:block!important;padding:0!important}
+.view-cards .account-table tbody tr{display:grid!important;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px!important;padding:12px 14px!important;border:0!important;border-bottom:1px solid var(--border)!important;border-radius:0!important;background:transparent!important;transform:none!important}
+.view-cards .account-table tbody tr:last-child{border-bottom:0!important}
+.view-cards .account-table tbody tr:hover{background:var(--inset)!important}
+.view-cards .account-table tbody td{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start;gap:8px;text-align:left!important}
+.view-cards .account-table tbody td::before{display:none!important}
+.view-cards .account-table tbody td:nth-child(1){grid-column:1;grid-row:1}
+.view-cards .account-table tbody td:nth-child(4){grid-column:2;grid-row:1;justify-content:flex-end}
+.view-cards .account-table tbody td:nth-child(3){grid-column:1/-1;grid-row:2}
+.view-cards .account-table tbody td:nth-child(5){grid-column:1;grid-row:3;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.view-cards .account-table tbody td:nth-child(2){grid-column:1;grid-row:4;font-size:12px}
+.view-cards .account-table tbody td:nth-child(7){grid-column:2;grid-row:3/5;align-self:end;justify-content:flex-end;opacity:1!important}
+.view-cards .account-table tbody td:nth-child(7) button{min-height:30px;padding:0 10px;font-size:12px}
+.view-cards .account-table tbody td:nth-child(5) .badge{padding:1px 6px;font-size:11px}
+.view-cards .account-model-quota{display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:2px 10px;padding:0!important;border:0!important;background:none!important;width:100%}
+.view-cards .account-model-quota .account-quota-line{display:contents}
+.view-cards .account-model-quota .account-quota-line>span:first-child{font-size:12px;color:var(--muted)}
+.view-cards .account-model-quota .quota-percent{grid-column:2;grid-row:1;font-size:12px;font-weight:600}
+.view-cards .account-model-quota progress,.view-cards .account-model-quota .quota-unknown-track{grid-column:1/-1;grid-row:2;margin:0!important}
+.view-cards .account-model-quota>small,.view-cards .account-model-quota .acc-top{display:none}
+.account-name .avatar{width:28px!important;height:28px!important;font-size:11px}
+.account-name strong{font-size:14px!important;font-weight:600}
+.account-name small{font-size:12px!important}
+.account-summary strong{font-size:22px!important}
+.account-summary .card{padding:12px 14px!important}
+
+/* ---- Models catalog: methods as quiet text, phone shows name + uses only ---- */
+.catalog-model-name{min-width:0}
+.catalog-method{padding:0 6px;border:0;background:var(--inset);font-size:11px}
+.catalog-methods{flex-wrap:wrap}
+@media (max-width:639px){
+ #models .table-wrap th:nth-child(4),#catalog-rows td:nth-child(4){display:none}
+ #models .table-wrap table{white-space:normal}
+ #catalog-rows td{padding:10px 12px}
+ #catalog-rows .catalog-model-name strong{overflow-wrap:anywhere}
+}
+
+/* ---- Usage count table: fits a phone without sideways scrolling ---- */
+.count-table-wrap{overflow-x:visible}
+.count-table{table-layout:auto}
+@media (max-width:639px){
+ .count-table{font-size:12px}
+ .count-table th,.count-table td{padding:6px 4px!important}
+ .count-table th:first-child,.count-table td:first-child{padding-left:0!important}
+ .count-table th:last-child,.count-table td:last-child{padding-right:0!important}
+ .count-table td.who{max-width:52px;overflow:hidden;text-overflow:ellipsis}
+ .count-table td.who .badge{display:none}
+ .count-table td.mdl{max-width:110px}
+}
+
+/* ---- Mobile shell: flat bar docked to the bottom edge ---- */
+@media (max-width:1023px){
+ main{padding:12px 12px calc(72px + env(safe-area-inset-bottom))!important}
+ .mobile-nav{inset:auto 0 0!important;padding:4px 6px calc(4px + env(safe-area-inset-bottom))!important;border:0!important;border-top:1px solid var(--border)!important;border-radius:0!important;background:var(--panel)!important;box-shadow:none!important;backdrop-filter:none!important}
+ .mobile-nav a,.mobile-nav button{min-height:48px!important;border:0!important;border-radius:8px!important;background:none!important;font-size:11px}
+ .mobile-nav a.selected,.mobile-nav button.selected{color:var(--primary);font-weight:600;background:none!important}
+ .mobile-nav a.selected .icon{stroke-width:2.2}
+}
+@media (max-width:639px){
+ .runtime-worker .worker-head{padding:12px 14px 8px}
+ .runtime-worker .worker-cookie,.worker-quota-list,.worker-quota-more{margin-left:14px;margin-right:14px}
+ .runtime-worker .worker-actions{margin:8px 14px 12px}
+ .worker-actions .worker-target{flex-basis:100%}
+ .worker-actions button{flex:1}
+}
