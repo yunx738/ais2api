@@ -85,7 +85,8 @@ function install(system,{log=console}={}){
    try{require('fs').writeFileSync('/tmp/build-last-parsefail.txt',String(r.t||''));}catch{}
    log.warn?.('[Build] parse failed error='+out.error+' polls='+(r.polls||0)+' bytes='+String(r.t||'').length+' head='+JSON.stringify(String(r.t||'').slice(0,160))+' tail='+JSON.stringify(String(r.t||'').replace(/"[A-Za-z0-9+\/=]{200,}"/g,'"<b64>"').slice(-700)));
    // Google rejected the generation right after submit; the same input fails every time, so tell the user to edit it.
-   if(out.upstreamFailed)return send(res,400,'谷歌拒绝生成这条请求（'+out.error+'）。通常是输入内容触发了谷歌的内容审查，同样的内容重试也会失败，请修改输入内容（例如改写最新消息、删减近期聊天记录或世界书条目）后重试。','build_input_rejected');
+   // X-AIS-Build-Retry: the coordinator may replay this request once on another account (other slot).
+   if(out.upstreamFailed){if(!res.headersSent)res.setHeader('X-AIS-Build-Retry','upstream_failed');return send(res,400,'谷歌拒绝生成这条请求（'+out.error+'）。通常是输入内容触发了谷歌的内容审查，同样的内容重试也会失败，请修改输入内容（例如改写最新消息、删减近期聊天记录或世界书条目）后重试。','build_input_rejected');}
    return send(res,502,'Build 回复解析失败：'+out.error,'build_parse_failed');
   }
   if(!out.complete||!out.text.trim()){

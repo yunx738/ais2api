@@ -26,5 +26,5 @@ assert.ok(re.test(wrap(userTurn,failTurn)));
 assert.ok(!re.test(wrap(userTurn,modelTurn)));
 assert.ok(!re.test(wrap(userTurn)));
 assert.ok(code.includes('&&gen<1&&!/\\[null,null,null,null,null'),'no resend after a failed turn');
-assert.ok(require('fs').readFileSync(__dirname+'/build-worker.js','utf8').includes('if(out.upstreamFailed)return send(res,400,'));
+assert.ok(require('fs').readFileSync(__dirname+'/build-worker.js','utf8').includes("if(out.upstreamFailed){if(!res.headersSent)res.setHeader('X-AIS-Build-Retry','upstream_failed');return send(res,400,"));
 console.log('test-build-upstream-failure ok');

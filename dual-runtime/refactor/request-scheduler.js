@@ -192,7 +192,7 @@ class RequestScheduler {
   finally { this.dispatch.markUncertain(ticket); }
 
   const retryable = !!result?.rejection && !result.workerRejection && !result.uncertain && !result.cancelled &&
-   [401, 403, 429].includes(result.status) && !item.res.headersSent &&
+   ([401, 403, 429].includes(result.status) || (result.status === 400 && result.rejection?.headers?.['x-ais-build-retry'] === 'upstream_failed')) && !item.res.headersSent &&
    !item.res.destroyed && !item.res.writableEnded;
   const canRetry = retryable && item.attempts < this.limits.maxAttempts && this.hasRetryCandidate(item);
   const until = Math.min(item.deadline, Date.now() + this.limits.confirmationTimeoutMs);

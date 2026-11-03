@@ -38,7 +38,9 @@ function forwardWorker(ticket,route,body,res,credentials,options={}){
    if(reply.headers['x-ais-worker-rejection']==='control_auth')workerRejection='control_auth';
    if(ended||res.destroyed||res.writableEnded||res.headersSent){finish({cancelled:true});reply.destroy();upstream.destroy();return;}
    observer.stream=String(reply.headers['content-type']||'').toLowerCase().includes('text/event-stream');
-   let deferred=options.deferRejections===true && [401,403,429].includes(reply.statusCode);
+   // Build: Google failed the generation for this account; a short 400 the scheduler may replay on another account.
+   const buildRetry=reply.statusCode===400&&reply.headers['x-ais-build-retry']==='upstream_failed';
+   let deferred=options.deferRejections===true && ([401,403,429].includes(reply.statusCode)||buildRetry);
    let buffered=0,chunks=[];
    const headers={};
    for(const key of ['content-type','retry-after','cache-control'])if(reply.headers[key]!==undefined)headers[key]=reply.headers[key];
@@ -49,7 +51,7 @@ function forwardWorker(ticket,route,body,res,credentials,options={}){
    reply.on('error',()=>{if(ended)return;finish({uncertain:true});if(res.destroyed===false)res.destroy();});
    reply.on('aborted',()=>{if(ended)return;finish({uncertain:true});if(res.destroyed===false)res.destroy();});
    reply.on('end',()=>finish({status:reply.statusCode,retryAfter:reply.headers['retry-after'],
-    ...(deferred?{rejection:{status:reply.statusCode,headers,body:Buffer.concat(chunks)}}:{})}));
+    ...(deferred?{rejection:{status:reply.statusCode,headers:buildRetry?{...headers,'x-ais-build-retry':'upstream_failed'}:headers,body:Buffer.concat(chunks)}}:{})}));
    reply.on('data',chunk=>{
     if(ended)return;
     observer.write(chunk);
