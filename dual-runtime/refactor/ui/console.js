@@ -34,6 +34,7 @@ function setupAccountColumns(){
 function notice(message){$('notice').textContent=message;$('notice').hidden=!message;}
 function date(value){return Number.isFinite(value)&&value>0?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';}
 function navigate(){const raw=location.hash.slice(1),name=pageAlias[raw]||raw;const page=titles[name]?name:'overview';for(const key of Object.keys(titles))$(key).hidden=key!==page;document.querySelectorAll('[data-page]').forEach(a=>{const on=a.dataset.page===page&&(a.dataset.page!=='add')||a.dataset.page==='add'&&raw==='add';a.classList.toggle('selected',on);if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});$('page-title').textContent=raw==='add'?'添加账号':titles[page];$('refresh').hidden=page==='usage'||page==='history';if(page==='overview')loadOverviewUsage();}
+const targetPick={};
 function controls(){for(const id of ['sync','rotate','restart'])$(id).disabled=mutating||!fresh;$('save-mode').disabled=mutating;document.querySelectorAll('[data-worker-action]').forEach(b=>b.disabled=mutating||!fresh);}
 async function api(path,body){
  const c=new AbortController(),timer=setTimeout(()=>c.abort(),body===undefined?25000:65000);
@@ -224,7 +225,7 @@ function render(d){
 
    if(index<headN)quotaList.append(q);else extra.append(q);
   });box.append(quotaList);if(extra)box.append(extra);
-     const ops=el('div',undefined,'worker-actions');for(const [label,kind,cls] of [['切换账号','rotate','primary'],['重启','restart','']]){const b=el('button',label,cls);b.type='button';b.dataset.workerAction=kind;b.dataset.slot=slot;b.disabled=mutating||!fresh;b.addEventListener('click',()=>{$('slot').value=slot;$(kind).click();});ops.append(b);}box.append(ops);
+     const ops=el('div',undefined,'worker-actions');const pick=el('select',undefined,'worker-target');pick.setAttribute('aria-label','实例 '+slot+' 切换目标账号');pick.add(new Option('自动选下一个',''));for(const a of d.accounts){const o=new Option('#'+a.id+' · '+(a.name||'未命名')+(a.cooldownUntil>Date.now()?' · 冷却中':''),String(a.id));o.disabled=!!a.owner||['invalid','deleting','deleted'].includes(a.authStatus);pick.add(o);}if([...pick.options].some(o=>o.value===(targetPick[slot]||'')&&!o.disabled))pick.value=targetPick[slot]||'';pick.addEventListener('change',()=>{targetPick[slot]=pick.value;});ops.append(pick);for(const [label,kind,cls] of [['切换账号','rotate','primary'],['重启','restart','']]){const b=el('button',label,cls);b.type='button';b.dataset.workerAction=kind;b.dataset.slot=slot;b.disabled=mutating||!fresh;b.addEventListener('click',()=>{$('slot').value=slot;if(kind==='rotate'){const t=$('target');t.value=pick.value;if(t.value!==pick.value)t.value='';}$(kind).click();});ops.append(b);}box.append(ops);
   box.title='最近检查 '+cookieStamp(s.healthCheck?.checkedAt);workers.append(box);
  }
  let cleanupNote=$('cleanup-status');

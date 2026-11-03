@@ -1,47 +1,51 @@
 'use strict';
-// Starlight theme: overview banner with live service state. Purely decorative; reads the same /api/status as the console.
+// Ops theme: overview status band. Reads the status payload console.js already broadcasts (ais-status); no extra requests.
 (()=>{
- const ready=()=>{
-  const page=document.getElementById('overview');if(!page||page.querySelector('.nai-hero'))return;
-  const hero=document.createElement('div');hero.className='nai-hero';
-  const text=document.createElement('div');
-  const h=document.createElement('h2'),p=document.createElement('p'),chip=document.createElement('span');
-  h.textContent='AIS2API';
-  chip.className='nai-chip';chip.append(document.createElement('i'),document.createTextNode('正在连接…'));
-  text.append(h,chip);
-  const img=document.createElement('img');img.src='/console-assets/nai-mascot.webp';img.alt='';img.decoding='async';img.setAttribute('aria-hidden','true');
-  hero.append(text,img);page.prepend(hero);
-  const update=async()=>{
-   try{const r=await fetch('/api/status',{credentials:'same-origin',cache:'no-store'});const d=await r.json();
-    const slots=Object.values(d.slots||{}),ok=slots.filter(s=>s&&s.ready).length;
-    chip.classList.toggle('bad',!r.ok||d.halted||!ok);
-    chip.lastChild.textContent=!r.ok?'调度服务不可用':d.halted?'调度已暂停':ok+' / '+slots.length+' 个实例在线 · 队列 '+(d.queue??0);
-   }catch{chip.classList.add('bad');chip.lastChild.textContent='调度服务不可用';}
-  };
-  update();setInterval(()=>{if(!document.hidden)update();},15000);
+ const tierName={free:'Free',pro:'Pro',ultra:'Ultra',ultra20:'Ultra 20x'};
+ const mk=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=String(text);if(cls)n.className=cls;return n;};
+ let band=null;
+ const mount=()=>{
+  const page=document.getElementById('overview');if(!page||band)return;
+  band=mk('div',undefined,'ops-band');band.setAttribute('role','status');band.setAttribute('aria-live','polite');
+  band.append(mk('div','正在读取实例状态…','ops-meta'));page.prepend(band);
  };
- if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready);else ready();
+ const slotState=s=>{
+  if(!s)return ['bad','状态缺失'];
+  if(s.healthCheck?.error||s.recoveryBlocked||s.rotationBlocked||s.legacyUnresolved)return ['bad','需要处理'];
+  if(!s.ready)return ['warn',s.operation?'操作中':'未就绪'];
+  if(s.active)return ['busy','处理中'];
+  return ['ok','空闲'];
+ };
+ const render=d=>{
+  mount();if(!band)return;
+  const slots=d.slots||{},keys=Object.keys(slots).sort(),accounts=d.accounts||[];
+  band.style.setProperty('--n',String(Math.max(1,Math.min(keys.length,3))));
+  const nodes=[];let ready=0;
+  for(const k of keys){if(slots[k]?.ready)ready++;}
+  const meta=mk('div',undefined,'ops-meta'),item=(label,value,bad)=>{const sp=mk('span',label+' ');const b=mk('b',value);if(bad)sp.className='bad';sp.append(b);meta.append(sp);};
+  item('调度',d.halted?'已暂停':'运行中',d.halted);
+  item('在线',ready+' / '+keys.length,ready<keys.length);
+  item('排队',d.queue??0,(d.queue??0)>0);
+  item('处理中',keys.reduce((n,k)=>n+(slots[k]?.active||0),0));
+  item('账号',accounts.length);
+  nodes.push(meta);band.replaceChildren(...nodes);
+ };
+ const fail=()=>{mount();if(band)band.replaceChildren(Object.assign(mk('div','调度服务不可用','ops-meta'),{}));};
+ document.addEventListener('ais-status',e=>{try{render(e.detail||{});}catch{fail();}});
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
 })();
-// Accounts page decoration: banner with live counts and illustrated add-account cards.
+// Accounts page: add-account methods behind a tab strip, one at a time; remembers the last one.
 (()=>{
  const ready=()=>{
-  const list=document.getElementById('accounts-list');
-  if(false&&list&&!list.querySelector('.nai-acc-hero')){
-   const hero=document.createElement('div');hero.className='nai-acc-hero';
-   const t=document.createElement('div'),h=document.createElement('h2'),p=document.createElement('p');
-   h.textContent='账号池';t.append(h);
-   const st=document.createElement('div');st.className='nai-acc-stats';
-   const mk=l=>{const s=document.createElement('span'),b=document.createElement('b');b.textContent='—';s.append(b,document.createTextNode(l));st.append(s);return b;};
-   const total=mk('个账号'),pro=mk('个 Pro'),ultra=mk('个 Ultra'),bad=mk('个失效');
-   hero.append(t,st);list.prepend(hero);
-   document.addEventListener('ais-status',e=>{const a=e.detail?.accounts||[];total.textContent=a.length;
-    pro.textContent=a.filter(x=>x.tier==='pro').length;ultra.textContent=a.filter(x=>x.tier==='ultra'||x.tier==='ultra20').length;
-    bad.textContent=a.filter(x=>['invalid','deleting'].includes(x.authStatus)).length;});
-  }
-  const map=[['Cookie 导入','cookie'],['浏览器油猴脚本','script'],['账号密码登录','login']];
-  document.querySelectorAll('#accounts-add .form-card.legacy > h2').forEach(h=>{
-   const hit=map.find(([t])=>h.textContent.trim().startsWith(t));if(hit)h.parentElement.classList.add('nai-art','nai-art-'+hit[1]);
-  });
+  const root=document.getElementById('accounts-add');if(!root||root.querySelector('.add-tabs'))return;
+  const cards=[...root.querySelectorAll('.form-card.legacy')];if(!cards.length)return;
+  const label=c=>(c.querySelector('h2')?.firstChild?.textContent||'').trim();
+  const short={'Cookie 导入':'Cookie','浏览器油猴脚本':'油猴脚本','账号密码登录':'账号密码','Workspace 激活':'Workspace'};
+  const bar=document.createElement('div');bar.className='settings-tabs add-tabs';bar.setAttribute('role','tablist');bar.setAttribute('aria-label','添加方式');
+  let cur=0;try{cur=Math.min(cards.length-1,Math.max(0,Number(localStorage.getItem('ais-add-tab'))||0));}catch{}
+  const show=i=>{cur=i;cards.forEach((c,n)=>c.classList.toggle('tab-hidden',n!==i));[...bar.children].forEach((b,n)=>{b.setAttribute('aria-selected',String(n===i));b.tabIndex=n===i?0:-1;});try{localStorage.setItem('ais-add-tab',String(i));}catch{}};
+  cards.forEach((c,i)=>{const t=label(c);const b=document.createElement('button');b.type='button';b.setAttribute('role','tab');b.dataset.addTab=String(i);b.textContent=short[t]||t||('方式 '+(i+1));b.addEventListener('click',()=>show(i));b.addEventListener('keydown',e=>{const k={ArrowRight:1,ArrowLeft:-1}[e.key];if(!k)return;e.preventDefault();const n=(cur+k+cards.length)%cards.length;show(n);bar.children[n].focus();});bar.append(b);});
+  root.prepend(bar);root.classList.add('add-tabbed');show(cur);
  };
  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready);else ready();
 })();

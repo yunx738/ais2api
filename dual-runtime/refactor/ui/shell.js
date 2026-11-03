@@ -90,13 +90,18 @@
   updatePage();
 })();
 
-// Settings: one group at a time behind a tab strip; remembers the last tab.
+// Settings: all groups on one page; the strip jumps to a group, the box filters cards by text.
 (()=>{
  const bar=document.querySelector('.settings-tabs');if(!bar)return;
  const groups=[...document.querySelectorAll('#settings .settings-group')];
  const name=g=>(g.querySelector('.group-head h2')?.firstChild?.textContent||'').trim();
- let cur=0;try{cur=Math.min(groups.length-1,Math.max(0,Number(localStorage.getItem('ais-settings-tab'))||0));}catch{}
- const show=i=>{cur=i;groups.forEach((g,n)=>g.classList.toggle('tab-hidden',n!==i));[...bar.children].forEach((b,n)=>b.setAttribute('aria-selected',String(n===i)));try{localStorage.setItem('ais-settings-tab',String(i));}catch{}};
- groups.forEach((g,i)=>{const b=document.createElement('button');b.type='button';b.role='tab';b.textContent=name(g)||('分组 '+(i+1));b.addEventListener('click',()=>show(i));bar.append(b);});
- show(cur);
+ bar.setAttribute('role','navigation');bar.setAttribute('aria-label','设置目录');
+ groups.forEach((g,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name(g)||('分组 '+(i+1));b.addEventListener('click',()=>g.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'}));bar.append(b);});
+ const q=document.createElement('input');q.type='search';q.className='settings-search';q.placeholder='搜索设置，如 代理、并发';q.setAttribute('aria-label','搜索设置');q.maxLength=40;
+ const empty=document.createElement('p');empty.className='note settings-empty';empty.textContent='没有匹配的设置';empty.hidden=true;
+ bar.after(q);q.after(empty);
+ q.addEventListener('input',()=>{const v=q.value.trim().toLowerCase();let any=false;
+  for(const g of groups){let hit=0;const gn=name(g).toLowerCase();for(const c of g.querySelectorAll('.settings-cards>.card,.settings-cards>div')){const ok=!v||gn.includes(v)||c.textContent.toLowerCase().includes(v);c.classList.toggle('filter-hidden',!ok);if(ok)hit++;}g.classList.toggle('filter-hidden',!!v&&!hit);if(hit)any=true;}
+  empty.hidden=!v||any;});
+ try{localStorage.removeItem('ais-settings-tab');}catch{}
 })();

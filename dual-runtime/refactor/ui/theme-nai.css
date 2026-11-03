@@ -1,68 +1,29 @@
-/* "Starlight" theme layer. Artwork generated with NovelAI V5 (nai-diffusion-5-full).
-   Loaded after every other stylesheet; only colours, surfaces and decoration change. */
-:root{--bg:hsl(214 40% 97%);--fg:hsl(218 38% 14%);--panel:hsl(0 0% 100% / .86);--muted:hsl(215 14% 44%);--border:hsl(214 36% 89%);--primary:hsl(211 74% 47%);--accent:hsl(196 88% 48%);--success:hsl(158 58% 36%);--warning:hsl(34 86% 44%);--danger:hsl(350 70% 52%);--soft:hsl(211 90% 97%);--inset:hsl(214 44% 96%);--sidebar-bg:hsl(0 0% 100% / .72);--grad:linear-gradient(135deg,hsl(211 72% 60%),hsl(192 68% 62%) 55%,hsl(196 88% 52%));--shadow:0 1px 2px hsl(214 40% 30% / .05),0 8px 24px -12px hsl(211 60% 40% / .18);--glow:0 10px 30px -12px hsl(211 80% 55% / .45)}
-:root.dark{--bg:hsl(216 34% 9%);--fg:hsl(214 30% 90%);--panel:hsl(216 30% 14% / .82);--muted:hsl(214 14% 64%);--border:hsl(216 22% 24%);--primary:hsl(208 92% 74%);--accent:hsl(192 90% 62%);--success:hsl(156 52% 52%);--warning:hsl(38 86% 60%);--danger:hsl(352 82% 68%);--soft:hsl(208 50% 22% / .7);--inset:hsl(216 26% 18%);--sidebar-bg:hsl(216 34% 11% / .78);--grad:linear-gradient(135deg,hsl(208 86% 68%),hsl(188 74% 70%) 55%,hsl(192 90% 60%));--shadow:0 1px 2px rgb(0 0 0 / .3),0 12px 30px -16px rgb(0 0 0 / .6);--glow:0 10px 30px -10px hsl(208 90% 65% / .5)}
+/* "Ops" theme layer (replaces the Starlight artwork layer).
+   Loaded after every other stylesheet. No artwork, gradients, glass or glow.
+   Two radii: --r (10px) for surfaces, --rs (6px) for controls.
+   One loud element: the overview status band (.ops-band). */
+:root{--bg:#f5f6f8;--fg:#1b2030;--panel:#fff;--muted:#5e6675;--border:#e2e5ea;--primary:#26457e;--accent:#26457e;--success:#1f8a5b;--warning:#b7791f;--danger:#c2413b;--soft:#eef2f9;--inset:#f0f2f5;--sidebar-bg:#fff;--shadow:none;--glow:none;--grad:var(--primary);--ink:#161b27;--ink-fg:#e8ebf2;--ink-muted:#98a1b3;--r:10px;--rs:6px;color-scheme:light}
+:root.dark{--bg:#11141b;--fg:#e4e7ee;--panel:#181c25;--muted:#9097a6;--border:#272d39;--primary:#93acdc;--accent:#93acdc;--success:#4cb487;--warning:#d9a443;--danger:#e0716b;--soft:#1f2635;--inset:#1d212b;--sidebar-bg:#151922;--ink:#0b0e14;color-scheme:dark}
+body{background:var(--bg);font-family:system-ui,-apple-system,"PingFang SC","HarmonyOS Sans SC","MiSans","Noto Sans SC","Microsoft YaHei",sans-serif}
+::selection{background:color-mix(in srgb,var(--primary) 22%,transparent)}
 body{background:var(--bg)}
-body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(900px 520px at 100% -10%,hsl(192 90% 80% / .30),transparent 60%),radial-gradient(760px 480px at -10% 110%,hsl(196 90% 70% / .22),transparent 60%),radial-gradient(600px 400px at 40% 30%,hsl(211 90% 85% / .14),transparent 70%)}
-:root.dark body::before{background:radial-gradient(900px 520px at 100% -10%,hsl(192 80% 40% / .30),transparent 60%),radial-gradient(760px 480px at -10% 110%,hsl(196 90% 35% / .22),transparent 60%),radial-gradient(600px 400px at 40% 30%,hsl(211 80% 40% / .14),transparent 70%)}
 ::selection{background:hsl(211 90% 70% / .3)}
-.card,dialog{backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2)}
 .card{border-radius:18px;transition:box-shadow .2s,border-color .2s}
-.stat:hover,.worker:hover{box-shadow:var(--shadow),var(--glow);border-color:color-mix(in srgb,var(--primary) 30%,var(--border))}
-.sidebar{backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3)}
-.logo{overflow:hidden;padding:0;border:2px solid transparent;border-radius:14px;background:url(/console-assets/nai-logo.webp) center/cover no-repeat padding-box,var(--grad) border-box;box-shadow:var(--glow)}
-.logo .icon{display:none}
-.brand-copy strong,.mobile-brand strong{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
 .sidebar-nav a{transition:background .15s,color .15s,transform .15s}
-.sidebar-nav a:hover{transform:translateX(2px)}
-.sidebar-nav a.selected{color:#fff;border-color:transparent;background:var(--grad);box-shadow:var(--glow)}
 .sidebar-nav a.selected::before{display:none}
 .sidebar-collapsed .sidebar-nav a:hover{transform:none}
-.primary,button.primary{border-color:transparent!important;background:var(--grad)!important;color:#fff!important;box-shadow:var(--glow)}
 .primary:hover:not(:disabled){filter:brightness(1.07)}
 .primary:disabled{filter:grayscale(.4);opacity:.6;box-shadow:none}
 input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 22%,transparent)}
 .section-tabs .selected{color:var(--primary)}
 .stat{overflow:hidden}
-.stat::after{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--grad);opacity:.85}
-.nai-hero{position:relative;display:flex;align-items:flex-end;justify-content:space-between;gap:16px;min-height:168px;margin:0 0 20px;padding:22px 24px;overflow:hidden;border-radius:22px;color:#fff;background:linear-gradient(90deg,hsl(214 60% 12% / .78),hsl(212 60% 20% / .25) 60%,transparent),url(/console-assets/nai-banner.webp) center 40%/cover no-repeat;box-shadow:var(--shadow),var(--glow)}
-.nai-hero h2{margin:0;font-size:24px;letter-spacing:-.3px;text-shadow:0 2px 12px rgb(0 0 0 / .35)}
-.nai-hero p{margin:6px 0 0;max-width:520px;color:hsl(214 60% 92%);font-size:13px}
-.nai-chip{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:4px 10px;border-radius:999px;border:1px solid rgb(255 255 255 / .28);background:rgb(255 255 255 / .14);font-size:12px}
-.nai-chip i{width:7px;height:7px;border-radius:50%;background:hsl(156 80% 60%);box-shadow:0 0 8px hsl(156 80% 60%)}
-.nai-chip.bad i{background:hsl(352 90% 66%);box-shadow:0 0 8px hsl(352 90% 66%)}
-.nai-hero img{width:132px;height:auto;margin:-8px -4px -22px 0;border-radius:18px;filter:drop-shadow(0 8px 18px rgb(0 0 0 / .35))}
-@media (max-width:720px){.nai-hero{min-height:132px;padding:18px}.nai-hero h2{font-size:20px}.nai-hero img{width:92px}}
-.empty::before{content:"";display:block;width:112px;height:112px;margin:0 auto 10px;background:url(/console-assets/nai-empty.webp) center/contain no-repeat;opacity:.92}
-td.empty::before{width:84px;height:84px}
-:root.dark .empty::before{filter:brightness(.86)}
 *{scrollbar-color:color-mix(in srgb,var(--primary) 35%,transparent) transparent}
 @media (prefers-reduced-motion:reduce){.card,.sidebar-nav a,.primary{transition:none!important}.sidebar-nav a:hover{transform:none!important}}
 /* ---------- Accounts page ---------- */
-.nai-acc-hero{position:relative;display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:120px;margin:0 0 16px;padding:20px 24px;overflow:hidden;border-radius:22px;color:#fff;
- background:linear-gradient(90deg,hsl(214 60% 12% / .82),hsl(212 60% 20% / .35) 55%,transparent),url(/console-assets/nai-acc-banner.webp) center/cover no-repeat;box-shadow:var(--shadow),var(--glow)}
-.nai-acc-hero h2{margin:0;font-size:22px;text-shadow:0 2px 12px rgb(0 0 0 / .35)}
-.nai-acc-hero p{margin:4px 0 0;color:hsl(214 60% 92%);font-size:13px}
-.nai-acc-hero .nai-acc-stats{display:flex;gap:10px;flex-wrap:wrap}
-.nai-acc-hero .nai-acc-stats span{padding:6px 12px;border-radius:12px;border:1px solid rgb(255 255 255 / .25);background:rgb(255 255 255 / .14);font-size:12px;white-space:nowrap}
-.nai-acc-hero .nai-acc-stats b{font-size:16px;margin-right:4px}
 /* Summary cards with chibi illustrations. */
-.account-summary .account-summary-card{position:relative;overflow:hidden;min-height:112px;padding:16px 16px 14px;text-align:left;align-items:flex-start;justify-content:space-between;cursor:pointer;transition:transform .18s,box-shadow .2s,border-color .2s}
-.account-summary .account-summary-card::after{content:"";position:absolute;right:-6px;bottom:-10px;width:104px;height:104px;background:var(--art) center/contain no-repeat;opacity:.95;transition:transform .25s;pointer-events:none}
-.account-summary .account-summary-card:hover{transform:translateY(-2px);box-shadow:var(--shadow),var(--glow)}
-.account-summary .account-summary-card:hover::after{transform:scale(1.06) rotate(-3deg)}
 .account-summary .account-summary-card > div{position:relative;z-index:1}
 .account-summary .account-summary-card .badge{position:relative;z-index:1}
 .account-summary strong{font-size:30px;font-weight:700}
-.summary-all{--art:url(/console-assets/nai-sum-all.webp);background:linear-gradient(135deg,hsl(211 90% 97% / .95),hsl(192 90% 96% / .85))!important}
-.summary-available{--art:url(/console-assets/nai-sum-available.webp);background:linear-gradient(135deg,hsl(158 70% 96% / .95),hsl(190 80% 96% / .85))!important}
-.summary-assigned{--art:url(/console-assets/nai-sum-assigned.webp);background:linear-gradient(135deg,hsl(220 90% 97% / .95),hsl(211 90% 96% / .85))!important}
-.summary-cooling{--art:url(/console-assets/nai-sum-cooling.webp);background:linear-gradient(135deg,hsl(36 90% 96% / .95),hsl(200 80% 96% / .85))!important}
-:root.dark .summary-all{background:linear-gradient(135deg,hsl(208 40% 20% / .9),hsl(192 40% 18% / .8))!important}
-:root.dark .summary-available{background:linear-gradient(135deg,hsl(160 35% 16% / .9),hsl(190 40% 16% / .8))!important}
-:root.dark .summary-assigned{background:linear-gradient(135deg,hsl(225 40% 18% / .9),hsl(208 40% 18% / .8))!important}
-:root.dark .summary-cooling{background:linear-gradient(135deg,hsl(36 35% 16% / .9),hsl(205 40% 16% / .8))!important}
-.account-summary .account-summary-card.selected{border-color:var(--primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--primary) 35%,transparent),var(--glow)}
 /* Toolbar. */
 .account-toolbar{border-radius:16px;background:var(--panel)}
 .account-toolbar input{border-radius:12px}
@@ -71,59 +32,19 @@ td.empty::before{width:84px;height:84px}
 .account-table thead th{background:color-mix(in srgb,var(--primary) 6%,var(--panel));color:var(--muted);font-size:11px;letter-spacing:.3px}
 .account-table tbody tr{transition:background .15s}
 .account-table tbody tr:hover{background:color-mix(in srgb,var(--primary) 5%,transparent)}
-.avatar{width:40px;height:40px;border:2px solid transparent;color:transparent;font-size:0;background:var(--avimg,var(--inset)) center/cover no-repeat padding-box,var(--grad) border-box;box-shadow:0 4px 12px -4px hsl(211 70% 50% / .45)}
 .account-name strong{font-size:13px;font-weight:600}
 .account-name small{font-size:11px}
-.avatar[data-av="01"]{--avimg:url(/console-assets/nai-av01.webp)}.avatar[data-av="02"]{--avimg:url(/console-assets/nai-av02.webp)}
-.avatar[data-av="03"]{--avimg:url(/console-assets/nai-av03.webp)}.avatar[data-av="04"]{--avimg:url(/console-assets/nai-av04.webp)}
-.avatar[data-av="05"]{--avimg:url(/console-assets/nai-av05.webp)}.avatar[data-av="06"]{--avimg:url(/console-assets/nai-av06.webp)}
-.avatar[data-av="07"]{--avimg:url(/console-assets/nai-av07.webp)}.avatar[data-av="08"]{--avimg:url(/console-assets/nai-av08.webp)}
-.avatar[data-av="09"]{--avimg:url(/console-assets/nai-av09.webp)}.avatar[data-av="10"]{--avimg:url(/console-assets/nai-av10.webp)}
-.avatar[data-av="11"]{--avimg:url(/console-assets/nai-av11.webp)}.avatar[data-av="12"]{--avimg:url(/console-assets/nai-av12.webp)}
-.ultra-badge{border:0!important;color:#fff!important;background:linear-gradient(135deg,hsl(38 95% 55%),hsl(330 85% 62%))!important;box-shadow:0 4px 10px -4px hsl(330 85% 55% / .6)}
-.pro-badge{border:0!important;color:#fff!important;background:var(--grad)!important}
 .instance-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;background:var(--soft);color:var(--primary);font-weight:600;font-size:12px}
-.instance-chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--success);box-shadow:0 0 6px var(--success)}
 .account-model-quota{border-radius:12px;padding:8px 10px}
 .account-model-quota progress{height:6px;border-radius:999px;overflow:hidden;appearance:none;-webkit-appearance:none;background:var(--inset);border:0}
 .account-model-quota progress::-webkit-progress-bar{background:var(--inset);border-radius:999px}
-.account-model-quota progress::-webkit-progress-value{background:linear-gradient(90deg,hsl(158 60% 45%),hsl(190 85% 50%));border-radius:999px}
-.account-model-quota progress::-moz-progress-bar{background:linear-gradient(90deg,hsl(158 60% 45%),hsl(190 85% 50%));border-radius:999px}
-.account-model-quota.warn progress::-webkit-progress-value,.account-model-quota.low progress::-webkit-progress-value{background:linear-gradient(90deg,hsl(36 90% 52%),hsl(16 90% 58%))}
-.account-model-quota.bad progress::-webkit-progress-value,.account-model-quota.empty progress::-webkit-progress-value{background:linear-gradient(90deg,hsl(350 75% 55%),hsl(330 80% 60%))}
 .account-table td button:not(.account-name-button):not(.account-model-quota){border-radius:10px}
 /* Account detail dialog header art. */
-#account-dialog .dialog-head{position:relative;overflow:hidden;background:linear-gradient(90deg,var(--panel) 30%,transparent),url(/console-assets/nai-dlg-header.webp) right center/cover no-repeat}
-#account-dialog{border-radius:20px}
 /* Add-account cards with illustrations. */
-.add-grid .form-card.legacy{position:relative;overflow:hidden;border-radius:20px}
-.add-grid .form-card.legacy.nai-art > h2{position:relative;min-height:104px;margin:-18px -18px 14px;padding:22px 160px 18px 20px;border-bottom:1px solid var(--border);
- background:linear-gradient(90deg,var(--panel) 45%,transparent 80%),var(--art) right center/auto 100% no-repeat,linear-gradient(135deg,hsl(211 90% 97%),hsl(200 90% 96%))}
-:root.dark .add-grid .form-card.legacy.nai-art > h2{background:linear-gradient(90deg,var(--panel) 45%,transparent 80%),var(--art) right center/auto 100% no-repeat,linear-gradient(135deg,hsl(208 40% 20%),hsl(210 40% 18%))}
-.nai-art-cookie{--art:url(/console-assets/nai-add-cookie.webp)}
-.nai-art-script{--art:url(/console-assets/nai-add-script.webp)}
-.nai-art-login{--art:url(/console-assets/nai-add-login.webp)}
 @media (max-width:720px){
- .nai-acc-hero{flex-direction:column;align-items:flex-start;padding:16px}
- .account-summary .account-summary-card::after{width:76px;height:76px}
- .add-grid .form-card.legacy.nai-art > h2{padding-right:110px;min-height:88px}
 }
 .page-description:empty,.section-head p:empty,.sub:empty{display:none}
 .page-header{min-height:52px;margin-bottom:16px}
-/* Page header artwork: the title sits on the generated scene instead of a separate banner. */
-body[data-page=models] .page-header,body[data-page=usage] .page-header,body[data-page=history] .page-header,body[data-page=settings] .page-header,body[data-page=add] .page-header{position:relative;min-height:112px;padding:18px 22px;overflow:hidden;border-radius:20px;color:#fff;background:var(--nai-pg) center/cover no-repeat;box-shadow:var(--glow)}
-body[data-page=models]{--nai-pg:url(/console-assets/nai-pg-models.webp)}
-body[data-page=usage]{--nai-pg:url(/console-assets/nai-pg-usage.webp)}
-body[data-page=history]{--nai-pg:url(/console-assets/nai-pg-history.webp)}
-body[data-page=settings]{--nai-pg:url(/console-assets/nai-pg-settings.webp)}
-body[data-page=add]{--nai-pg:url(/console-assets/nai-pg-accounts.webp)}
-body[data-page] .page-header::before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none}
-body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=settings],[data-page=add]) .page-header::before{background:linear-gradient(90deg,rgb(10 22 40 / .62),rgb(10 22 40 / .18) 55%,transparent)}
-body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=settings],[data-page=add]) .page-header>*{position:relative;z-index:1}
-body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=settings],[data-page=add]) .page-header h1{color:#fff;font-size:26px;text-shadow:0 2px 14px rgb(0 0 0 / .4)}
-body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=settings],[data-page=add]) .page-header .tools button,body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=settings],[data-page=add]) .page-header #updated{color:#fff;border-color:rgb(255 255 255 / .3);background:rgb(255 255 255 / .16);backdrop-filter:blur(8px)}
-body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=settings],[data-page=add]) .page-header #updated{padding:4px 10px;border:1px solid rgb(255 255 255 / .3);border-radius:999px}
-@media (max-width:720px){body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=settings],[data-page=add]) .page-header{min-height:88px;padding:14px 16px;border-radius:16px}body[data-page] .page-header h1{font-size:21px}}
 
 /* Models page: compact instance strip, two short rule cards, illustrated model list. */
 .mdl-top{display:flex;align-items:stretch;gap:12px;margin-bottom:6px}
@@ -134,13 +55,9 @@ body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=sett
 .mdl-workers .catalog-worker>.warn{flex-basis:100%}
 .mdl-workers .catalog-worker{flex-wrap:wrap}
 .mdl-workers .catalog-sync{align-self:center;margin:0;padding:6px 14px}
-.mdl-workers .catalog-slot-icon{color:#fff;border:0;background:var(--grad)}
 #catalog-message:empty,#policy-message:empty,#price-message:empty,#price-scheduled:empty{display:none}
 .mdl-rules{margin:14px 0 22px;gap:16px}
 .mdl-card{position:relative;overflow:hidden;padding:18px 20px}
-.mdl-card::after{content:"";position:absolute;right:-6px;bottom:-10px;width:96px;height:96px;background:var(--art) right bottom/contain no-repeat;opacity:.9;pointer-events:none}
-.mdl-card-policy{--art:url(/console-assets/nai-mdl-pro.webp)}
-.mdl-card-price{--art:url(/console-assets/nai-mdl-flash.webp)}
 .mdl-card .form-row,.mdl-card .section-head{position:relative;z-index:1;padding-right:72px}
 .mdl-card .section-head{margin-bottom:12px}
 .mdl-card h2 small{margin-left:6px;font-size:11px;font-weight:500}
@@ -156,7 +73,6 @@ body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=sett
 #price-scheduled{order:10;flex-basis:100%;margin:0;font-size:12px}
 .mdl-list-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .mdl-list-head h2{margin:0}
-.catalog-model-avatar{width:34px;height:34px;padding:2px;object-fit:contain;border-radius:10px;background:var(--soft)}
 #models .catalog-account{display:none}
 @media (max-width:900px){.mdl-top{flex-direction:column}.mdl-top>button{align-self:flex-end}}
 @media (max-width:639px){.mdl-workers{grid-template-columns:minmax(0,1fr)}.mdl-card::after{width:68px;height:68px}.mdl-card .form-row,.mdl-card .section-head{padding-right:40px}.mdl-list-head{flex-wrap:wrap}}
@@ -168,9 +84,6 @@ body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=sett
 .catalog-more[hidden]{display:none}
 /* Settings › 安全 */
 .sec-card{position:relative;overflow:hidden}
-.sec-card::after{content:"";position:absolute;right:-8px;top:-8px;width:84px;height:84px;background:var(--art) center/contain no-repeat;opacity:.9;pointer-events:none}
-.sec-pw{--art:url(/console-assets/nai-add-login.webp)}
-.sec-keys{--art:url(/console-assets/nai-add-script.webp)}
 .sec-card h2{padding-right:72px}
 .sec-card .form-row label{flex:1 1 150px}
 #pw-msg:empty,#key-msg:empty{display:none}
@@ -196,13 +109,6 @@ body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=sett
 .sub:empty,.muted:empty,#ulist:empty{display:none}
 
 /* ===== Less boxy: fewer frames, more rhythm ===== */
-.card,dialog{backdrop-filter:none;-webkit-backdrop-filter:none}
-.card{border-radius:14px;box-shadow:none;background:var(--panel)}
-.stat:hover,.worker:hover{box-shadow:none;border-color:var(--border)}
-:root,:root.dark{--glow:none}
-.primary,button.primary{background:var(--primary)!important;box-shadow:none}
-.sidebar-nav a.selected{color:var(--primary);background:var(--soft);box-shadow:none}
-:root.dark .sidebar-nav a.selected{color:#fff}
 /* Stat rows: one strip split by hairlines instead of N separate boxes. */
 .stats,#usage-cards{gap:1px;background:var(--border);border:1px solid var(--border);border-radius:14px;overflow:hidden}
 .stats>.stat,#usage-cards>.stat{border:0!important;border-radius:0!important;box-shadow:none!important;background:var(--panel)!important;min-height:0}
@@ -267,9 +173,6 @@ body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=sett
 
 /* ===== Simplify pass ===== */
 /* Overview: smaller hero, no duplicate stat icons. */
-.nai-hero{min-height:0;padding:16px 20px;margin-bottom:14px;align-items:center}
-.nai-hero img{width:72px;margin:-10px 0 -18px}
-.nai-hero h2{font-size:20px}.nai-chip{margin-top:8px}
 /* Worker card: Cookie in one line, quota list tight. */
 .worker-cookie-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 6px;margin:6px 20px 10px;font-size:12px;color:var(--muted)}
 .worker-cookie-line strong{font-weight:600;color:var(--fg)}.worker-cookie-line strong.good{color:var(--success)}.worker-cookie-line strong.warn{color:var(--warning)}.worker-cookie-line strong.bad{color:var(--danger)}
@@ -292,7 +195,82 @@ body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=sett
 .settings-group>.group-head{margin:0 0 6px;min-height:0}.settings-group>.group-head .group-icon{display:none}.settings-group>.group-head h2{font-size:0;gap:0}.settings-group>.group-head h2 .chip{font-size:12px}
 .settings-group>.group-head:not(:has(.chip)){display:none}
 /* Page header art: shorter. */
-body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=settings],[data-page=add]) .page-header{min-height:76px;padding:14px 20px}
-@media (max-width:720px){body:is([data-page=models],[data-page=usage],[data-page=history],[data-page=settings],[data-page=add]) .page-header{min-height:64px}}
-/* Add-account illustrations: shorter banners. */
-.add-grid .form-card.legacy.nai-art > h2{min-height:64px;padding-top:16px;padding-bottom:14px}
+
+/* ===== Ops: surfaces and controls ===== */
+.card,dialog,.settings-group,.stats,#usage-cards,.history-list,.account-detail-overview,.view-cards .account-table tbody tr,#account-dialog,.add-grid .form-card.legacy{border-radius:var(--r)!important}
+button,input,select,textarea,.badge,.view-toggle,.settings-tabs,.key-new,.key-list li,.account-model-quota,.account-summary .account-summary-card,.catalog-more,.instance-chip{border-radius:var(--rs)!important}
+.view-toggle button,.settings-tabs button{border-radius:4px!important}
+.card{border-color:var(--border);box-shadow:none}
+.primary,button.primary{background:var(--primary)!important;border-color:var(--primary)!important;color:#fff!important;box-shadow:none}
+:root.dark .primary,:root.dark button.primary{color:#0f1420!important}
+.primary:hover:not(:disabled){background:color-mix(in srgb,var(--primary) 88%,#000)!important}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--primary);outline-offset:0;border-color:var(--primary);box-shadow:none}
+/* Brand: plain wordmark, no artwork. */
+.logo{background:var(--primary);color:#fff;border:0;border-radius:var(--rs)}
+:root.dark .logo{color:#0f1420}
+.brand-copy strong,.mobile-brand strong{color:var(--fg);letter-spacing:.2px}
+/* Navigation: quiet, selected item marked by the existing left rule. */
+.sidebar{border-right:1px solid var(--border)}
+.sidebar-nav a.selected{color:var(--primary);background:var(--soft);box-shadow:none}
+.sidebar-nav a.selected::before{display:block}
+/* Tables and numbers. */
+.account-table thead th,.count-table th{background:transparent;color:var(--muted);font-size:12px;font-weight:500;letter-spacing:0}
+.account-table tbody tr:hover{background:var(--inset)}
+table,.stat strong,.quota,.catalog-uses,.count-table,.account-summary strong{font-variant-numeric:tabular-nums}
+.stats>.stat strong{font-size:24px;font-weight:650;letter-spacing:-.3px}
+/* Avatars: initials on a neutral disc. */
+.avatar{width:32px;height:32px;border:1px solid var(--border);background:var(--inset);color:var(--muted);font-size:12px;font-weight:600}
+.ultra-badge,.pro-badge{border:1px solid currentColor!important;background:transparent!important;color:var(--primary)!important}
+.ultra-badge{color:var(--warning)!important}
+.instance-chip{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;background:var(--soft);color:var(--primary);font-weight:600;font-size:12px}
+.instance-chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--success)}
+/* Quota bars: flat status colours. */
+.account-model-quota progress::-webkit-progress-value{background:var(--success)}
+.account-model-quota progress::-moz-progress-bar{background:var(--success)}
+.account-model-quota:is(.warn,.low) progress::-webkit-progress-value{background:var(--warning)}
+.account-model-quota:is(.warn,.low) progress::-moz-progress-bar{background:var(--warning)}
+.account-model-quota:is(.bad,.empty) progress::-webkit-progress-value{background:var(--danger)}
+.account-model-quota:is(.bad,.empty) progress::-moz-progress-bar{background:var(--danger)}
+.catalog-model-avatar{display:none}
+.mdl-workers .catalog-slot-icon{color:var(--primary);background:var(--soft);border:0}
+/* Page header: plain title row. */
+.page-header{min-height:0;margin-bottom:18px}
+.page-header h1{font-size:22px;font-weight:650;letter-spacing:-.2px}
+.view-cards .account-table tbody tr:hover{transform:none;border-color:color-mix(in srgb,var(--primary) 35%,var(--border))}
+.empty{color:var(--muted)}
+/* Login-free decorative leftovers stay hidden if an old script injects them. */
+.nai-hero,.nai-acc-hero{display:none!important}
+
+/* ===== Ops: overview status band (the one loud element) ===== */
+.ops-band{display:grid;grid-template-columns:repeat(var(--n,2),minmax(0,1fr));gap:1px;margin:0 0 18px;overflow:hidden;border-radius:var(--r);background:#2a3142;color:var(--ink-fg)}
+.ops-slot{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:4px 14px;padding:16px 18px;background:var(--ink)}
+.ops-slot>b{grid-row:1/3;display:grid;place-items:center;width:44px;height:44px;border-radius:var(--rs);background:#232a3a;font-size:22px;font-weight:700;letter-spacing:0}
+.ops-slot>span{min-width:0;overflow:hidden;color:var(--ink-muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+.ops-slot>strong{display:flex;align-items:center;gap:8px;min-width:0;font-size:15px;font-weight:600}
+.ops-slot>strong::before{content:"";flex:none;width:8px;height:8px;border-radius:50%;background:var(--st,#4cb487)}
+.ops-slot>em{grid-row:1/3;grid-column:3;font-style:normal;text-align:right;font-variant-numeric:tabular-nums}
+.ops-slot>em i{display:block;font-style:normal;font-size:26px;font-weight:650;line-height:1.1}
+.ops-slot>em small{color:var(--ink-muted);font-size:11px}
+.ops-slot[data-tone=warn]{--st:#e3a63d}
+.ops-slot[data-tone=bad]{--st:#ec6a63}
+.ops-slot[data-tone=busy]{--st:#7fa2e6}
+.ops-slot[data-tone=bad]>strong{color:#ffb4ae}
+.ops-meta{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px 16px;padding:9px 18px;background:#1c2230;color:var(--ink-muted);font-size:12px}
+.ops-meta b{color:var(--ink-fg);font-weight:600;font-variant-numeric:tabular-nums}
+.ops-meta .bad{color:#ffb4ae}
+@media (max-width:639px){.ops-band{grid-template-columns:minmax(0,1fr)}.ops-slot{padding:14px}.ops-slot>em i{font-size:22px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* Overview: per-card target picker replaces the separate instance-ops form. */
+.worker-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.worker-actions .worker-target{flex:1 1 160px;min-width:0;min-height:36px;width:auto}
+.worker-actions button{flex:none}
+/* Add account: one method at a time. */
+#accounts-add.add-tabbed{display:block}
+#accounts-add.add-tabbed .add-col{display:contents}
+#accounts-add.add-tabbed .form-card.legacy{max-width:760px}
+#accounts-add .form-card.legacy.tab-hidden{display:none}
+/* Settings: one scrolling page with a jump strip and a filter box. */
+.settings-group{scroll-margin-top:16px}
+.settings-search{display:block;width:100%;max-width:360px;margin:0 0 18px}
+.settings-group.filter-hidden,.settings-cards>.filter-hidden{display:none}
