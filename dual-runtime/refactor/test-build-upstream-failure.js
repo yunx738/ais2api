@@ -1,0 +1,30 @@
+'use strict';
+// Google-side generation failure ("An internal error occurred.", turn with [message,[]] at index 5) is recognised,
+// so the worker stops polling/resending and returns a "please edit the input" error instead of a 72 s 502.
+const assert=require('assert');
+const R=require('./build-response');
+const {expression}=require('./build-page-call');
+const gid='eb9fa8bc-496e-450e-b431-d3b40c71759d',app='d79f818f-93a5-4bb6-b893-d393a5e107e7';
+const userTurn=[[[[[null,'hello']],'user']],null,null,null,null,null,['1',1],['1',1],null,null,['p',['1',1]],0,1,'models/gemini-3.8-flash',null,null,gid];
+const failTurn=[null,null,null,null,null,['An internal error occurred.',[]],['1',2],['1',2],null,null,null,1,4,'models/gemini-3.8-flash',null,null,gid];
+const modelTurn=[[[[[null,'hi']],'model']],null,null,null,null,null,['1',1],['1',1],null,null,null,0,1,'models/gemini-3.8-flash',null,null,gid];
+const wrap=(...t)=>JSON.stringify([...t.map(x=>[null,null,[x],app])]);
+const f=R.parse(wrap(userTurn,failTurn));
+assert.deepStrictEqual(f,{ok:false,error:'An internal error occurred.',upstreamFailed:true});
+assert.strictEqual(R.parse(wrap(userTurn)).upstreamFailed,undefined);
+assert.strictEqual(R.upstreamFailure(wrap(userTurn)),null);
+const ok=R.parse(wrap(userTurn,modelTurn));
+assert.strictEqual(ok.ok,true);assert.strictEqual(ok.text,'hi');
+assert.strictEqual(R.upstreamFailure(wrap(userTurn,modelTurn)),null);
+const code=expression({app:'x',model:'m',parts:[],headers:{},op:'o'});
+new Function(code);
+const i=code.indexOf('if(/\\[null,null,null,null,null');
+assert.ok(i>0,'page breaks out of the poll loop on a failed turn');
+const src=code.slice(i+3,code.indexOf('.test(t2)',i));
+const re=eval(src);
+assert.ok(re.test(wrap(userTurn,failTurn)));
+assert.ok(!re.test(wrap(userTurn,modelTurn)));
+assert.ok(!re.test(wrap(userTurn)));
+assert.ok(code.includes('&&gen<1&&!/\\[null,null,null,null,null'),'no resend after a failed turn');
+assert.ok(require('fs').readFileSync(__dirname+'/build-worker.js','utf8').includes('if(out.upstreamFailed)return send(res,400,'));
+console.log('test-build-upstream-failure ok');

@@ -16,6 +16,19 @@ function turns(raw){
  return {turns:out,json:J};
 }
 const num=v=>{const n=Number(v);return Number.isSafeInteger(n)&&n>=0?n:0;};
+// Google-side generation failure: a turn with no content, [message,[details]] at index 5, phase 4.
+// Seen within ~2 s of submit for some inputs ("An internal error occurred."), identical on every retry.
+function upstreamFailure(raw){
+ let J;try{J=JSON.parse(raw);}catch{return null;}
+ let hit=null;
+ const walk=(v,d)=>{
+  if(hit||d>6||!Array.isArray(v))return;
+  if(v[0]==null&&Array.isArray(v[5])&&typeof v[5][0]==='string'&&v.some(x=>typeof x==='string'&&x.startsWith('models/'))){hit=v[5][0].slice(0,300);return;}
+  for(const x of v)walk(x,d+1);
+ };
+ walk(J,0);
+ return hit;
+}
 function parse(raw){
  const {turns:list,error}=turns(raw);
  if(error)return {ok:false,error};
@@ -23,6 +36,8 @@ function parse(raw){
  const last=models[models.length-1];
  if(!last){
   const m=/\[\s*\d+\s*,\s*"([^"]{1,300})"\s*\]/.exec(String(raw));
+  const f=upstreamFailure(raw);
+  if(f)return {ok:false,error:f,upstreamFailed:true};
   return {ok:false,error:m?m[1]:'no model turn'};
  }
  let text='',thought='';
@@ -44,4 +59,4 @@ function openaiUsage(u){
  const prompt=u.uncached+u.cached;
  return {prompt_tokens:prompt,completion_tokens:u.output,total_tokens:prompt+u.output,prompt_tokens_details:{cached_tokens:u.cached}};
 }
-module.exports={parse,turns,openaiUsage};
+module.exports={parse,turns,openaiUsage,upstreamFailure};

@@ -59,11 +59,13 @@ const PAGE_FN=String(async function(parts,model,think,hx,app,key,opts){
    if(r2.status!==200){if(!t2)t2=tx;break;}
    t2=tx;
    if(!firstModel&&t2.indexOf('"model"]')>=0)firstModel=polls;
+   // Google failed the generation (turn [null x5,["message",[]],...]): no point polling or resending.
+   if(/\[null,null,null,null,null,\["[^"]{1,300}",\[/.test(t2))break;
    if(done.test(t2)||polls>=20)break;
    if(!firstModel&&polls>=12&&gen<1)break;
    await new Promise(function(x){setTimeout(x,1000);});
   }
-  if(r2.status===200&&!firstModel&&!done.test(t2)&&gen<1){resent++;continue gen;}
+  if(r2.status===200&&!firstModel&&!done.test(t2)&&gen<1&&!/\[null,null,null,null,null,\["[^"]{1,300}",\[/.test(t2)){resent++;continue gen;}
   break;
   }
   return JSON.stringify({s:r2.status,stage:'stream',tries:tries,sd:sds,resent:resent,polls:polls,firstModel:firstModel,pollMs:Date.now()-pS,gid:gid,t:t2,ms:Date.now()-t0});
