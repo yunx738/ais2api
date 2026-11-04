@@ -34,6 +34,7 @@
  }
  function render(d){
   presets(d.presets||[]);
+  if(d.document)docs(d.document);
   const acc=d.accounts||[],now=Date.now();
   const sum=k=>acc.reduce((n,a)=>n+(a[k]||0),0);
   const input=sum('input'),cached=sum('cached'),ready=acc.filter(a=>a.allowed&&!(a.cooldownUntil>now)).length;
@@ -60,6 +61,25 @@
    cell(tr,x.status===200?badge('成功','good'):badge(String(x.status||'失败'),'bad'));
    cell(tr,x.input==null?'—':two(fmt(x.input),x.cached?'缓存 '+fmt(x.cached):''),'num');
    cell(tr,x.output==null?'—':fmt(x.output),'num');cell(tr,(x.ms/1000).toFixed(1)+'s','num');return tr;}));
+ }
+ // Anti-truncation switch (build-document.json on the coordinator; applies to the next request).
+ const docPost=async body=>{const r=await fetch('/api/build/document',{method:'POST',credentials:'same-origin',redirect:'error',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(typeof d.error==='string'?d.error:'保存失败');return d;};
+ const dmsg=(t,bad)=>{const m=$('bdoc-message');if(m){m.textContent=t||'';m.classList.toggle('bad',!!bad);}};
+ const PREFIX_NOTE={'build/':'','build-st/':'','bridge/':'','code/':'编程工具，默认不开'};
+ let docBusy=false;
+ function docs(d){
+  const on=$('bdoc-on'),box=$('bdoc-prefixes');if(!on||!box||docBusy)return;
+  on.checked=!!d.enabled;
+  box.replaceChildren(...Object.keys(PREFIX_NOTE).map(k=>{const l=el('label','chk'),c=el('input');c.type='checkbox';c.dataset.prefix=k;c.checked=!!d.prefixes?.[k];c.disabled=!d.enabled;
+   c.addEventListener('change',()=>save({prefixes:{[k]:c.checked}},c));l.append(c,document.createTextNode(k+(PREFIX_NOTE[k]?'（'+PREFIX_NOTE[k]+'）':'')));return l;}));
+  dmsg(d.enabled?'已启用 · 本次运行已处理 '+fmt(d.stats?.requests||0)+' 次':'已关闭，所有 Build 请求照旧');
+ }
+ async function save(body,input){
+  docBusy=true;input.disabled=true;
+  try{const d=await docPost(body);docBusy=false;docs(d);}
+  catch(e){input.checked=!input.checked;dmsg(e.message,true);}
+  finally{docBusy=false;input.disabled=false;}
  }
  // Uploaded SillyTavern presets: their prompt text goes into the Build composer, everything else into the attachment.
  const post=async body=>{const r=await fetch('/api/build/presets',{method:'POST',credentials:'same-origin',redirect:'error',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body)});
@@ -90,6 +110,7 @@
   pmsg('已上传 '+done.join('、'));load();
  }
  const init=()=>{const b=$('build-refresh');if(b)b.addEventListener('click',load);
+  const o=$('bdoc-on');if(o)o.addEventListener('change',()=>save({enabled:o.checked},o));
   const f=$('build-preset-file');if(f)f.addEventListener('change',()=>{const list=[...f.files];f.value='';if(list.length)upload(list);});
   load();};
  addEventListener('hashchange',load);

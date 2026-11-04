@@ -54,8 +54,9 @@ async function main(){
  // Build channel (build/*, build-st/*): own token ledger, per-account Build project from build-apps.json.
  const {BuildChannel}=require('./build-coordinator');
  const buildPresets=new (require('./build-presets').PresetStore)(path.join(root,'build-presets.json'));
+ const buildDocument=new (require('./build-document').DocumentSwitch)(path.join(root,'build-document.json'));
  const build=new BuildChannel({appsFile:path.join(root,'build-apps.json'),ledgerFile:path.join(root,'build-tokens.json'),
-  tierOf:id=>tiers.tier(id),isPremium:id=>tiers.isPremium(id),presets:buildPresets});
+  tierOf:id=>tiers.tier(id),isPremium:id=>tiers.isPremium(id),presets:buildPresets,document:buildDocument});
  scheduler.resolveModel=(route,body,options)=>build.resolve(route,body,options)||routing.resolve(route,body,options);
  scheduler.forward=build.wrapForward(scheduler.forward);
  // Nightly Build applet rotation (Beijing 03:00-06:00): fresh applet per Build account, old one deleted.
@@ -179,6 +180,8 @@ async function main(){
  const actions={
   buildStatus:()=>({...build.status(),appletRotation:appletRotation.status()}),
   buildPresets:()=>({presets:buildPresets.list()}),
+  buildDocument:()=>buildDocument.status(),
+  setBuildDocument:body=>buildDocument.set(body),
   buildPresetAdd:body=>buildPresets.add(body?.name,body?.preset),
   buildPresetRemove:body=>buildPresets.remove(String(body?.id||'')),
   buildPresetEnable:body=>buildPresets.setEnabled(String(body?.id||''),body?.enabled),

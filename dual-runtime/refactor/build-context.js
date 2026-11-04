@@ -169,7 +169,10 @@ function prepare(messages,opts={}){return fromEnvelope(messages)||(opts.mode==='
 // Composer = instruction + outline; inline segments appear verbatim in order, file segments are referenced by number.
 // Returns {parts, hashText, bytes, mode}. hashText is the composer text (what Build signs).
 // extra: optional composer block (e.g. function tool definitions) placed before the outline.
-function pack(prepared,{requestedMaxOutputTokens,nonce=crypto.randomBytes(12).toString('hex'),extra='',code=false}={}){
+function pack(prepared,{requestedMaxOutputTokens,nonce=crypto.randomBytes(12).toString('hex'),extra='',code=false,document=null}={}){
+ // document: reserved reply file name (anti-truncation). The answer goes into that project file instead of chat.
+ const fileRule=document?'Do not edit project files other than '+document+'. ':'Do not edit project files. ';
+ const deliver=document?' '+require('./build-document').instruction(document):' Return the complete answer directly, without a receipt or verification code.';
  const {segments,generationType}=prepared;
  const name='__bridge_attachment_'+nonce+'.txt';
  const files=[],outline=[];let pending=[];
@@ -190,12 +193,12 @@ function pack(prepared,{requestedMaxOutputTokens,nonce=crypto.randomBytes(12).to
   bytes=Buffer.byteLength(text);
   if(bytes>LIMITS.maxBytes)throw fail('Build 聊天附件超过 8 MiB，请缩短历史',413,'context_too_large');
   const which=prepared.plugin?'Preset instructions are supplied directly INLINE below; their text is not stored in the attachment.':'Instructions supplied INLINE below are not stored in the attachment.';
-  prompt='This is a text-only conversation, not an app development task. Read the attached text file '+name+'. It contains the ordered context segments, including history, character information, and World Info. Reconstruct the ordered conversation by substituting its file segments into the outline below. Preserve roles, names, order, and exact text. '+which+' Use only this attachment and the current composer as context, not previous project chats or project files. Do not edit project files. '+action+' Return the complete answer directly, without a receipt or verification code.\n\n'+head+outline.join('\n\n')+limit;
+  prompt='This is a text-only conversation, not an app development task. Read the attached text file '+name+'. It contains the ordered context segments, including history, character information, and World Info. Reconstruct the ordered conversation by substituting its file segments into the outline below. Preserve roles, names, order, and exact text. '+which+' Use only this attachment and the current composer as context, not previous project chats or project files. '+fileRule+action+deliver+'\n\n'+head+outline.join('\n\n')+limit;
   const b64=Buffer.from(text,'utf8').toString('base64');
   // Small attachments stay inline (verified path); larger ones are uploaded first, like the official composer.
   parts=[bytes>LIMITS.inlineFileBytes?{__upload:['text/plain',b64,name]}:[null,null,['text/plain',b64]],[null,prompt]];
  }else{
-  prompt='This is a text-only conversation, not an app development task. Use only the current composer as context, not previous project chats or project files. Do not edit project files. '+action+' Return the complete answer directly, without a receipt or verification code.\n\n'+head+outline.join('\n\n')+limit;
+  prompt='This is a text-only conversation, not an app development task. Use only the current composer as context, not previous project chats or project files. '+fileRule+action+deliver+'\n\n'+head+outline.join('\n\n')+limit;
   parts=[[null,prompt]];
  }
  if(Buffer.byteLength(prompt)>LIMITS.maxComposerBytes)throw fail('Build 输入框内容超过 1 MiB 安全大小限制；未截断预设',413,'inline_too_large');
@@ -211,6 +214,6 @@ function pack(prepared,{requestedMaxOutputTokens,nonce=crypto.randomBytes(12).to
  }
  // Same hash input as the verified probe: each part's text, or its inline data, joined by spaces.
  const hashText=parts.map(x=>x[1]!=null?x[1]:(x[2]?x[2][1]:'')).join(' ');
- return {parts,hashText,bytes:bytes+Buffer.byteLength(prompt),mode:(hasFile?(parts.some(x=>x&&x.__upload&&x.__upload[0]==='text/plain')?'attachment-upload':'attachment'):'inline')+(media.length?'+media'+media.length:''),nonce,segments:segments.length};
+ return {parts,hashText,document,bytes:bytes+Buffer.byteLength(prompt),mode:(hasFile?(parts.some(x=>x&&x.__upload&&x.__upload[0]==='text/plain')?'attachment-upload':'attachment'):'inline')+(media.length?'+media'+media.length:''),nonce,segments:segments.length};
 }
 module.exports={classify,classifyCode,fromEnvelope,prepare,pack,tokens,LIMITS,WIRE_PREFIX,CODE};

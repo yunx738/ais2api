@@ -9,8 +9,8 @@ const {tokens,WIRE_PREFIX}=require('./build-context');
 const isEnvelope=m=>Array.isArray(m)&&m.length===1&&m[0]&&m[0].role==='user'&&typeof m[0].content==='string'&&m[0].content.startsWith(WIRE_PREFIX);
 const APP=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 class BuildChannel{
- constructor({appsFile,ledgerFile,tierOf,isPremium,limits,presets=null,log=console}){
-  this.appsFile=appsFile;this.isPremium=isPremium;this.tierOf=tierOf;this.log=log;this.presets=presets;
+ constructor({appsFile,ledgerFile,tierOf,isPremium,limits,presets=null,document=null,log=console}){
+  this.appsFile=appsFile;this.isPremium=isPremium;this.tierOf=tierOf;this.log=log;this.presets=presets;this.document=document;
   this.ledger=new BuildTokenLedger(ledgerFile,{tierOf,limits});
   this.reservations=new Map();
   // Per-account in-flight Build generations. Google silently drops some generations (no model turn ever
@@ -93,6 +93,8 @@ class BuildChannel{
      return {status:400};
     }
     parsed.__build={app,model:spec.model,thinking:spec.thinking,...(raw?{keepMedia:true}:{}),...(spec.prefix==='code/'?{mode:'code'}:{})};
+    // Anti-truncation: reserved reply file for this request only (the project is renewed afterwards).
+    if(this.document&&this.document.uses(spec.prefix)){parsed.__build.document=require('./build-document').documentName();this.document.stats.requests++;}
     // Uploaded ST presets: mark preset text for the composer, the rest goes to the attachment.
     if(this.presets&&!raw&&spec.prefix!=='code/'){try{const m=this.presets.apply(parsed.messages);if(m){parsed.messages=[{role:'user',content:m.content}];this.stats.presetHits=(this.stats.presetHits||0)+1;}}
      catch(e){this.log.error('[BuildPresets]',e.message);}}
@@ -122,7 +124,7 @@ class BuildChannel{
  status(ids){
   const apps=this.apps();
   const {LIMITS}=require('./build-context'),{periodStart,WINDOW}=require('./model-quota-ledger'),now=Date.now();
-  return {apps,stats:this.stats,presets:this.presets?this.presets.list():[],limits:this.ledger.limits,maxContextBytes:LIMITS.maxBytes,inlineBudget:LIMITS.inlineBudget,
+  return {apps,stats:this.stats,document:this.document?this.document.status():null,presets:this.presets?this.presets.list():[],limits:this.ledger.limits,maxContextBytes:LIMITS.maxBytes,inlineBudget:LIMITS.inlineBudget,
    windowStart:periodStart(now),windowEnd:periodStart(now)+WINDOW,models:listModels(),
    accounts:Object.keys(apps).map(Number).map(id=>({...this.ledger.view(id),premium:this.isPremium(id),app:apps[id],
     deniedModels:[...this.denied].filter(([k,t])=>t>now&&k.startsWith(id+'|')).map(([k])=>k.slice(String(id).length+1))})),

@@ -7,6 +7,8 @@ const {prepare,pack}=require('./build-context');
 const {parse,openaiUsage}=require('./build-response');
 const {expression}=require('./build-page-call');
 const Tools=require('./build-tools');
+// Optional: an older container without the build-document.js mount just runs without anti-truncation.
+let Doc=null;try{Doc=require('./build-document');}catch(e){console.warn('[BuildDoc] build-document.js unavailable, anti-truncation off: '+e.message);}
 const APP=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const MODELS=new Set(['gemini-4-argon','gemini-3.8-flash']);
 function install(system,{log=console}={}){
@@ -53,7 +55,7 @@ function install(system,{log=console}={}){
    const prepared=prepare(msgs,{keepMedia:spec.keepMedia===true,mode:spec.mode});
    const d=prepared.dropped;
    if(d&&(d.parts||d.messages||d.toolCalls||d.segments))log.info?.('[Build] dropped unsupported content '+JSON.stringify(d));
-   packed=pack(prepared,{requestedMaxOutputTokens:Number.isSafeInteger(max)&&max>0?max:undefined,extra:Tools.instructions(toolSpec,toolNonce),code:spec.mode==='code'});
+   packed=pack(prepared,{requestedMaxOutputTokens:Number.isSafeInteger(max)&&max>0?max:undefined,extra:Tools.instructions(toolSpec,toolNonce),code:spec.mode==='code',document:Doc&&Doc.NAME.test(spec.document||'')?spec.document:null});
   }catch(e){return send(res,e.statusCode||400,e.message,e.code||'build_context_invalid');}
   const page=system.browserManager?.page;
   if(!page||page.isClosed())return send(res,503,'工作页面不可用','page_unavailable');
@@ -95,6 +97,22 @@ function install(system,{log=console}={}){
    log.warn?.('[Build] incomplete reply turns='+(out.turns||'?')+' textLen='+out.text.length+' thoughtLen='+out.thought.length+' usage='+JSON.stringify(out.usage)+' bytes='+String(r.t||'').length);
   }
   if(!out.complete||!out.text.trim())return send(res,502,'Build 回复不完整（未收到结束标记或正文为空），请重试','build_incomplete');
+  // Anti-truncation: use the reply file when it can be found and verified; otherwise fall back to the chat text.
+  if(packed.document){
+   let why='no_file';
+   try{
+    const hash=Doc.findHash(r.t,packed.document);
+    if(hash){
+     const got=JSON.parse(await page.evaluate(c=>window.wrappedJSObject.eval(c),Doc.readExpression(spec.app,hash)));
+     if(got&&got.ok&&typeof got.text==='string'&&got.text.trim()){log.info?.('[BuildDoc] file used bytes='+got.len+' chat='+out.text.length);out.text=got.text;why=null;}
+     else why='read_'+(got&&(got.err||got.s)||'failed');
+    }
+   }catch(e){why='error '+String(e&&e.message||e).slice(0,120);}
+   if(why){
+    log.warn?.('[BuildDoc] fallback to chat reason='+why+' chat='+out.text.length);
+    if(Doc.isAck(out.text))return send(res,502,'抗截断回复文件读取失败（'+why+'），聊天正文里也没有内容，请重试','build_document_missing');
+   }
+  }
   const usage=openaiUsage(out.usage),model=req.body.model,created=Math.floor(Date.now()/1000);
   const tc=Tools.extract(out.text,toolSpec,toolNonce);
   if(toolSpec)log.info?.('[BuildTools] tools='+toolSpec.tools.length+' mode='+toolSpec.mode+' calls='+tc.calls.length+(tc.rejected.length?' rejected='+JSON.stringify(tc.rejected.slice(0,4)):''));

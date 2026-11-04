@@ -155,6 +155,11 @@ function createServer({keys,models,scheduler,status,actions,auth}){
     }
    }
    if(req.method==='GET'&&url.pathname==='/internal/build-status')return json(res,200,actions.buildStatus());
+   if(url.pathname==='/internal/build/document'&&actions.buildDocument){
+    if(req.method==='GET')return json(res,200,actions.buildDocument());
+    if(req.method==='POST'){try{return json(res,200,actions.setBuildDocument(await readBody()));}
+     catch(e){return json(res,e.statusCode===400?400:500,{error:e.message});}}
+   }
    if(url.pathname==='/internal/build/presets'&&actions.buildPresets){
     if(req.method==='GET')return json(res,200,actions.buildPresets());
     if(req.method==='POST'){
