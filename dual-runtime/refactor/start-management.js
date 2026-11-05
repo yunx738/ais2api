@@ -17,6 +17,8 @@ async function main(){
  allowed.add('POST /api/build/presets');
 allowed.add('GET /api/build/document');
 allowed.add('POST /api/build/document');
+allowed.add('GET /api/build/settings');
+allowed.add('POST /api/build/settings');
  allowed.add('GET /api/usage');
  allowed.add('POST /api/login/start');
  for(const r of ['GET /api/client-script','GET /api/target-app','POST /api/target-app','GET /api/run-mode','POST /api/run-mode','GET /api/ws/config','POST /api/ws/config','POST /api/login-proxy','POST /api/ws/start','GET /api/ws/job','POST /api/ws/cancel'])allowed.add(r);
@@ -191,6 +193,8 @@ require('./console-routes').install(dashboard);
  });
  dashboard.get('/api/build/presets',async(req,res)=>{const r=await call('GET','/internal/build/presets');res.status(r.status).json(r.body);});
  dashboard.post('/api/build/presets',async(req,res)=>{const b=req.body||{};const r=await call('POST','/internal/build/presets',{action:b.action,id:b.id,enabled:b.enabled,name:b.name,preset:b.preset});res.status(r.status).json(r.body);});
+ dashboard.get('/api/build/settings',async(req,res)=>{const r=await call('GET','/internal/build/settings');res.status(r.status).json(r.body);});
+ dashboard.post('/api/build/settings',async(req,res)=>{const r=await call('POST','/internal/build/settings',{premiumOnly:req.body?.premiumOnly});res.status(r.status).json(r.body);});
  dashboard.get('/api/build/document',async(req,res)=>{const r=await call('GET','/internal/build/document');res.status(r.status).json(r.body);});
  dashboard.post('/api/build/document',async(req,res)=>{const b=req.body||{};const r=await call('POST','/internal/build/document',{enabled:b.enabled,prefixes:b.prefixes});res.status(r.status).json(r.body);});
  dashboard.get('/api/build-status',async(req,res)=>{const r=await call('GET','/internal/build-status');res.status(r.status).json(r.body);});

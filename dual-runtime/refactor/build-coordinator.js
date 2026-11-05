@@ -8,8 +8,26 @@ const {parseBuildModel,listModels,BuildTokenLedger}=require('./build-routing');
 const {tokens,WIRE_PREFIX}=require('./build-context');
 const isEnvelope=m=>Array.isArray(m)&&m.length===1&&m[0]&&m[0].role==='user'&&typeof m[0].content==='string'&&m[0].content.startsWith(WIRE_PREFIX);
 const APP=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// Build channel settings (build-settings.json). premiumOnly: Build runs on Pro/Ultra accounts only;
+// off = flash may also use Free (standard) accounts, Free first.
+class BuildSettings{
+ constructor(file,{fs:f=fs}={}){
+  this.file=file;this.fs=f;this.state={premiumOnly:true};
+  if(file)try{const d=JSON.parse(f.readFileSync(file,'utf8'));if(typeof d.premiumOnly==='boolean')this.state.premiumOnly=d.premiumOnly;}
+  catch(e){if(e.code!=='ENOENT')console.error('[BuildSettings] build-settings.json unreadable, using defaults');}
+ }
+ get premiumOnly(){return this.state.premiumOnly;}
+ status(){return {...this.state};}
+ set(body){
+  const next={...this.state};
+  if(body?.premiumOnly!==undefined){if(typeof body.premiumOnly!=='boolean')throw Object.assign(Error('premiumOnly 必须是 true/false'),{statusCode:400});next.premiumOnly=body.premiumOnly;}
+  if(this.file){const tmp=this.file+'.tmp';this.fs.writeFileSync(tmp,JSON.stringify(next,null,1));this.fs.renameSync(tmp,this.file);}
+  this.state=next;return this.status();
+ }
+}
 class BuildChannel{
- constructor({appsFile,ledgerFile,tierOf,isPremium,limits,presets=null,document=null,log=console}){
+ constructor({appsFile,ledgerFile,tierOf,isPremium,limits,presets=null,document=null,settings=null,log=console}){
+  this.settings=settings||new BuildSettings(null);this.settings.state.premiumOnly=settings?this.settings.state.premiumOnly:false;
   this.appsFile=appsFile;this.isPremium=isPremium;this.tierOf=tierOf;this.log=log;this.presets=presets;this.document=document;
   this.ledger=new BuildTokenLedger(ledgerFile,{tierOf,limits});
   this.reservations=new Map();
@@ -38,8 +56,8 @@ class BuildChannel{
  }
  hold(account,id){let m=this.inflight.get(account);if(!m)this.inflight.set(account,m=new Map());m.set(id,Date.now());}
  free(id){for(const m of this.inflight.values())m.delete(id);}
- // Free (standard) accounts can only use flash models in Build.
- canUse(id,model){return !model||/flash/.test(model)||(this.tierOf?this.tierOf(id):'standard')!=='standard';}
+ // Free (standard) accounts: never when premiumOnly is on (they stall); otherwise flash models only.
+ canUse(id,model){if(!model)return true;const free=(this.tierOf?this.tierOf(id):'standard')==='standard';return !free||(!this.settings.premiumOnly&&/flash/.test(model));}
  blocked(id,model){return !this.canUse(id,model)||this.denied.get(id+'|'+model)>Date.now();}
  ready(id,model){return !!this.appFor(id)&&this.ledger.view(id).allowed&&!(model&&this.blocked(id,model));}
  // Returns null for non-Build models so the normal routing runs.
@@ -50,7 +68,7 @@ class BuildChannel{
   if(route!=='/v1/chat/completions')throw Object.assign(Error('Build 通道只支持 /v1/chat/completions'),{statusCode:400});
   const candidates=Object.keys(this.apps()).map(Number);
   if(!candidates.length)throw Object.assign(Error('没有已开通 Build 项目的账号'),{statusCode:503});
-  if(!allowUnavailable&&candidates.length&&candidates.every(id=>this.blocked(id,spec.model)))throw Object.assign(Error(/flash/.test(spec.model)?'没有账号能使用 '+spec.model+'（Google 拒绝），请换模型':spec.model+' 需要 Pro/Ultra 账号，当前只有 Free 账号可用，请改用 flash 模型'),{statusCode:403});
+  if(!allowUnavailable&&candidates.length&&candidates.every(id=>this.blocked(id,spec.model)))throw Object.assign(Error(candidates.some(id=>this.canUse(id,spec.model))?'没有账号能使用 '+spec.model+'（Google 拒绝），请换模型':this.settings.premiumOnly?'Build 通道已设为只用 Pro/Ultra 账号，当前没有可用的 Pro/Ultra 账号':spec.model+' 需要 Pro/Ultra 账号，当前只有 Free 账号可用，请改用 flash 模型'),{statusCode:403});
   if(!allowUnavailable&&!candidates.some(id=>this.ledger.view(id).allowed)){
    const soon=Math.min(...candidates.map(id=>{const v=this.ledger.view(id);return v.remaining===null||v.remaining>0?v.cooldownUntil:v.windowEnd;}));
    const at=new Date(soon+8*3600000).toISOString().slice(0,16).replace('T',' ');
@@ -62,7 +80,7 @@ class BuildChannel{
    model:'build-'+spec.model,quotaFamily:'ultra',build:spec,estimate,
    eligible:(slot,account)=>self.ready(account,spec.model),
    // flash: standard (Free) accounts first, so Pro/Ultra capacity stays free for pro models and normal traffic.
-   ...(/flash/.test(spec.model)?{rank:(slot,account)=>self.isPremium&&self.isPremium(account)?1:0}:{}),
+   ...(/flash/.test(spec.model)&&!self.settings.premiumOnly?{rank:(slot,account)=>self.isPremium&&self.isPremium(account)?1:0}:{}),
    admit(account,id){
     if(!self.ready(account,spec.model))return false;
     if(self.busy(account)>=self.inflightCap(account)){self.stats.waitedInflight=(self.stats.waitedInflight||0)+1;return false;}
@@ -124,11 +142,11 @@ class BuildChannel{
  status(ids){
   const apps=this.apps();
   const {LIMITS}=require('./build-context'),{periodStart,WINDOW}=require('./model-quota-ledger'),now=Date.now();
-  return {apps,stats:this.stats,document:this.document?this.document.status():null,presets:this.presets?this.presets.list():[],limits:this.ledger.limits,maxContextBytes:LIMITS.maxBytes,inlineBudget:LIMITS.inlineBudget,
+  return {apps,stats:this.stats,settings:this.settings.status(),document:this.document?this.document.status():null,presets:this.presets?this.presets.list():[],limits:this.ledger.limits,maxContextBytes:LIMITS.maxBytes,inlineBudget:LIMITS.inlineBudget,
    windowStart:periodStart(now),windowEnd:periodStart(now)+WINDOW,models:listModels(),
    accounts:Object.keys(apps).map(Number).map(id=>({...this.ledger.view(id),premium:this.isPremium(id),app:apps[id],
     deniedModels:[...this.denied].filter(([k,t])=>t>now&&k.startsWith(id+'|')).map(([k])=>k.slice(String(id).length+1))})),
    recent:this.ledger.recent()};
  }
 }
-module.exports={BuildChannel};
+module.exports={BuildChannel,BuildSettings};

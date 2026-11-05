@@ -35,6 +35,7 @@
  function render(d){
   presets(d.presets||[]);
   if(d.document)docs(d.document);
+  if(d.settings)setts(d.settings);
   const acc=d.accounts||[],now=Date.now();
   const sum=k=>acc.reduce((n,a)=>n+(a[k]||0),0);
   const input=sum('input'),cached=sum('cached'),ready=acc.filter(a=>a.allowed&&!(a.cooldownUntil>now)).length;
@@ -62,6 +63,15 @@
    cell(tr,x.input==null?'—':two(fmt(x.input),x.cached?'缓存 '+fmt(x.cached):''),'num');
    cell(tr,x.output==null?'—':fmt(x.output),'num');cell(tr,(x.ms/1000).toFixed(1)+'s','num');return tr;}));
  }
+ // Build settings: premiumOnly (Pro/Ultra accounts only).
+ let setBusy=false;
+ function setts(d){const b=$('bset-premium'),m=$('bset-message');if(!b||setBusy)return;b.checked=!!d.premiumOnly;
+  if(m){m.textContent=d.premiumOnly?'已开启：Build 只用 Pro/Ultra 账号':'已关闭：flash 会先用 Free 账号';m.classList.remove('bad');}}
+ async function saveSet(b){setBusy=true;b.disabled=true;const m=$('bset-message');
+  try{const r=await fetch('/api/build/settings',{method:'POST',credentials:'same-origin',redirect:'error',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({premiumOnly:b.checked})});
+   const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(typeof d.error==='string'?d.error:'保存失败');setBusy=false;setts(d);}
+  catch(e){b.checked=!b.checked;if(m){m.textContent=e.message;m.classList.add('bad');}}
+  finally{setBusy=false;b.disabled=false;}}
  // Anti-truncation switch (build-document.json on the coordinator; applies to the next request).
  const docPost=async body=>{const r=await fetch('/api/build/document',{method:'POST',credentials:'same-origin',redirect:'error',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body)});
   const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(typeof d.error==='string'?d.error:'保存失败');return d;};
@@ -110,6 +120,7 @@
   pmsg('已上传 '+done.join('、'));load();
  }
  const init=()=>{const b=$('build-refresh');if(b)b.addEventListener('click',load);
+  const sp=$('bset-premium');if(sp)sp.addEventListener('change',()=>saveSet(sp));
   const o=$('bdoc-on');if(o)o.addEventListener('change',()=>save({enabled:o.checked},o));
   const f=$('build-preset-file');if(f)f.addEventListener('change',()=>{const list=[...f.files];f.value='';if(list.length)upload(list);});
   load();};
