@@ -65,7 +65,7 @@
 <label class="f" for="raw">或粘贴</label>
 <textarea id="raw" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="[…] 或 {cookies:[…],origins:[…]}"></textarea>
 <label class="f" for="cname">账号名称（可选）</label><input id="cname" maxlength="40" autocomplete="off" placeholder="例如：Ultra 主号">
-<label class="f" for="ctier">账号分类</label><select id="ctier"><option value="standard">普通账号（参与轮换）</option><option value="pro">Pro 账号（4a 每天 50 次）</option><option value="ultra">Ultra 5x 账号（4a 每天 100 次）</option><option value="ultra20">Ultra 20x 账号（4a 每天 200 次）</option></select>
+<label class="f" for="ctier">账号分类</label><select id="ctier"><option value="standard">普通账号（参与轮换）</option><option value="pro">Pro 账号（4a 每天 50 次）</option><option value="ultra">Ultra 5x 账号（4a 每天 200 次）</option><option value="ultra20">Ultra 20x 账号（4a 每天 200 次）</option></select>
 <div class="btns"><button id="convert" type="button">校验</button><button id="send" class="primary" type="button" disabled>导入</button><button id="clear" type="button">清空</button></div>
 <pre id="result" class="out" role="status" aria-live="polite"></pre></div>
 <div class="card form-card legacy"><h2>浏览器油猴脚本</h2>
@@ -78,7 +78,7 @@
 <label class="f" for="le">邮箱</label><input id="le" type="email" autocomplete="off" autocapitalize="off" spellcheck="false">
 <label class="f" for="lp">密码</label><input id="lp" type="password" autocomplete="new-password">
 <label class="f" for="lname">账号名称（可选）</label><input id="lname" maxlength="40" autocomplete="off" placeholder="例如：Ultra 主号">
-<label class="f" for="ltier">账号分类</label><select id="ltier"><option value="standard">普通账号（参与轮换）</option><option value="pro">Pro 账号（4a 每天 50 次）</option><option value="ultra">Ultra 5x 账号（4a 每天 100 次）</option><option value="ultra20">Ultra 20x 账号（4a 每天 200 次）</option></select>
+<label class="f" for="ltier">账号分类</label><select id="ltier"><option value="standard">普通账号（参与轮换）</option><option value="pro">Pro 账号（4a 每天 50 次）</option><option value="ultra">Ultra 5x 账号（4a 每天 200 次）</option><option value="ultra20">Ultra 20x 账号（4a 每天 200 次）</option></select>
 <label class="chk"><input id="lrem" type="checkbox" checked>记住密码，失效后自动重新登录</label>
 <div class="btns"><button id="lgo" class="primary" type="button">登录并添加</button><button id="lcancel" type="button" disabled>取消</button></div>
 <div id="lneed" hidden><label class="f" id="lprompt" for="lv"></label><div class="row"><input id="lv" autocomplete="one-time-code"><button id="lsend" class="primary" type="button" style="flex:none">提交</button></div></div>
@@ -98,7 +98,7 @@
 <div class="card form-card mdl-card mdl-card-policy"><div class="section-head"><h2>额度规则</h2></div>
 <div class="form-row">
 <label>模型<select id="policy-model"><option value="">先刷新目录</option></select></label>
-<label>额度类别<select id="policy-bucket"><option value="">请选择</option><option value="flash" title="每模型 100（Ultra 220）">Flash · 100 / Ultra 220</option><option value="pro" title="普通账号 10 / Pro 50 / Ultra 5x 100 / Ultra 20x 200">Pro · 10 / 50 / 100 / 200</option><option value="ultra" title="Pro 50 / Ultra 5x 100 / Ultra 20x 200，仅 Pro/Ultra 账号">高级 · 仅 Pro / Ultra</option></select></label>
+<label>额度类别<select id="policy-bucket"><option value="">请选择</option><option value="flash" title="每模型 100（Ultra 220）">Flash · 100 / Ultra 220</option><option value="pro" title="普通账号 10 / Pro 50 / Ultra 5x 100 / Ultra 20x 200">Pro · 10 / 50 / 100 / 200</option><option value="ultra" title="Pro 50 / Ultra 200，仅 Pro/Ultra 账号">高级 · 仅 Pro / Ultra</option></select></label>
 <label class="mdl-check"><input id="policy-anti" type="checkbox">防截断续传</label>
 <button id="policy-save" class="primary" disabled>保存</button></div>
 <p id="policy-message" role="status"></p></div>
