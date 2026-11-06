@@ -99,7 +99,7 @@ function createServer({keys,models,scheduler,status,actions,auth}){
    }
    if(req.method==='POST' && url.pathname==='/internal/models/refresh'){
     const body=await readBody();
-    if(!['A','B'].includes(body?.slot))return json(res,400,{error:'Invalid slot'});
+    if(!['A','B','H'].includes(body?.slot))return json(res,400,{error:'Invalid slot'});
     const result=await actions.syncModels(body.slot);
     return json(res,result.accepted||result.pending?202:409,result);
    }
@@ -122,7 +122,7 @@ function createServer({keys,models,scheduler,status,actions,auth}){
    }
    if(req.method==='POST' && url.pathname==='/internal/restart'){
     const body=await readBody();
-    if(!['A','B'].includes(body?.slot))return json(res,400,{error:'Invalid slot'});
+    if(!['A','B','H'].includes(body?.slot))return json(res,400,{error:'Invalid slot'});
     const result=await actions.restart(body.slot);
     return json(res,result.started.length?202:409,result);
    }
@@ -221,6 +221,21 @@ function createServer({keys,models,scheduler,status,actions,auth}){
       return json(res,400,{error:'Invalid action'});
      }catch(e){return json(res,e.statusCode===409?409:503,{error:e.statusCode===409?e.message:'实例暂停或恢复未确认'});}
     }
+   }
+   if(url.pathname.startsWith('/internal/ops/')){
+    const ops=require('./ops-tools'),op=url.pathname.slice(14);
+    try{
+     if(req.method==='GET'&&op==='overview'){const o=await ops.overview({cwd:__dirname});return json(res,200,{...o,backups:ops.backups(),coordinator:actions.opsStatus?actions.opsStatus():null});}
+     if(req.method==='GET'&&op==='logs')return json(res,200,{source:url.searchParams.get('source'),lines:await ops.logs(url.searchParams.get('source'),url.searchParams.get('n'))});
+     if(req.method==='POST'){
+      const body=await readBody();
+      if(op==='restart')return json(res,200,await ops.restartUnit(body.unit));
+      if(op==='backup')return json(res,200,await ops.backup());
+      const fn={'clear-cooldown':actions.clearCooldown,'reset-quota':actions.resetQuota,'write-back':actions.writeBack,'headless-concurrency':actions.setHeadlessConcurrency}[op];
+      if(typeof fn==='function')return json(res,200,await fn(body));
+     }
+     return json(res,404,{error:'当前模式不支持此操作'});
+    }catch(e){return json(res,[400,404,409,413].includes(e.statusCode)?e.statusCode:503,{error:e.statusCode?e.message:'操作未确认'});}
    }
    if(req.method==='POST' && url.pathname==='/internal/sync-accounts')
     return json(res,200,await actions.syncAccounts());

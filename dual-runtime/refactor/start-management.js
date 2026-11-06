@@ -174,7 +174,7 @@ require('./console-routes').install(dashboard);
  });
  dashboard.post('/api/models/refresh',async(req,res)=>{
   const slot=req.body?.slot;
-  if(!['A','B'].includes(slot))return res.status(400).json({error:'Invalid slot'});
+  if(!['A','B','H'].includes(slot))return res.status(400).json({error:'Invalid slot'});
   const r=await call('POST','/internal/models/refresh',{slot});
   res.status(r.status).json(r.body);
  });
@@ -250,6 +250,19 @@ require('./console-routes').install(dashboard);
   const b=req.body||{};const payload=b.action==='apply'?{action:'apply'}:{url:typeof b.url==='string'?b.url.slice(0,300):''};
   const r=await call('POST','/internal/target-app',payload);res.status(r.status).json(r.body);});
  allowed.add('GET /api/concurrency');allowed.add('POST /api/concurrency');
+ for(const r of ['GET /api/ops/overview','GET /api/ops/logs','POST /api/ops/restart','POST /api/ops/backup','POST /api/ops/clear-cooldown','POST /api/ops/reset-quota','POST /api/ops/write-back','POST /api/ops/headless-concurrency'])allowed.add(r);
+ dashboard.get('/api/ops/overview',async(req,res)=>{const r=await call('GET','/internal/ops/overview');res.status(r.status).json(r.body);});
+ dashboard.get('/api/ops/logs',async(req,res)=>{
+  const source=String(req.query.source||''),n=Math.max(20,Math.min(1000,Number(req.query.n)||200));
+  if(!['headless','coordinator','login'].includes(source))return res.status(400).json({error:'未知日志来源'});
+  const r=await call('GET','/internal/ops/logs?source='+source+'&n='+n);res.status(r.status).json(r.body);});
+ for(const op of ['restart','backup','clear-cooldown','reset-quota','write-back','headless-concurrency'])
+  dashboard.post('/api/ops/'+op,async(req,res)=>{if(!loginGuard(req,res))return;
+   const b=req.body||{},p={};
+   if(op==='restart'){if(!['headless','coordinator','login'].includes(b.unit))return res.status(400).json({error:'未知服务'});p.unit=b.unit;}
+   if(op==='clear-cooldown'||op==='reset-quota'){if(!Number.isSafeInteger(b.id)||b.id<1)return res.status(400).json({error:'账号编号无效'});p.id=b.id;if(op==='reset-quota')p.confirm=String(b.confirm||'').slice(0,40);}
+   if(op==='headless-concurrency')p.perAccount=Number(b.perAccount);
+   const r=await call('POST','/internal/ops/'+op,p);res.status(r.status).json(r.body);});
  allowed.add('GET /api/at-prompt');allowed.add('POST /api/at-prompt');
  dashboard.get('/api/at-prompt',async(req,res)=>{const r=await call('GET','/internal/at-prompt');res.status(r.status).json(r.body);});
  allowed.add('GET /api/at-prompt/export');allowed.add('POST /api/at-prompt/import');

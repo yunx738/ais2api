@@ -1,6 +1,6 @@
  'use strict';
 const $=id=>document.getElementById(id);
-const titles={overview:'概览',accounts:'账号',models:'模型',usage:'统计',build:'Build 通道',history:'请求记录',settings:'设置'};
+const titles={overview:'概览',accounts:'账号',models:'模型',usage:'统计',build:'Build 通道',history:'请求记录',settings:'设置',ops:'运维'};
 const pageAlias={add:'accounts'};
 let state=null,reading=false,mutating=false,fresh=false,readTask=null,statusError=false;
 let accountPage=1;
@@ -46,6 +46,7 @@ async function api(path,body){
  }catch(e){if(e.name==='AbortError')throw Error('请求超时，操作可能仍在执行，请刷新核实后再操作');throw e;}finally{clearTimeout(timer);}
 }
 function accountState(a){if(['invalid','deleting'].includes(a.authStatus))return 'invalid';return a.cooldownUntil>Date.now()?'cooling':a.owner?'assigned':'available';}
+const isHeadless=()=>document.body.classList.contains('mode-headless');
 function cookieDay(v){return Number.isFinite(v)&&v>0?new Date(v).toLocaleDateString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit'}):'—';}
 function cookieStamp(v){return Number.isFinite(v)&&v>0?new Date(v).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):'—';}
 const cookieSaveLabels={saved:'已保存',scheduled:'等待首次保存',saving:'正在保存',auth_file_changed:'认证文件已更换，未覆盖',worker_upgrade_pending:'等待实例加载保存功能',snapshot_unavailable:'未取得空闲快照',snapshot_timeout:'快照超时',identity_changed:'实例状态变化，未保存',snapshot_invalid:'快照缺少登录 Cookie',save_failed:'保存失败'};
@@ -133,7 +134,7 @@ function renderAccountRows(d=state){
   quotaBox.append(el('small',models.some(q=>q.legacyBlocked)?'含待核实模型':models.some(q=>q.cooldownUntil>Date.now())?'部分模型冷却中':fraction===null?'额度未知':'剩余额度'));
   {const top=models.filter(q=>Number(q.used)>0).sort((x,y)=>y.used-x.used).slice(0,2);if(top.length){const t=el('span',undefined,'acc-top');for(const q of top)t.append(el('i',String(q.model).replace(/^gemini-/,'')+' · '+q.used));quotaBox.append(t);}}
   quotaCell.append(quotaBox);row.append(quotaCell);
-  const statusCell=el('td'),kind=accountState(a);statusCell.append(statusBadge(kind==='invalid'?'登录失效':kind==='cooling'?'冷却中':kind==='assigned'?'已分配':'备用',kind==='invalid'?'warn':kind==='cooling'?'warn':kind==='available'?'good':'assigned'));row.append(statusCell);
+  const statusCell=el('td'),kind=accountState(a);statusCell.append(statusBadge(kind==='invalid'?'登录失效':kind==='cooling'?'冷却中':kind==='assigned'?(isHeadless()?'处理中':'已分配'):(isHeadless()?'可用':'备用'),kind==='invalid'?'warn':kind==='cooling'?'warn':kind==='available'?'good':'assigned'));row.append(statusCell);
   row.append(cookieCell(a));
   const cooldown=el('td',a.cooldownUntil>Date.now()?date(a.cooldownUntil):'—','cooldown-cell');row.append(cooldown);
   const actions=el('td'),details=el('button',undefined,'account-detail-button');details.type='button';details.title='查看账号详情';details.setAttribute('aria-label','查看账号 '+a.id+' 的额度详情');details.append(consoleIcon('chart'));details.addEventListener('click',()=>openAccount(a.id));actions.append(details);
@@ -168,7 +169,7 @@ function renderAccountRows(d=state){
  $('account-prev').disabled=accountPage<=1;$('account-next').disabled=accountPage*size>=accounts.length;
  let pageNumber=$('account-page-number');if(!pageNumber){pageNumber=el('span',undefined,'page-number');pageNumber.id='account-page-number';pageNumber.setAttribute('aria-label','当前页');$('account-prev').insertAdjacentElement('afterend',pageNumber);}pageNumber.textContent=accountPage;
  const summary=$('account-summary');
- for(const [key,title,count,label,tone] of [['all','账号总数',d.accounts.length,'全部',''],['available','备用账号',d.accounts.filter(a=>accountState(a)==='available').length,'备用','good'],['assigned','已分配',d.accounts.filter(a=>accountState(a)==='assigned').length,'分配','assigned'],['cooling','冷却账号',d.accounts.filter(a=>accountState(a)==='cooling').length,'冷却','warn']]){
+ for(const [key,title,count,label,tone] of [['all','账号总数',d.accounts.length,'全部',''],['available',d.headless?'可用账号':'备用账号',d.accounts.filter(a=>accountState(a)==='available').length,d.headless?'可用':'备用','good'],['assigned',d.headless?'处理中':'已分配',d.accounts.filter(a=>accountState(a)==='assigned').length,d.headless?'处理中':'分配','assigned'],['cooling','冷却账号',d.accounts.filter(a=>accountState(a)==='cooling').length,'冷却','warn']]){
   let box=summary.querySelector('[data-account-filter="'+key+'"]');
   if(!box){box=el('button',undefined,'card account-summary-card summary-'+key);box.type='button';box.dataset.accountFilter=key;const copy=el('div');copy.append(el('span',title),el('strong',count));box.append(copy,statusBadge(label,tone));box.addEventListener('click',()=>{$('account-status').value=key;accountPage=1;renderAccountRows();});summary.append(box);}
   box.querySelector('strong').textContent=count;box.classList.toggle('selected',status===key);box.setAttribute('aria-pressed',String(status===key));
@@ -253,7 +254,7 @@ function refresh(){
  reading=true;$('refresh').disabled=true;$('refresh').setAttribute('aria-busy','true');
  readTask=(async()=>{
   try{const d=await api('/api/status');if(typeof d.halted!=='boolean'||!Number.isInteger(d.queue)||!d.slots||!Array.isArray(d.accounts))throw Error('状态数据格式不完整');
-   state=d;render(d);fresh=true;document.dispatchEvent(new CustomEvent('ais-status',{detail:d}));document.body.classList.remove('stale');$('updated').textContent='更新于 '+new Date().toLocaleTimeString('zh-CN');
+   state=d;document.body.classList.toggle('mode-headless',!!d.headless);render(d);fresh=true;document.dispatchEvent(new CustomEvent('ais-status',{detail:d}));document.body.classList.remove('stale');$('updated').textContent='更新于 '+new Date().toLocaleTimeString('zh-CN');
    if(statusError){notice('');statusError=false;}return true;
   }catch(e){fresh=false;statusError=true;document.body.classList.add('stale');$('updated').textContent='状态已过期';notice('状态读取失败：'+e.message);return false;}
   finally{reading=false;$('refresh').disabled=false;$('refresh').removeAttribute('aria-busy');controls();}

@@ -1,0 +1,56 @@
+/* "Studio" layer: aligns the console with the AIStudio2API web UI (Mag1cFall/AIStudio2API, web/src/style.css @48f75fa):
+   GitHub-style canvas/panel/line tokens, Inter + CJK UI fonts, 4-6px radii, solid blue selected nav, dense rows.
+   Loaded last; only overrides tokens and a few structural surfaces. */
+:root{--bg:#f6f8fa;--panel:#fff;--fg:#1f2328;--muted:#59636e;--border:#d0d7de;--line-strong:#afb8c1;--inset:#eef1f5;--soft:#ddf4ff;
+ --primary:#0969da;--accent:#0969da;--success:#1a7f37;--warning:#9a6700;--danger:#cf222e;--sidebar-bg:#fff;--ink:#1f2328;
+ --r:6px;--rs:4px;--sel-bg:#0969da;--sel-fg:#fff;
+ --font-ui:"Inter Variable",Inter,"Microsoft YaHei UI","PingFang SC","Noto Sans SC",ui-sans-serif,system-ui,sans-serif;
+ --font-code:"JetBrains Mono","Cascadia Mono",Consolas,ui-monospace,monospace}
+:root.dark{--bg:#0d1117;--panel:#161b22;--fg:#e6edf3;--muted:#9198a1;--border:#30363d;--line-strong:#484f58;--inset:#21262d;--soft:#1f2a3a;
+ --primary:#4493f8;--accent:#4493f8;--success:#3fb950;--warning:#d29922;--danger:#f85149;--sidebar-bg:#161b22;--ink:#010409;--sel-bg:#2563eb;--sel-fg:#fff}
+body{font-family:var(--font-ui);font-weight:450;font-size:14px;line-height:1.45;background:var(--bg);color:var(--fg)}
+code,pre,kbd,.mono{font-family:var(--font-code)}
+h1,h2,h3{letter-spacing:0;font-weight:600}
+#page-title{font-size:20px}
+/* surfaces: flat, one hairline, no shadow */
+.card,dialog,.settings-group,.history-list,.account-detail-overview,#account-dialog{background:var(--panel);border:1px solid var(--border)!important;box-shadow:none!important}
+.card:hover{box-shadow:none!important}
+/* sidebar: author's layout — brand row, solid selected item */
+.sidebar{background:var(--sidebar-bg);border-right:1px solid var(--border);box-shadow:none}
+.brand{border-bottom:1px solid var(--border)}
+.sidebar-nav a{border-radius:var(--rs)!important;color:var(--muted);font-weight:500}
+.sidebar-nav a:hover{background:var(--inset);color:var(--fg)}
+.sidebar-nav a.selected,.sidebar-nav a[aria-current=page]{background:var(--sel-bg)!important;color:var(--sel-fg)!important}
+.sidebar-nav a.selected .icon{color:var(--sel-fg)}
+.nav-label{color:var(--muted);font-size:12px;font-weight:500}
+.logo{background:var(--sel-bg)!important;color:#fff!important;border-radius:var(--rs)!important}
+/* controls */
+button,.button{border:1px solid var(--border);background:var(--panel);color:var(--fg);font-weight:500;box-shadow:none}
+button:hover:not(:disabled){border-color:var(--line-strong);background:var(--inset)}
+button.primary,.primary{background:var(--sel-bg)!important;border-color:var(--sel-bg)!important;color:#fff!important}
+button.primary:hover:not(:disabled){filter:brightness(1.08)}
+button.danger,.danger-button{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--border))}
+input,select,textarea{background:var(--bg);border:1px solid var(--border);color:var(--fg)}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:none;border-color:var(--primary);box-shadow:0 0 0 2px color-mix(in srgb,var(--primary) 35%,transparent)}
+/* status chips use the author's palette: green ok, amber limited, red failed */
+.badge.good,.chip.ok i{color:var(--success)}
+.badge.warn{color:var(--warning)}
+.badge.bad{color:var(--danger)}
+/* tables: dense rows like the author's accounts table */
+table th{font-size:12px;font-weight:600;color:var(--muted);background:var(--inset)}
+table td,table th{border-color:var(--border)!important}
+.settings-tabs button[aria-selected=true],.view-toggle button[aria-pressed=true]{background:var(--sel-bg);color:#fff}
+.ops-band{background:var(--panel)!important;border:1px solid var(--border)!important;color:var(--fg)!important}
+.ops-band .ops-meta{color:var(--muted)}
+.ops-band .ops-meta b{color:var(--fg)}
+.ops-band .ops-meta .bad b{color:var(--danger)}
+/* mobile nav */
+.mobile-nav{background:var(--panel);border-top:1px solid var(--border)}
+.mobile-nav a.selected,.mobile-nav button.selected{color:var(--primary)}
+.mobile-topbar{background:var(--panel);border-bottom:1px solid var(--border)}
+/* browser-only settings are hidden while the no-browser mode is running */
+body.mode-headless .browser-only{display:none!important}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{border-radius:4px;background:var(--border)}
+::-webkit-scrollbar-thumb:hover{background:var(--line-strong)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

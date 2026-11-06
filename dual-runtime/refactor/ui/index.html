@@ -1,5 +1,8 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>AIS2API 管理后台</title><link rel="stylesheet" href="/console-assets/console.css?v=r2a"><link rel="stylesheet" href="/console-assets/console-panels.css?v=r2a"><link rel="stylesheet" href="/console-assets/models.css?v=r2a"><script src="/console-assets/console.js?v=b2o2" defer></script><script src="/console-assets/shell.js?v=b2o2" defer></script><script src="/console-assets/models.js?v=n5" defer></script><link rel="stylesheet" href="/console-assets/analytics.css?v=r2a"><script src="/console-assets/analytics.js?v=p2" defer></script><script src="/console-assets/prices.js?v=n5" defer></script><script src="/console-assets/proxies.js?v=r2a" defer></script><link rel="stylesheet" href="/console-assets/admin.css?v=r2a"><script src="/console-assets/admin-tools.js?v=b2" defer></script><script src="/console-assets/security.js?v=n4" defer></script><script src="/console-assets/build.js?v=b6" defer></script><link rel="stylesheet" href="/console-assets/build.css?v=b4"><link rel="stylesheet" href="/console-assets/theme-nai.css?v=c1"><script src="/console-assets/theme-nai.js?v=o2" defer></script><link rel="icon" type="image/png" href="/public-assets/nai-favicon.png"><meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#11141b" media="(prefers-color-scheme: dark)"></head>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>AIS2API 管理后台</title><link rel="stylesheet" href="/console-assets/console.css?v=r2a"><link rel="stylesheet" href="/console-assets/console-panels.css?v=r2a"><link rel="stylesheet" href="/console-assets/models.css?v=r2a"><script src="/console-assets/console.js?v=h1" defer></script><script src="/console-assets/shell.js?v=h1" defer></script><script src="/console-assets/models.js?v=n5" defer></script><link rel="stylesheet" href="/console-assets/analytics.css?v=r2a"><script src="/console-assets/analytics.js?v=p2" defer></script><script src="/console-assets/prices.js?v=n5" defer></script><script src="/console-assets/proxies.js?v=r2a" defer></script><link rel="stylesheet" href="/console-assets/admin.css?v=r2a"><script src="/console-assets/admin-tools.js?v=h1" defer></script><script src="/console-assets/security.js?v=n4" defer></script><script src="/console-assets/build.js?v=b6" defer></script><link rel="stylesheet" href="/console-assets/build.css?v=b4"><link rel="stylesheet" href="/console-assets/theme-nai.css?v=c1">
+<link rel="stylesheet" href="/console-assets/ops.css?v=1">
+<link rel="stylesheet" href="/console-assets/theme-studio.css?v=1"><script src="/console-assets/theme-nai.js?v=o3" defer></script>
+<script src="/console-assets/ops.js?v=1" defer></script><link rel="icon" type="image/png" href="/public-assets/nai-favicon.png"><meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#11141b" media="(prefers-color-scheme: dark)"></head>
 <body>
 <svg class="icon-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
 <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
@@ -25,6 +28,7 @@
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
 <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
 <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
+<symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
 </defs></svg>
 <aside class="sidebar" aria-label="控制台侧栏">
   <a class="brand" href="#overview" aria-label="AIS2API 仪表盘"><span class="logo" aria-hidden="true"><svg class="icon"><use href="#i-model"/></svg></span><span class="brand-copy"><strong>AIS2API</strong></span></a>
@@ -38,6 +42,7 @@
 <span class="nav-label">配置</span>
 <a href="#models" data-page="models" title="模型"><svg class="icon" aria-hidden="true"><use href="#i-model"/></svg><span>模型</span></a>
 <a href="#build" data-page="build" title="Build 通道"><svg class="icon" aria-hidden="true"><use href="#i-zap"/></svg><span>Build</span></a>
+<a href="#ops" data-page="ops" title="运维"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg><span>运维</span></a>
 <a href="#settings" data-page="settings" title="设置"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg><span>设置</span></a>
 </nav>
   <div class="aside-bottom"><span class="sidebar-caption"></span><button class="icon-button ghost" type="button" data-theme-toggle aria-label="切换深浅主题" title="切换深浅主题"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button><a class="icon-button ghost" href="https://github.com/yunx738/ais2api" target="_blank" rel="noopener noreferrer" aria-label="项目 GitHub" title="项目 GitHub"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4 1-4-2-6-2m12 5v-4a3.5 3.5 0 0 0-1-2.8c3.4-.4 7-1.7 7-7.5A5.8 5.8 0 0 0 19.5 4 5.4 5.4 0 0 0 19.4.2S18.1-.2 15 1.8a13.4 13.4 0 0 0-7 0C4.9-.2 3.6.2 3.6.2A5.4 5.4 0 0 0 3.5 4 5.8 5.8 0 0 0 2 7.7c0 5.8 3.6 7.1 7 7.5A3.5 3.5 0 0 0 8 18v4" transform="translate(1 1) scale(.9)"/></svg></a></div>
@@ -49,7 +54,7 @@
 <section id="overview" class="page">
 <div class="stats" hidden><article class="card stat"><i class="stat-icon success-icon" aria-hidden="true"><svg class="icon"><use href="#i-server"/></svg></i><span>调度服务</span><strong id="service">—</strong><small id="service-note">等待状态数据</small></article><article class="card stat"><i class="stat-icon warning-icon" aria-hidden="true"><svg class="icon"><use href="#i-clock"/></svg></i><span>排队请求</span><strong id="queued">—</strong></article><article class="card stat"><i class="stat-icon" aria-hidden="true"><svg class="icon"><use href="#i-activity"/></svg></i><span>调度占用</span><strong id="active">—</strong></article><article class="card stat"><i class="stat-icon info-icon" aria-hidden="true"><svg class="icon"><use href="#i-users"/></svg></i><span>账号总数</span><strong id="account-count">—</strong></article></div>
 <div class="section-head"><div><h2>工作实例</h2></div></div><div id="workers" class="workers"><div class="card empty">正在读取实例状态…</div></div>
-<div id="instance-ops" class="card form-card" hidden><div class="section-head"><div><h2>实例操作</h2></div></div><div class="form-row"><label>实例<select id="slot"><option value="A">实例 A</option><option value="B">实例 B</option></select></label><label>目标账号<select id="target"><option value="">自动选择下一账号</option></select></label><button id="rotate" class="primary">切换账号</button><button id="restart">重启实例</button></div></div>
+<div id="instance-ops" class="browser-only card form-card" hidden><div class="section-head"><div><h2>实例操作</h2></div></div><div class="form-row"><label>实例<select id="slot"><option value="A">实例 A</option><option value="B">实例 B</option></select></label><label>目标账号<select id="target"><option value="">自动选择下一账号</option></select></label><button id="rotate" class="primary">切换账号</button><button id="restart">重启实例</button></div></div>
 </section>
 <section id="accounts" class="page" hidden><div class="page-actions"><div class="section-tabs" role="tablist" aria-label="账号页面"><a href="#accounts" data-subtab="list" role="tab"><svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>账号列表</a><a href="#add" data-subtab="add" role="tab"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>添加账号</a></div><div class="tools" id="account-list-tools"><button id="sync"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg>同步账号</button></div></div>
 <div id="accounts-list">
@@ -161,12 +166,12 @@
 <ul id="key-list" class="key-list"></ul><p id="key-msg" role="status"></p></div>
 </div></div>
 <div class="settings-group"><div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-zap"/></svg></span><div><h2>运行 <span id="mchip" class="chip"><i></i><span id="mtext">…</span></span></h2></div></div><div class="settings-cards"><div class="card form-card"><h2>传输方式 <span id="mode-current" class="badge">—</span></h2><div class="form-row"><label>响应方式<select id="mode"><option value="fake">假流式（默认）</option><option value="real">真流式</option></select></label><button id="save-mode" class="primary">保存</button></div></div>
-<div class="card form-card legacy"><h2>AI Studio 应用<button id="tahelp" type="button" style="min-height:32px;padding:0 12px;font-size:13px">教程</button></h2>
+<div class="browser-only card form-card legacy"><h2>AI Studio 应用<button id="tahelp" type="button" style="min-height:32px;padding:0 12px;font-size:13px">教程</button></h2>
 <div id="tastat" class="sub"></div>
 <label class="f" for="taurl">应用链接</label><input id="taurl" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://ai.studio/apps/…">
 <div class="btns"><button id="tasave" class="primary" type="button">保存</button><button id="taapply" type="button">立即生效</button></div>
 <pre id="tares" class="out"></pre></div>
-<div class="card form-card legacy"><h2>每个实例的并发数</h2><div class="sub">每个实例同时处理的请求数，1–10，默认 2。保存后立即生效，重启或切换账号后不变。</div>
+<div class="browser-only card form-card legacy"><h2>每个实例的并发数</h2><div class="sub">每个实例同时处理的请求数，1–10，默认 2。保存后立即生效，重启或切换账号后不变。</div>
 <div class="form-row"><label>实例 A<input id="ccA" type="number" min="1" max="10" step="1" inputmode="numeric"></label><label>实例 B<input id="ccB" type="number" min="1" max="10" step="1" inputmode="numeric"></label><button id="ccsave" class="primary" type="button">保存</button></div><pre id="ccres" class="out"></pre></div>
 <div class="card form-card legacy"><h2>防截断提示词</h2><div class="sub">请求 anti-truncation/ 开头的模型时注入的提示词。保存后下一条请求立即生效，不用重启实例。</div>
 <div class="form-row"><label>提示词<select id="atp"></select></label><button id="atpsave" class="primary" type="button">保存</button></div><div id="atpnote" class="sub"></div>
@@ -177,10 +182,10 @@
 <div class="form-row" style="margin-top:8px"><button id="atpcopy" type="button">复制到自定义</button><button id="atpexport" type="button">导出</button><button id="atpimport" type="button">导入</button><input id="atpfile" type="file" accept=".json,application/json" hidden></div>
 <pre id="atpres" class="out"></pre></div>
 <div class="card form-card legacy"><div class="sw"><div><b>运行模式</b><div id="msub" class="sub">无浏览器：所有账号同时可用，登录时才拉起浏览器</div></div><select id="mselect" aria-label="运行模式"><option value="headless">无浏览器（默认）</option><option value="dual">双浏览器</option><option value="single">单浏览器</option></select></div><pre id="mres" class="out"></pre></div>
-<div class="card form-card legacy"><div class="sw"><div><b>Pro/Ultra 专用实例</b><div id="usub" class="sub"></div></div><input id="uon" type="checkbox" aria-label="Pro/Ultra 专用实例"></div>
+<div class="browser-only card form-card legacy"><div class="sw"><div><b>Pro/Ultra 专用实例</b><div id="usub" class="sub"></div></div><input id="uon" type="checkbox" aria-label="Pro/Ultra 专用实例"></div>
 <label class="f" for="uslot">专用实例</label><select id="uslot"><option value="A">实例 A</option><option value="B">实例 B</option></select>
 <div id="ulist" class="sub" style="margin-top:8px"></div><pre id="ures" class="out"></pre></div></div></div>
-<div class="settings-group"><div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg></span><div><h2>网络</h2></div></div><div class="settings-cards"><div class="card form-card"><div class="section-head"><h2>A / B · SOCKS5 代理</h2><button type="button" id="proxy-read">重新读取</button></div>
+<div class="settings-group"><div class="group-head"><span class="group-icon"><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg></span><div><h2>网络</h2></div></div><div class="settings-cards"><div class="browser-only card form-card"><div class="section-head"><h2>A / B · SOCKS5 代理</h2><button type="button" id="proxy-read">重新读取</button></div>
  
  <p id="proxy-message" role="status">尚未读取代理配置</p><div id="proxy-forms"></div></div>
 
@@ -207,6 +212,35 @@
 <div class="btns"><button id="wsave" class="primary" type="button">保存收信设置</button></div>
 <pre id="wcfgres" class="out" role="status" aria-live="polite"></pre>
 </form></div></div></div>
+</section>
+<section id="ops" class="page" hidden>
+<div class="ops-toolbar"><span id="ops-updated" class="muted"></span><span id="ops-error" role="alert"></span><button id="ops-refresh" type="button"><svg class="icon" aria-hidden="true"><use href="#i-refresh"/></svg><span>刷新</span></button></div>
+<div id="ops-host" class="ops-host" aria-label="服务器"></div>
+<div class="ops-grid">
+<div class="card ops-card ops-services"><div class="ops-head"><h2>服务</h2><span id="ops-units-msg" class="ops-msg" role="status"></span></div>
+<div class="table-scroll"><table class="ops-table"><thead><tr><th>服务</th><th>状态</th><th>内存</th><th>已运行</th><th>重启次数</th><th></th></tr></thead><tbody id="ops-units"></tbody></table></div>
+<h3>容器</h3><div id="ops-containers" class="ops-containers"></div></div>
+<div class="card ops-card ops-maint"><div class="ops-head"><h2>维护</h2></div>
+<div class="ops-actions">
+<button id="ops-backup" type="button">备份登录文件</button>
+<button id="ops-writeback" type="button">立即写回 Cookie</button>
+<button id="ops-sync" type="button">重新同步账号</button></div>
+<p id="ops-maint-msg" class="ops-msg" role="status"></p>
+<h3>最近备份</h3><ul id="ops-backups" class="ops-list"></ul>
+<h3>当前版本</h3><p id="ops-version" class="ops-version"></p></div>
+</div>
+<div id="ops-headless" class="card ops-card" hidden><div class="ops-head"><h2>无浏览器账号</h2><span id="ops-hl-sum" class="muted"></span>
+<label class="ops-cc">每个账号并发<input id="ops-cc" type="number" min="1" max="10" step="1" inputmode="numeric"></label><button id="ops-cc-save" type="button" class="primary">保存</button></div>
+<p id="ops-hl-msg" class="ops-msg" role="status"></p>
+<div class="table-scroll"><table class="ops-table"><thead><tr><th>账号</th><th>状态</th><th>冷却</th><th></th></tr></thead><tbody id="ops-accounts"></tbody></table></div></div>
+<div class="card ops-card ops-logs"><div class="ops-head"><h2>日志</h2>
+<div id="ops-log-tabs" class="ops-seg" role="tablist" aria-label="日志来源"><button type="button" role="tab" data-src="headless" aria-selected="true">无浏览器服务</button><button type="button" role="tab" data-src="coordinator" aria-selected="false">调度器</button><button type="button" role="tab" data-src="login" aria-selected="false">登录服务</button></div></div>
+<div class="ops-log-bar"><input id="ops-log-q" type="search" placeholder="搜索日志" aria-label="搜索日志">
+<select id="ops-log-level" aria-label="级别"><option value="all">全部级别</option><option value="warn">警告和错误</option><option value="error">仅错误</option></select>
+<select id="ops-log-n" aria-label="行数"><option value="200">最近 200 行</option><option value="500">最近 500 行</option><option value="1000">最近 1000 行</option></select>
+<label class="chk"><input id="ops-log-auto" type="checkbox" checked>每 5 秒刷新</label><label class="chk"><input id="ops-log-follow" type="checkbox" checked>跟随最新</label>
+<button id="ops-log-reload" type="button">读取</button><span id="ops-log-count" class="muted"></span><span id="ops-log-msg" class="ops-msg"></span></div>
+<div id="ops-log" class="ops-log" role="log" aria-live="off"></div></div>
 </section>
 <dialog id="tadlg" class="legacy legacy-dialog" aria-label="配置 AI Studio 应用">
 <div class="dh"><b>配置 AI Studio 应用</b><button class="x" type="button" data-close aria-label="关闭">×</button></div>
@@ -242,6 +276,7 @@
     <a href="#models" data-page="models"><span class="sheet-icon"><svg class="icon" aria-hidden="true"><use href="#i-model"/></svg></span><span>模型</span></a>
     <a href="#build" data-page="build"><span class="sheet-icon"><svg class="icon" aria-hidden="true"><use href="#i-zap"/></svg></span><span>Build 通道</span></a>
     <a href="#settings" data-page="settings"><span class="sheet-icon"><svg class="icon" aria-hidden="true"><use href="#i-server"/></svg></span><span>设置</span></a>
+    <a href="#ops" data-page="ops"><span class="sheet-icon"><svg class="icon" aria-hidden="true"><use href="#i-terminal"/></svg></span><span>运维</span></a>
     <a href="#add" data-page="add"><span class="sheet-icon"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></span><span>添加账号</span></a>
   </div>
   <div class="sheet-footer"><span>AIS2API</span><button class="button ghost" type="button" data-theme-toggle><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg>切换主题</button></div>

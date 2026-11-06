@@ -21,7 +21,10 @@ async function main(){
  const {AccountTiers}=require('./account-tiers');
  const tiers=new AccountTiers({authDir:'/opt/ais2api/auth',file:path.join(root,'ultra-mode.json'),isSingle:()=>true});
  core.quotas.tierOf=id=>tiers.tier(id);
- const perAccount=Number(process.env.HEADLESS_PER_ACCOUNT)||2;
+ // Per-account concurrency (1-10), persisted in headless-concurrency.json; env HEADLESS_PER_ACCOUNT is the fallback.
+ const ccFile=path.join(root,'headless-concurrency.json');
+ let perAccount=Number(process.env.HEADLESS_PER_ACCOUNT)||2;
+ try{const n=JSON.parse(fs.readFileSync(ccFile,'utf8')).perAccount;if(Number.isSafeInteger(n)&&n>=1&&n<=10)perAccount=n;}catch{}
  const dispatch=new HeadlessDispatch({core,usable:id=>importer.has(id),isPremium:id=>tiers.isPremium(id),perAccount:()=>perAccount});
  const live=()=>core.pool.ids.filter(id=>core.accountFlags[id]?.status!=='deleted');
  const syncImport=()=>{try{const r=importer.sync(live());if(r.added.length||r.changed.length)console.log('[Headless] imported',JSON.stringify(r));return r;}catch(e){console.error('[Headless] import failed',e.message);return null;}};
@@ -120,6 +123,19 @@ async function main(){
   setAccountName:b=>{const id=Number(b?.id);if(!core.pool.ids.includes(id))throw Object.assign(Error('账号 '+b?.id+' 不在账号池'),{statusCode:404});return tiers.setAlias(id,b?.name);},
   setAccountTier:b=>{const id=Number(b?.id);if(!core.pool.ids.includes(id))throw Object.assign(Error('账号 '+b?.id+' 不在账号池'),{statusCode:404});return tiers.setTier(id,b?.tier);},
   concurrency:()=>({A:perAccount,B:perAccount,perAccount,headless:true}),setConcurrency:nope,
+  setHeadlessConcurrency(b){const n=Number(b?.perAccount);if(!Number.isSafeInteger(n)||n<1||n>10)throw Object.assign(Error('并发数只能是 1 到 10 的整数'),{statusCode:400});
+   const t=ccFile+'.tmp';fs.writeFileSync(t,JSON.stringify({perAccount:n}),{mode:0o600});fs.renameSync(t,ccFile);perAccount=n;console.log('[Headless] per-account concurrency -> '+n);return {perAccount:n};},
+  opsStatus:()=>({mode:'headless',perAccount,active:dispatch.state.active,queue:scheduler.queue.length,halted:core.halted,
+   accounts:live().map(id=>({id,email:accountEmail(id),imported:importer.has(id),busy:dispatch.busy(id),cooldownUntil:core.pool.cooldowns.get(id)||0,flag:core.accountFlags[id]?.status||null,
+    modelCooldowns:Object.entries(core.quotas.account(id)?.models||{}).filter(([,q])=>q.cooldownUntil>Date.now()).map(([m,q])=>({model:m,until:q.cooldownUntil}))}))}),
+  clearCooldown(b){const id=Number(b?.id);if(!core.pool.ids.includes(id))throw Object.assign(Error('账号 '+b?.id+' 不在账号池'),{statusCode:404});
+   core.pool.cooldowns.delete(id);let models=0;for(const q of Object.values(core.quotas.account(id)?.models||{}))if(q.cooldownUntil){q.cooldownUntil=0;models++;}
+   core.checkpoint();console.log('[Ops] cooldown cleared #'+id);return {id,cleared:true,models};},
+  resetQuota(b){const id=Number(b?.id);if(!core.pool.ids.includes(id))throw Object.assign(Error('账号 '+b?.id+' 不在账号池'),{statusCode:404});
+   if(b?.confirm!=='RESET '+id)throw Object.assign(Error('确认文字不匹配'),{statusCode:400});
+   let n=0;for(const q of Object.values(core.quotas.account(id)?.models||{})){if(q.used){q.used=0;n++;}}
+   core.checkpoint();console.log('[Ops] quota counters reset #'+id);return {id,reset:n};},
+  writeBack:()=>importer.writeBack(live()),
   atPrompt:()=>atPrompt.status(),setAtPrompt:b=>atPrompt.set(b),importAtPrompt:b=>atPrompt.import(b),exportAtPrompt:()=>atPrompt.export(),
   targetApp:()=>({headless:true}),saveTargetApp:nope,applyTargetApp:nope,
   proxies:()=>({slots:[],headless:true}),saveProxy:nope,applyProxy:nope,

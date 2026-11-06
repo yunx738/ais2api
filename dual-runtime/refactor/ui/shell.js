@@ -16,6 +16,7 @@
     build: '',
     models: '',
     settings: '',
+    ops: '服务、日志与维护',
   };
   let restoreOverflow = '';
   let returnFocus = null;
@@ -31,7 +32,7 @@
 
   function updateMenuState() {
     const page = location.hash.slice(1);
-    more.classList.toggle('selected', sheet.open || page === 'settings' || page === 'history' || page === 'add' || page === 'build');
+    more.classList.toggle('selected', sheet.open || page === 'settings' || page === 'ops' || page === 'history' || page === 'add' || page === 'build');
     document.querySelectorAll('[data-more-open]').forEach(button => {
       button.setAttribute('aria-expanded', String(sheet.open));
     });

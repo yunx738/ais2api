@@ -95,7 +95,7 @@
   const used=id=>(usage.get(id)||0)>0;
   function catalogModels(){
     const map=new Map();
-    for(const slot of ['A','B']){
+    for(const slot of Object.keys(data?.slots||{}).length?Object.keys(data.slots):['A','B']){
       const item=data?.slots?.[slot],snapshot=item?.catalog?.snapshot;
       for(const model of snapshot?.models||[]){
         if(typeof model.id!=='string')continue;
@@ -140,15 +140,16 @@
   }
   function renderCatalog() {
     $('catalog-workers').replaceChildren();buttons.clear();
-    for(const slot of ['A','B']){
+    const hl=!!data.slots?.H;
+    for(const slot of hl?['H']:['A','B']){
       const item=data.slots[slot]||{},c=item.catalog,snapshot=c?.snapshot;
       const box=el('article',undefined,'card worker catalog-worker'),head=el('div',undefined,'worker-head');
       const phase=data.errors?.[slot]?'状态不可读':item.operation?
         explain(item.operation.phase):c?.syncing?'同步中':c?.error?'同步失败':
         snapshot?(snapshot.stale?'历史目录':'已有目录'):'未同步';
       const identity=el('div',undefined,'catalog-worker-identity'),title=el('div');
-      title.append(el('h2','实例 '+slot),el('small','#'+(item.account??'—')+' · '+(snapshot?.models?.length??'—')+' 个模型','muted'));
-      identity.append(el('span',slot,'catalog-slot-icon'),title);
+      title.append(el('h2',hl?'无浏览器服务':'实例 '+slot),el('small',(hl?'所有账号共用':'#'+(item.account??'—'))+' · '+(snapshot?.models?.length??'—')+' 个模型','muted'));
+      identity.append(el('span',hl?'H':slot,'catalog-slot-icon'),title);
       head.append(identity,el('span',phase,'badge '+(snapshot&&!snapshot.stale&&!c?.error&&!data.errors?.[slot]?'good':'warn')));
       box.title='最近更新 '+date(snapshot?.updatedAt);box.append(head);
       const error=data.errors?.[slot]||item.operation?.error||c?.error;
@@ -174,7 +175,7 @@
   }
   async function sync(slot) {
     gate();if(buttons.get(slot)?.disabled)return;
-    if(!confirm('同步实例 '+slot+' 的模型目录？'))return;
+    if(!confirm(slot==='H'?'重新读取无浏览器服务的模型目录？':'同步实例 '+slot+' 的模型目录？'))return;
     submitting=true;gate();
     try{
       const result=await api('/api/models/refresh',{slot});
