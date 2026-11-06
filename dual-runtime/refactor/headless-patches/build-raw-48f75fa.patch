@@ -1,0 +1,387 @@
+diff --git a/internal/aistudio/build_raw.go b/internal/aistudio/build_raw.go
+new file mode 100644
+index 0000000..432e1a1
+--- /dev/null
++++ b/internal/aistudio/build_raw.go
+@@ -0,0 +1,167 @@
++package aistudio
++
++// 网关直通写代码助手协议（dual-runtime 补丁）：网关自己打包对话、解析步骤快照、读取回复文件与轮换应用，
++// 这里只负责以账户身份签名提交 CodeAssistantOffline、发送不需要签名的应用 RPC、上传附件与下载应用文件。
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"net/http"
++	"regexp"
++	"strings"
++)
++
++// BuildRawCall 是一次直通调用：op 为 submit、rpc、upload 或 file
++type BuildRawCall struct {
++	Op      string          `json:"op"`
++	Account string          `json:"account"`
++	Method  string          `json:"method,omitempty"`
++	Body    json.RawMessage `json:"body,omitempty"`
++	Binding string          `json:"binding,omitempty"`
++	MIME    string          `json:"mime,omitempty"`
++	Data    []byte          `json:"data,omitempty"`
++	Applet  string          `json:"applet,omitempty"`
++	Hash    string          `json:"hash,omitempty"`
++}
++
++// BuildRawResult 是上游状态码与原样响应
++type BuildRawResult struct {
++	Status int    `json:"s"`
++	Text   string `json:"t,omitempty"`
++	Path   string `json:"path,omitempty"`
++	Data   []byte `json:"data,omitempty"`
++}
++
++// BuildRawService 提供写代码助手直通调用
++type BuildRawService interface {
++	BuildRaw(context.Context, BuildRawCall) (BuildRawResult, error)
++}
++
++// AssistantFileDownloader 以账户身份下载应用中的文件
++type AssistantFileDownloader interface {
++	DownloadAssistantFile(ctx context.Context, accountID string, applet string, hash string) (int, []byte, error)
++}
++
++var buildRawMethods = map[string]bool{
++	assistantStreamMethod:                  true,
++	"CancelCodeAssistantOfflineGeneration": true,
++	"CreateApplet":                         true,
++	"DeleteApplet":                         true,
++}
++
++var (
++	buildRawApplet = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
++	buildRawHash   = regexp.MustCompile(`^[0-9a-f]{64}$`)
++)
++
++const buildRawMaxBytes = 64 << 20
++
++// buildRawModel 取 CodeAssistantOffline 请求第 8 位（索引 7）的 models/<id>，供租约做模型与方法校验
++func buildRawModel(body json.RawMessage) string {
++	var fields []json.RawMessage
++	if json.Unmarshal(body, &fields) != nil || len(fields) < 8 {
++		return ""
++	}
++	var model string
++	if json.Unmarshal(fields[7], &model) != nil {
++		return ""
++	}
++	return strings.TrimPrefix(strings.TrimSpace(model), "models/")
++}
++
++// BuildRaw 在指定账户的租约内执行一次直通调用
++func (s *PooledService) BuildRaw(ctx context.Context, call BuildRawCall) (BuildRawResult, error) {
++	account := strings.TrimSpace(call.Account)
++	if account == "" {
++		return BuildRawResult{}, fmt.Errorf("%w: account 不能为空", ErrInvalidArgument)
++	}
++	switch call.Op {
++	case "submit", "rpc":
++		if len(call.Body) == 0 || !json.Valid(call.Body) {
++			return BuildRawResult{}, fmt.Errorf("%w: body 必须是 JSON", ErrInvalidArgument)
++		}
++	case "upload":
++		if call.MIME == "" || len(call.Data) == 0 {
++			return BuildRawResult{}, fmt.Errorf("%w: upload 需要 mime 与 data", ErrInvalidArgument)
++		}
++	case "file":
++		if !buildRawApplet.MatchString(call.Applet) || !buildRawHash.MatchString(call.Hash) {
++			return BuildRawResult{}, fmt.Errorf("%w: applet 或 hash 无效", ErrInvalidArgument)
++		}
++	default:
++		return BuildRawResult{}, fmt.Errorf("%w: 未知 op %q", ErrInvalidArgument, call.Op)
++	}
++	if call.Op == "rpc" && !buildRawMethods[call.Method] {
++		return BuildRawResult{}, fmt.Errorf("%w: 不允许的方法 %q", ErrInvalidArgument, call.Method)
++	}
++	lease, err := s.pool.AcquireFor(ctx, AccountSelection{AccountID: account})
++	if err != nil {
++		return BuildRawResult{}, err
++	}
++	defer lease.Release()
++	ctx = ContextWithAccountLease(ctx, lease)
++	switch call.Op {
++	case "submit":
++		rpc := newRPCRequest(assistantOfflineMethod, account, "", call.Body, false)
++		s.client.applyBenefitTier(rpc.Method, account, rpc.Header)
++		request := GenerateRequest{AccountID: account, Model: buildRawModel(call.Body), Contents: []Content{{Role: RoleUser, Parts: []Part{{Text: call.Binding}}}}}
++		return readBuildRaw(s.client.protected.DoProtected(ctx, request, rpc))
++	case "rpc":
++		rpc := newRPCRequest(call.Method, account, "", call.Body, call.Method == assistantStreamMethod)
++		s.client.applyBenefitTier(rpc.Method, account, rpc.Header)
++		return readBuildRaw(s.client.transport.Do(ctx, rpc))
++	case "upload":
++		uploader, ok := s.client.transport.(AssistantUploader)
++		if !ok {
++			return BuildRawResult{}, fmt.Errorf("AI Studio transport 不支持写代码助手附件上传")
++		}
++		path, err := uploader.UploadAssistantFile(ctx, account, Blob{MIME: call.MIME, Data: call.Data})
++		if err != nil {
++			if status, message, ok := buildRawRPCError(err); ok {
++				return BuildRawResult{Status: status, Text: message}, nil
++			}
++			return BuildRawResult{}, err
++		}
++		return BuildRawResult{Status: http.StatusOK, Path: path}, nil
++	default:
++		downloader, ok := s.client.transport.(AssistantFileDownloader)
++		if !ok {
++			return BuildRawResult{}, fmt.Errorf("AI Studio transport 不支持应用文件下载")
++		}
++		status, data, err := downloader.DownloadAssistantFile(ctx, account, call.Applet, call.Hash)
++		if err != nil {
++			return BuildRawResult{}, err
++		}
++		return BuildRawResult{Status: status, Data: data}, nil
++	}
++}
++
++func buildRawRPCError(err error) (int, string, bool) {
++	var rpcErr *RPCError
++	if errors.As(err, &rpcErr) && rpcErr.StatusCode > 0 {
++		return rpcErr.StatusCode, rpcErr.Error(), true
++	}
++	return 0, "", false
++}
++
++// readBuildRaw 读完上游正文后返回状态码与原文，上游错误状态同样作为结果返回
++func readBuildRaw(response *RPCResponse, err error) (BuildRawResult, error) {
++	if err != nil {
++		if status, message, ok := buildRawRPCError(err); ok {
++			return BuildRawResult{Status: status, Text: message}, nil
++		}
++		return BuildRawResult{}, err
++	}
++	raw, readErr := io.ReadAll(io.LimitReader(response.Body, buildRawMaxBytes))
++	closeErr := response.Body.Close()
++	if readErr != nil {
++		return BuildRawResult{}, readErr
++	}
++	if closeErr != nil && response.StatusCode == http.StatusOK {
++		return BuildRawResult{}, closeErr
++	}
++	return BuildRawResult{Status: response.StatusCode, Text: string(raw)}, nil
++}
+diff --git a/internal/aistudio/build_raw_file.go b/internal/aistudio/build_raw_file.go
+new file mode 100644
+index 0000000..768c856
+--- /dev/null
++++ b/internal/aistudio/build_raw_file.go
+@@ -0,0 +1,83 @@
++package aistudio
++
++// dual-runtime 补丁：以账户 Cookie 下载写代码助手应用中的文件（/_/upload/<applet>/file/<sha256>）
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"fmt"
++	"io"
++	"net/http"
++	"strconv"
++)
++
++// DownloadAssistantFile 下载应用文件并校验 SHA-256，返回上游状态码与内容
++func (t *MakerSuiteHTTPTransport) DownloadAssistantFile(ctx context.Context, accountID string, applet string, hash string) (int, []byte, error) {
++	lease, owned, err := resolveAccountLease(ctx, t.pool, AccountSelection{AccountID: accountID})
++	if err != nil {
++		return 0, nil, err
++	}
++	if owned {
++		defer lease.Release()
++	}
++	account := lease.Account()
++	public, err := t.headers.ProtocolHeaders(ctx, account.ID)
++	if err != nil {
++		return 0, nil, fmt.Errorf("读取账户动态公共头: %w", err)
++	}
++	client, err := t.clientForProxy(account.EffectiveProxy(t.globalProxy))
++	if err != nil {
++		return 0, nil, err
++	}
++	address := aiStudioOrigin + "/_/upload/" + applet + "/file/" + hash
++	state, err := lease.ReloadStorageState()
++	if err != nil {
++		return 0, nil, fmt.Errorf("读取账户 storage state: %w", err)
++	}
++	cookie, err := state.CookieHeader(address, t.now())
++	if err != nil {
++		return 0, nil, err
++	}
++	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
++	if err != nil {
++		return 0, nil, err
++	}
++	request.Header.Set("User-Agent", public.Get("User-Agent"))
++	request.Header.Set("Accept", "*/*")
++	request.Header.Set("Referer", aiStudioOrigin+"/")
++	request.Header.Set("Sec-Fetch-Dest", "empty")
++	request.Header.Set("Sec-Fetch-Mode", "cors")
++	request.Header.Set("Sec-Fetch-Site", "same-origin")
++	if account.Config.AuthUser > 0 {
++		request.Header.Set("X-Goog-Authuser", strconv.Itoa(account.Config.AuthUser))
++	}
++	if language := account.AcceptLanguage(); language != "" {
++		request.Header.Set("Accept-Language", language)
++	}
++	request.Header.Set("Cookie", cookie)
++	response, err := sendHTTP(client, request)
++	if err != nil {
++		return 0, nil, fmt.Errorf("下载应用文件: %w", err)
++	}
++	defer response.Body.Close()
++	if setCookies := response.Header.Values("Set-Cookie"); len(setCookies) > 0 {
++		_ = lease.MergeSetCookieHeaders(setCookies, address, t.now())
++	}
++	if response.StatusCode != http.StatusOK {
++		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
++		return response.StatusCode, nil, nil
++	}
++	data, err := io.ReadAll(io.LimitReader(response.Body, buildRawMaxBytes+1))
++	if err != nil {
++		return 0, nil, fmt.Errorf("读取应用文件: %w", err)
++	}
++	if len(data) > buildRawMaxBytes {
++		return http.StatusRequestEntityTooLarge, nil, nil
++	}
++	digest := sha256.Sum256(data)
++	if hex.EncodeToString(digest[:]) != hash {
++		return http.StatusConflict, nil, nil
++	}
++	return http.StatusOK, data, nil
++}
+diff --git a/internal/api/build_raw.go b/internal/api/build_raw.go
+new file mode 100644
+index 0000000..2dc9fd9
+--- /dev/null
++++ b/internal/api/build_raw.go
+@@ -0,0 +1,63 @@
++package api
++
++// dual-runtime 补丁：POST /v1/x-build-raw 写代码助手直通调用，只供本机网关使用：除公开 API key 外，还要求来源为回环地址并带 X-Build-Raw-Key（环境变量 BUILD_RAW_KEY，未配置则接口关闭）
++
++import (
++	"crypto/subtle"
++	"errors"
++	"net"
++	"net/http"
++	"os"
++
++	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
++)
++
++// buildRawAllowed 要求本机来源与内部 key；BUILD_RAW_KEY 为空时视为未启用
++func buildRawAllowed(r *http.Request) bool {
++	key := os.Getenv("BUILD_RAW_KEY")
++	if len(key) < 16 {
++		return false
++	}
++	host, _, err := net.SplitHostPort(r.RemoteAddr)
++	if err != nil {
++		return false
++	}
++	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
++		return false
++	}
++	return subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Build-Raw-Key")), []byte(key)) == 1
++}
++
++func (s *server) handleBuildRaw(w http.ResponseWriter, r *http.Request) {
++	if !buildRawAllowed(r) {
++		http.NotFound(w, r)
++		return
++	}
++	service, ok := s.service.(aistudio.BuildRawService)
++	if !ok {
++		writeOpenAIError(w, http.StatusNotImplemented, "build_raw_unsupported", "build raw is not supported")
++		return
++	}
++	var call aistudio.BuildRawCall
++	if err := decodeJSON(r, &call); err != nil {
++		writeOpenAIError(w, http.StatusBadRequest, "invalid_json", err.Error())
++		return
++	}
++	result, err := service.BuildRaw(r.Context(), call)
++	if err != nil {
++		status, code := http.StatusBadGateway, "build_raw_failed"
++		switch {
++		case errors.Is(err, aistudio.ErrInvalidArgument):
++			status, code = http.StatusBadRequest, "invalid_argument"
++		case errors.Is(err, aistudio.ErrAccountNotFound):
++			status, code = http.StatusNotFound, "account_not_found"
++		case errors.Is(err, aistudio.ErrNoEligibleAccount), errors.Is(err, aistudio.ErrAccountCoolingDown):
++			status, code = http.StatusServiceUnavailable, "account_unavailable"
++		case r.Context().Err() != nil:
++			status, code = 499, "client_closed"
++		}
++		writeOpenAIError(w, status, code, err.Error())
++		return
++	}
++	writeJSON(w, http.StatusOK, result)
++}
+diff --git a/internal/api/router.go b/internal/api/router.go
+index 1a1dfa6..0ec0c31 100644
+--- a/internal/api/router.go
++++ b/internal/api/router.go
+@@ -73,6 +73,7 @@ func NewHandler(service aistudio.Service, config Config) http.Handler {
+ 	public.HandleFunc("GET /v1/models", s.handleOpenAIModels)
+ 	public.HandleFunc("GET /v1/models/{model...}", s.handleOpenAIModel)
+ 	public.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
++	public.HandleFunc("POST /v1/x-build-raw", s.handleBuildRaw)
+ 	public.HandleFunc("POST /v1/embeddings", s.handleOpenAIEmbeddings)
+ 	public.HandleFunc("POST /v1/responses", s.handleResponses)
+ 	public.HandleFunc("POST /v1/responses/input_tokens", s.handleResponsesInputTokens)
+diff --git a/internal/app/build_raw.go b/internal/app/build_raw.go
+new file mode 100644
+index 0000000..90a8e3d
+--- /dev/null
++++ b/internal/app/build_raw.go
+@@ -0,0 +1,38 @@
++package app
++
++// dual-runtime 补丁：把写代码助手直通调用接到当前生成服务
++
++import (
++	"context"
++	"fmt"
++
++	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
++)
++
++// BuildRaw 由当前生成服务执行直通调用
++func (manager *runtimeManager) BuildRaw(ctx context.Context, call aistudio.BuildRawCall) (aistudio.BuildRawResult, error) {
++	manager.mu.RLock()
++	defer manager.mu.RUnlock()
++	if manager.current == nil || manager.current.service == nil {
++		return aistudio.BuildRawResult{}, fmt.Errorf("生成服务未启动")
++	}
++	service, ok := manager.current.service.(aistudio.BuildRawService)
++	if !ok {
++		return aistudio.BuildRawResult{}, fmt.Errorf("生成服务不支持直通调用")
++	}
++	return service.BuildRaw(ctx, call)
++}
++
++// BuildRaw 转交给账户池服务
++func (service *trackedService) BuildRaw(ctx context.Context, call aistudio.BuildRawCall) (aistudio.BuildRawResult, error) {
++	raw, ok := service.service.(aistudio.BuildRawService)
++	if !ok {
++		return aistudio.BuildRawResult{}, fmt.Errorf("账户池服务不支持直通调用")
++	}
++	return raw.BuildRaw(ctx, call)
++}
++
++// DownloadAssistantFile 将应用文件下载委托给同一认证传输
++func (transport *authRetryTransport) DownloadAssistantFile(ctx context.Context, accountID string, applet string, hash string) (int, []byte, error) {
++	return transport.transport.(aistudio.AssistantFileDownloader).DownloadAssistantFile(ctx, accountID, applet, hash)
++}

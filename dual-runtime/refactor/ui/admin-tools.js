@@ -177,19 +177,23 @@ addEventListener("hashchange",subtab);subtab();
 if($("script-origin"))$("script-origin").textContent=location.origin;
 let mode=null,mtimer=null;
 function pauseText(){return mode&&mode.single?"暂停唯一实例，期间无法处理请求":"暂时停用一个实例";}
-function mshow(m){mode=m;const busy=["parking","resuming","pending"].includes(m.phase);
- $("msingle").checked=m.single;$("msingle").disabled=busy||m.leaseActive;
- const txt={dual:"双实例",parked:"单实例",parking:"切换中",pending:"切换中",resuming:"恢复中"}[m.phase]||m.phase;
+function mshow(m){mode=m;const busy=["parking","resuming","pending","restarting"].includes(m.phase);
+ const cur=m.mode||(m.single?"single":"dual");
+ if(!$("mselect").dataset.touched)$("mselect").value=cur;$("mselect").disabled=busy||m.leaseActive;
+ const txt={headless:"无浏览器",dual:"双实例",parked:"单实例",parking:"切换中",pending:"切换中",resuming:"恢复中",restarting:"重启中"}[m.phase]||m.phase;
  $("mtext").textContent=m.leaseActive?txt+" · 登录中":txt;
  $("mchip").className="chip "+(m.error?"bad":busy||m.leaseActive?"warn":"ok");
- $("msub").textContent=m.single?("仅实例 "+m.serving):"";
+ $("msub").textContent=cur==="headless"?"无浏览器：所有账号同时可用，登录时才拉起浏览器":m.single?("仅实例 "+(m.serving||"—")):"双浏览器实例 A、B";
  $("mres").textContent=m.error||"";
  clearTimeout(mtimer);mtimer=setTimeout(mload,busy||m.leaseActive?3000:15000);}
 async function mload(){try{const r=await fetch("/api/run-mode",{credentials:"same-origin",redirect:"error"});const d=await r.json();if(r.ok)mshow(d);else{$("mtext").textContent="未知";mtimer=setTimeout(mload,15000);}}catch{mtimer=setTimeout(mload,15000);}}
-$("msingle").onchange=async()=>{const single=$("msingle").checked;
- if(single&&!confirm("停用一个实例，只保留一个处理请求。继续？")){$("msingle").checked=false;return;}
- $("msingle").disabled=true;const {ok,d}=await lpost("/api/run-mode",{single}).catch(()=>({ok:false,d:{}}));
- if(!ok){$("mres").textContent=d.error||"切换失败";$("msingle").checked=!single;$("msingle").disabled=false;return;}mshow(d);};
+$("mselect").onchange=async()=>{const next=$("mselect").value,cur=mode?.mode||(mode?.single?"single":"dual");if(next===cur)return;
+ const restart=next==="headless"||cur==="headless";
+ const tip={headless:"切换到无浏览器模式：停止浏览器实例，所有账号同时处理请求。",dual:"切换到双浏览器模式：启动实例 A、B。",single:"切换到单浏览器模式：只保留一个实例。"}[next]+(restart?"\n调度器会在当前请求完成后重启。继续？":"继续？");
+ if(!confirm(tip)){$("mselect").value=cur;return;}
+ $("mselect").dataset.touched="1";$("mselect").disabled=true;const {ok,d}=await lpost("/api/run-mode",{mode:next}).catch(()=>({ok:false,d:{}}));delete $("mselect").dataset.touched;
+ if(!ok){$("mres").textContent=d.error||"切换失败";$("mselect").value=cur;$("mselect").disabled=false;return;}mshow(d);
+ if(restart){$("mres").textContent="正在重启调度器…";clearTimeout(mtimer);mtimer=setTimeout(mload,8000);}};
 // ---- per-instance concurrency ----
 async function ccload(){try{const r=await fetch("/api/concurrency",{credentials:"same-origin",redirect:"error"});const d=await r.json();if(r.ok){$("ccA").value=d.A;$("ccB").value=d.B;}}catch{}}
 $("ccsave").onclick=async()=>{const A=Number($("ccA").value),B=Number($("ccB").value);

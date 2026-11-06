@@ -176,7 +176,7 @@
 <label class="f" for="atpcont">续写提示词（cont，工具没交完时发给模型）</label><textarea id="atpcont" rows="3" spellcheck="false" style="width:100%;font-family:monospace"></textarea>
 <div class="form-row" style="margin-top:8px"><button id="atpcopy" type="button">复制到自定义</button><button id="atpexport" type="button">导出</button><button id="atpimport" type="button">导入</button><input id="atpfile" type="file" accept=".json,application/json" hidden></div>
 <pre id="atpres" class="out"></pre></div>
-<div class="card form-card legacy"><div class="sw"><div><b>单实例运行</b><div id="msub" class="sub"></div></div><input id="msingle" type="checkbox" aria-label="单实例运行"></div><pre id="mres" class="out"></pre></div>
+<div class="card form-card legacy"><div class="sw"><div><b>运行模式</b><div id="msub" class="sub">无浏览器：所有账号同时可用，登录时才拉起浏览器</div></div><select id="mselect" aria-label="运行模式"><option value="headless">无浏览器（默认）</option><option value="dual">双浏览器</option><option value="single">单浏览器</option></select></div><pre id="mres" class="out"></pre></div>
 <div class="card form-card legacy"><div class="sw"><div><b>Pro/Ultra 专用实例</b><div id="usub" class="sub"></div></div><input id="uon" type="checkbox" aria-label="Pro/Ultra 专用实例"></div>
 <label class="f" for="uslot">专用实例</label><select id="uslot"><option value="A">实例 A</option><option value="B">实例 B</option></select>
 <div id="ulist" class="sub" style="margin-top:8px"></div><pre id="ures" class="out"></pre></div></div></div>

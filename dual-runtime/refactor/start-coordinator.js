@@ -10,6 +10,7 @@ const {createServer,sanitizeStats}=require('./coordinator-http');
 const {authFileInfo}=require('./auth-maintenance');
 async function main(){
  const root=process.env.DUAL_ROOT||'/opt/ais2api/dual-runtime';
+ if(require('./run-mode-file').read(root).mode==='headless'){console.log('[Coordinator] run mode headless');return require('./start-headless').main();}
  const cfg=JSON.parse(fs.readFileSync(path.join(root,'coordinator.json'),'utf8'));
  const dispatch=restore(path.join(root,'state.json'));
  const client=new WorkerClient(Object.fromEntries(['A','B'].map(s=>[s,cfg.workers[s].control])));
@@ -199,7 +200,11 @@ async function main(){
    return tiers.setAlias(id,body?.name);},
   setAccountTier:body=>{const id=Number(body?.id);if(!dispatch.pool.ids.includes(id))throw Object.assign(Error('账号 '+body?.id+' 不在账号池'),{statusCode:404});
    const r=tiers.setTier(id,body?.tier);monitor.tick();return r;},
-  setRunMode:body=>browserLease.setMode(body),
+  setRunMode:body=>{
+   const mode=body?.mode;
+   if(mode==='headless'){const RM=require('./run-mode-file');RM.write(root,'headless');console.log('[Coordinator] run mode -> headless; restarting');RM.scheduleRestart();return {...browserLease.modeStatus(),mode:'headless',phase:'restarting'};}
+   if(mode==='dual'||mode==='single')return browserLease.setMode({single:mode==='single'});
+   return browserLease.setMode(body);},
   concurrency:()=>concurrency.status(),
   atPrompt:()=>atPrompt.status(),
   setAtPrompt:body=>{const r=atPrompt.set(body);console.log('[Coordinator] anti-truncation prompt set to '+r.preset);return r;},

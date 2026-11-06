@@ -15,12 +15,12 @@ class BrowserLease{
    return {single:m.single===true,parked:['A','B'].includes(m.parked)?m.parked:null};}
   catch{return {single:false,parked:null};}
  }
- save(){const t=this.file+'.tmp';fs.writeFileSync(t,JSON.stringify(this.mode),{mode:0o600});fs.renameSync(t,this.file);}
+ save(){const t=this.file+'.tmp';fs.writeFileSync(t,JSON.stringify({mode:this.mode.single?'single':'dual',...this.mode}),{mode:0o600});fs.renameSync(t,this.file);}
  other(x){return x==='A'?'B':'A';}
  status(){const l=this.lease;return l?{slot:l.slot,phase:l.phase,since:l.since,owner:l.owner}:null;}
  modeStatus(){
   const p=this.park;
-  return {single:this.mode.single,parked:this.mode.parked,serving:this.mode.single&&this.mode.parked?this.other(this.mode.parked):null,
+  return {mode:this.mode.single?'single':'dual',modes:['headless','dual','single'],single:this.mode.single,parked:this.mode.parked,serving:this.mode.single&&this.mode.parked?this.other(this.mode.parked):null,
    phase:this.switching?this.switching:(this.mode.single?(p?.phase==='parked'?'parked':'pending'):'dual'),
    error:this.lastError,leaseActive:!!this.lease};
  }

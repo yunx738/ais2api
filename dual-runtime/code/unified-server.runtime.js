@@ -520,6 +520,15 @@ class BrowserManager {
         storageState: storageStateObject,
         viewport: { width: 1920, height: 1080 },
         bypassCSP: true, // page CSP must not block the injected relay's ws://127.0.0.1 connection
+        reducedMotion: 'reduce',
+      });
+      // Hide AI Studio's "free API key" promotion (dialog / banner / snackbar with its animation) in the worker browser.
+      await this.context.addInitScript(() => {
+        const RX = /(free|免费)[^]{0,40}(api|API)|get (an )?api key|获取 ?API ?密钥|领取/i;
+        const SEL = '.cdk-overlay-pane, mat-snack-bar-container, [role=dialog], [role=alertdialog], ms-promo-banner, [class*=promo], [class*=banner], [class*=announcement]';
+        const sweep = () => { try { for (const n of document.querySelectorAll(SEL)) { if (n.dataset.aisHidden) continue; const t = (n.innerText || '').slice(0, 600); if (t && RX.test(t)) { n.dataset.aisHidden = '1'; n.style.setProperty('display', 'none', 'important'); const bd = n.closest('.cdk-overlay-container')?.querySelector('.cdk-overlay-backdrop'); if (bd && n.closest('.cdk-overlay-container').querySelectorAll('.cdk-overlay-pane:not([data-ais-hidden])').length === 0) bd.style.setProperty('display', 'none', 'important'); } } } catch (e) {} };
+        const start = () => { sweep(); new MutationObserver(sweep).observe(document.documentElement, { childList: true, subtree: true }); };
+        if (document.documentElement) start(); else document.addEventListener('DOMContentLoaded', start, { once: true });
       });
       // No Build App: the worker opens a plain AI Studio chat page and injects the relay client itself.
       this.relayScript = buildScriptContent;

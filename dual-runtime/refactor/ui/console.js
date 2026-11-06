@@ -176,14 +176,21 @@ function renderAccountRows(d=state){
  applyAccountColumns();
 }
 function render(d){
+ const headless=!!d.headless,slotIds=headless?Object.keys(d.slots):['A','B'],total=slotIds.length;
  const ready=Object.values(d.slots).filter(s=>s?.ready&&!s?.rotationBlocked&&!s?.healthCheck?.error).length;
- $('service').textContent=d.halted?'已暂停':ready===2?'运行正常':ready?'部分可用':'暂不可用';$('service').className=d.halted||ready<2?'warn':'good';
- $('service-note').textContent=d.halted?'已暂停':ready+' / 2 实例可调度';
+ $('service').textContent=d.halted?'已暂停':ready===total?'运行正常':ready?'部分可用':'暂不可用';$('service').className=d.halted||ready<total?'warn':'good';
+ const hlReady=headless?d.accounts.filter(a=>a.headless&&!['invalid','deleting'].includes(a.authStatus)).length:0;
+ $('service-note').textContent=d.halted?'已暂停':headless?'无浏览器 · '+hlReady+' 个账号同时可调度':ready+' / 2 实例可调度';
  $('queued').textContent=d.queue;$('account-count').textContent=d.accounts.length;
  $('active').textContent=Object.values(d.slots).reduce((n,s)=>n+(s.active||0),0);
  $('mode-current').textContent=({fake:'假流式',real:'真流式'})[d.streamingMode]||'未知';if(d.streamingMode&&!$('mode').dataset.touched)$('mode').value=d.streamingMode;
  const workers=$('workers'),expanded=new Set([...workers.querySelectorAll('details[open][data-slot]')].map(node=>node.dataset.slot));workers.replaceChildren();
- for(const slot of ['A','B']){
+ if(headless){const box=el('article',undefined,'card worker runtime-worker'),head=el('div',undefined,'worker-head'),identity=el('div',undefined,'worker-identity'),icon=el('span',undefined,'worker-icon');icon.append(consoleIcon('server'));
+  const title=el('div');title.append(el('h2','无浏览器服务'),el('small','每账号并发 '+(d.headless.accounts?.[0]?.limit??'—')+' · 模型 '+(d.headless.models||0),'muted'));identity.append(icon,title);
+  const act=d.headless.active||0;head.append(identity,statusBadge(act?'处理中':'运行正常',act?'assigned':'good'));box.append(head);
+  const metrics=el('div',undefined,'worker-metrics');for(const [label,value] of [['处理中',act],['可用账号',hlReady],['忙碌账号',(d.headless.accounts||[]).filter(a=>a.busy>0).length]]){const m=el('div');m.append(el('span',label),el('strong',value));metrics.append(m);}box.append(metrics);
+  workers.append(box);}
+ for(const slot of headless?[]:['A','B']){
   const s=d.slots[slot];if(!s){workers.append(el('article','实例 '+slot+' 状态缺失','card empty'));continue;}
   const box=el('article',undefined,'card worker runtime-worker'),head=el('div',undefined,'worker-head'),identity=el('div',undefined,'worker-identity'),icon=el('span',undefined,'worker-icon');icon.append(consoleIcon('server'));
   const title=el('div'),account=d.accounts.find(a=>a.id===s.account);title.append(el('h2','实例 '+slot),el('small',account?.name||'账号 #'+(s.account??'—'),'muted'));identity.append(icon,title);
