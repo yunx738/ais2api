@@ -208,7 +208,7 @@ async function main(){
      if(mtime>(flag.deletedAt||flag.at||0)){delete core.accountFlags[id];core.pool.cooldowns.delete(id);if(core.authSaves)delete core.authSaves[id];added.push(id);}
     }
     if(core.pool.ids.includes(id))continue;
-    core.pool.ids.push(id);core.pool.ids.sort((a,b)=>a-b);added.push(id);
+    core.quotas.account(id,true);core.pool.ids.push(id);core.pool.ids.sort((a,b)=>a-b);added.push(id);
    }
    const removed=[];
    for(const id of core.pool.ids){
