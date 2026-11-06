@@ -15,7 +15,7 @@ const RunMode=require('./run-mode-file');
 async function main(){
  const root=process.env.DUAL_ROOT||'/opt/ais2api/dual-runtime';
  const cfg=JSON.parse(fs.readFileSync(path.join(root,'coordinator.json'),'utf8'));
- const core=restore(path.join(root,'state.json'));
+ const core=restore(path.join(root,'state.json'),{repairMissingQuota:true});if(core.repairedQuota)core.checkpoint();
  const service=HeadlessService.fromFiles();
  const importer=new HeadlessImport();
  const {AccountTiers}=require('./account-tiers');

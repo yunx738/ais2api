@@ -2,7 +2,7 @@
 const {AccountPool}=require('../code/account-pool');
 const {DispatchCore}=require('./dispatch-core');
 const {read,save}=require('./dispatch-state');
-function restore(file){
+function restore(file,{repairMissingQuota=false,log=console}={}){
  const d=read(file),p=d.pool;
  if(d.version!==2)throw Error("Explicit per-model quota migration required");
  if(!Array.isArray(p.ids)||!p.ids.length||p.ids.some(x=>!Number.isSafeInteger(x)||x<1)||new Set(p.ids).size!==p.ids.length)
@@ -42,7 +42,15 @@ function restore(file){
  }
  dispatch.quotas=new (require("./model-quota-ledger").ModelQuotaLedger)(d.quotaLedger);
  for(const id of Object.keys(d.quotaLedger.accounts))if(!pool.ids.includes(Number(id)))throw Error("Unknown quota account");
- for(const id of pool.ids)if(!Object.hasOwn(d.quotaLedger.accounts,String(id)))throw Error("Missing account quota migration");
+ // Headless mode: an account in the pool with no ledger entry (e.g. added before the sync fix) gets an empty one
+ // (usage counted from 0) instead of blocking startup. Browser mode keeps the strict check.
+ const missing=pool.ids.filter(id=>!Object.hasOwn(d.quotaLedger.accounts,String(id)));
+ if(missing.length){
+  if(!repairMissingQuota)throw Error("Missing account quota migration");
+  for(const id of missing)dispatch.quotas.account(id,true);
+  log.log('[Restore] created empty quota ledger for account(s) '+missing.join(','));
+  dispatch.repairedQuota=missing;
+ }
  dispatch.slots=new Map(d.dispatch.slots.map(([slot,st])=>[slot,{...st,requests:new Set(st.requests||[])}]));
  for(const [slot,state] of dispatch.slots){
   const owner=pool.slots.get(slot);
