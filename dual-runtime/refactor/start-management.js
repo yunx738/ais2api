@@ -250,19 +250,25 @@ require('./console-routes').install(dashboard);
   const b=req.body||{};const payload=b.action==='apply'?{action:'apply'}:{url:typeof b.url==='string'?b.url.slice(0,300):''};
   const r=await call('POST','/internal/target-app',payload);res.status(r.status).json(r.body);});
  allowed.add('GET /api/concurrency');allowed.add('POST /api/concurrency');
- for(const r of ['GET /api/ops/overview','GET /api/ops/logs','POST /api/ops/restart','POST /api/ops/backup','POST /api/ops/clear-cooldown','POST /api/ops/reset-quota','POST /api/ops/write-back','POST /api/ops/headless-concurrency'])allowed.add(r);
+ for(const r of ['GET /api/ops/overview','GET /api/ops/logs','POST /api/ops/restart','POST /api/ops/backup','POST /api/ops/clear-cooldown','POST /api/ops/reset-quota','POST /api/ops/write-back','POST /api/ops/headless-concurrency','POST /api/ops/pause','POST /api/ops/account-enable','POST /api/ops/test-account','POST /api/ops/cancel-request','POST /api/build/rotate'])allowed.add(r);
+ const callLong=createControlCall(system.config.apiKeys[0],{timeoutMs:120000});
+ dashboard.post('/api/build/rotate',async(req,res)=>{if(!loginGuard(req,res))return;const a=req.body?.account;if(a!==null&&a!==undefined&&(!Number.isSafeInteger(a)||a<1))return res.status(400).json({error:'账号编号无效'});
+  const r=await callLong('POST','/internal/build/rotate-applets',{account:a??null});res.status(r.status).json(r.body);});
  dashboard.get('/api/ops/overview',async(req,res)=>{const r=await call('GET','/internal/ops/overview');res.status(r.status).json(r.body);});
  dashboard.get('/api/ops/logs',async(req,res)=>{
   const source=String(req.query.source||''),n=Math.max(20,Math.min(1000,Number(req.query.n)||200));
   if(!['headless','coordinator','login'].includes(source))return res.status(400).json({error:'未知日志来源'});
   const r=await call('GET','/internal/ops/logs?source='+source+'&n='+n);res.status(r.status).json(r.body);});
- for(const op of ['restart','backup','clear-cooldown','reset-quota','write-back','headless-concurrency'])
+ for(const op of ['restart','backup','clear-cooldown','reset-quota','write-back','headless-concurrency','pause','account-enable','test-account','cancel-request'])
   dashboard.post('/api/ops/'+op,async(req,res)=>{if(!loginGuard(req,res))return;
    const b=req.body||{},p={};
    if(op==='restart'){if(!['headless','coordinator','login'].includes(b.unit))return res.status(400).json({error:'未知服务'});p.unit=b.unit;}
    if(op==='clear-cooldown'||op==='reset-quota'){if(!Number.isSafeInteger(b.id)||b.id<1)return res.status(400).json({error:'账号编号无效'});p.id=b.id;if(op==='reset-quota')p.confirm=String(b.confirm||'').slice(0,40);}
    if(op==='headless-concurrency')p.perAccount=Number(b.perAccount);
-   const r=await call('POST','/internal/ops/'+op,p);res.status(r.status).json(r.body);});
+   if(op==='pause'){if(typeof b.paused!=='boolean')return res.status(400).json({error:'参数无效'});p.paused=b.paused;}
+   if(op==='test-account'||op==='account-enable'){if(!Number.isSafeInteger(b.id)||b.id<1)return res.status(400).json({error:'账号编号无效'});p.id=b.id;if(op==='account-enable'){if(typeof b.enabled!=='boolean')return res.status(400).json({error:'参数无效'});p.enabled=b.enabled;}}
+   if(op==='cancel-request'){if(!/^[a-f0-9-]{36}$/.test(String(b.id||'')))return res.status(400).json({error:'请求编号无效'});p.id=b.id;}
+   const r=await (op==='test-account'?callLong:call)('POST','/internal/ops/'+op,p);res.status(r.status).json(r.body);});
  allowed.add('GET /api/at-prompt');allowed.add('POST /api/at-prompt');
  dashboard.get('/api/at-prompt',async(req,res)=>{const r=await call('GET','/internal/at-prompt');res.status(r.status).json(r.body);});
  allowed.add('GET /api/at-prompt/export');allowed.add('POST /api/at-prompt/import');

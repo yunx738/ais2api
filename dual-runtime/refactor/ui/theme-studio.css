@@ -50,6 +50,8 @@ table td,table th{border-color:var(--border)!important}
 .mobile-topbar{background:var(--panel);border-bottom:1px solid var(--border)}
 /* browser-only settings are hidden while the no-browser mode is running */
 body.mode-headless .browser-only{display:none!important}
+body:not(.mode-headless) .headless-only{display:none!important}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 ::-webkit-scrollbar{width:8px;height:8px}
 ::-webkit-scrollbar-thumb{border-radius:4px;background:var(--border)}
 ::-webkit-scrollbar-thumb:hover{background:var(--line-strong)}

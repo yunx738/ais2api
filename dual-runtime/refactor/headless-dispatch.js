@@ -12,6 +12,9 @@ class HeadlessDispatch{
   this.state={active:0,requests:new Set(),executions:{},retirements:{},ready:true};
   this.slots=new Map([[SLOT,this.state]]);
   this.inflight=new Map();this.settled=new Set();this.cursor=0;
+  // Operator controls: paused = admit nothing new (queued requests wait); disabled = accounts left out of rotation;
+  // live = running forwards by request id (res is destroyed to cancel one, same path as a client disconnect).
+  this.paused=false;this.disabled=new Set();this.live=new Map();
  }
  get halted(){return this.core.halted;}
  set halted(v){this.core.halted=v;}
@@ -24,13 +27,13 @@ class HeadlessDispatch{
  busy(account){return this.inflight.get(account)||0;}
  candidates(){
   const now=Date.now();
-  return this.pool.ids.filter(id=>!this.accountFlags[id]&&(this.pool.cooldowns.get(id)||0)<=now&&this.usable(id));
+  return this.pool.ids.filter(id=>!this.accountFlags[id]&&!this.disabled.has(id)&&(this.pool.cooldowns.get(id)||0)<=now&&this.usable(id));
  }
  acquire(id,plan,eligible=()=>true){
   if(!/^[a-f0-9-]{36}$/.test(id||''))throw Error('Invalid request ID');
   if(!plan||typeof plan.model!=='string'||!['flash','pro','ultra'].includes(plan.quotaFamily))throw Error('Explicit model quota required');
   if(this.state.requests.has(id))throw Error('Duplicate request');
-  if(this.halted)return;
+  if(this.halted||this.paused)return;
   const now=Date.now(),metered=typeof plan.admit==='function',ids=this.candidates();
   if(!ids.length)return;
   // Round robin; plain (non-premium) work prefers standard accounts so Pro/Ultra capacity stays free.
@@ -83,6 +86,7 @@ class HeadlessClient{
 }
 // forward wrapper: marks the execution settled whatever happens.
 function settling(dispatch,forward){
- return async(ticket,...args)=>{try{return await forward(ticket,...args);}finally{dispatch.settle(ticket);}};
+ return async(ticket,...args)=>{dispatch.live.set(ticket.id,{ticket,res:args[2]});
+  try{return await forward(ticket,...args);}finally{dispatch.live.delete(ticket.id);dispatch.settle(ticket);}};
 }
 module.exports={HeadlessDispatch,HeadlessClient,settling,SLOT};

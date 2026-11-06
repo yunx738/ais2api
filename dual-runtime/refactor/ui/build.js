@@ -14,7 +14,21 @@
  const two=(a,b)=>{const f=document.createDocumentFragment();f.append(document.createTextNode(a));if(b)f.append(el('span','sub',b));return f;};
  const empty=(body,cols,text)=>{const tr=el('tr');const td=cell(tr,text,'empty');td.colSpan=cols;body.replaceChildren(tr);};
  const stat=(label,value,note,icon)=>{const a=el('article','card stat'),h=el('div','stat-heading'),m=el('span','stat-mark');m.append(svg(icon));h.append(el('span',null,label),m);a.append(h,el('strong',null,value),el('small',null,note||''));return a;};
- let timer=null,loading=false;
+ let timer=null,loading=false,rotating=false;
+ const ROT={rotated:'已轮换',rotated_delete_pending:'已轮换（旧项目稍后删除）',recent:'刚轮换过',create_failed:'新建项目失败',offline:'账号不在线',error:'出错'};
+ async function rotate(account,btn){
+  const who=account==null?'所有账号':'#'+account;
+  if(!confirm('为'+who+'新建 Build 项目并删除旧项目？进行中的 Build 请求可能失败。'))return;
+  if(!window.AisOps){$('build-message').textContent='页面脚本未加载完，请刷新';return;}
+  rotating=true;document.querySelectorAll('[data-rot]').forEach(b=>b.disabled=true);if(btn)btn.textContent='轮换中…';
+  const msg=$('build-message');msg.textContent='正在轮换'+who+'的项目…';
+  try{const r=await window.AisOps.post('/api/build/rotate',{account:account??null});
+   if(r.skipped)msg.textContent=r.skipped==='running'?'已有轮换在进行，请稍后再试':'未执行：'+r.skipped;
+   else{const e=Object.entries(r);msg.textContent=e.length?e.map(([k,v])=>'#'+k+' '+(ROT[v]||v)).join('，'):'没有可轮换的项目';}}
+  catch(e){msg.textContent='轮换失败：'+e.message;}
+  finally{rotating=false;if(btn)btn.textContent=account==null?'全部轮换项目':'轮换';document.querySelectorAll('[data-rot]').forEach(b=>b.disabled=false);load();}
+ }
+ const rotBtn=id=>{const b=el('button','small','轮换');b.type='button';b.dataset.rot=String(id);b.disabled=rotating;b.setAttribute('aria-label','轮换 #'+id+' 的 Build 项目');b.addEventListener('click',()=>rotate(id,b));return b;};
  async function load(){
   if(loading||location.hash!=='#build')return;loading=true;
   const msg=$('build-message');
@@ -22,7 +36,7 @@
    const r=await fetch('/api/build-status',{credentials:'same-origin',redirect:'error',headers:{Accept:'application/json'}});
    if(r.status===401||r.status===403)throw Error('登录已失效，请重新登录');
    const d=await r.json();if(!r.ok)throw Error(typeof d.error==='string'?d.error:'读取失败');
-   render(d);msg.textContent='更新于 '+clock(Date.now());
+   render(d);if(!rotating)msg.textContent='更新于 '+clock(Date.now());
   }catch(e){msg.textContent='读取失败：'+e.message;}
   finally{loading=false;clearTimeout(timer);if(location.hash==='#build')timer=setTimeout(load,15000);}
  }
@@ -46,11 +60,11 @@
    stat('今日请求',fmt(sum('requests')),sum('failed')?'失败 '+fmt(sum('failed')):'无失败','i-list'),
    stat('可用账号',ready+' / '+acc.length,lastRot?'上次清理 '+time(lastRot):'每晚 3:00 自动清理','i-users'));
   const rows=$('build-accounts');
-  if(!acc.length)empty(rows,7,'还没有账号开通 Build');
+  if(!acc.length)empty(rows,8,'还没有账号开通 Build');
   else rows.replaceChildren(...acc.map(a=>{const tr=el('tr');
    cell(tr,'#'+a.account);cell(tr,badge((tierName[a.tier]||a.tier)+(a.tier==='standard'?' · 仅 Flash':''),a.tier==='standard'?'muted':''));
    cell(tr,fmt(a.used),'num');cell(tr,two(fmt(a.input),fmt(a.output)),'num');cell(tr,fmt(a.cached),'num');
-   cell(tr,two(fmt(a.requests),a.failed?'失败 '+a.failed:''),'num');cell(tr,state(a,now));return tr;}));
+   cell(tr,two(fmt(a.requests),a.failed?'失败 '+a.failed:''),'num');cell(tr,state(a,now));cell(tr,rotBtn(a.account));return tr;}));
   const agg={};for(const a of acc)for(const [m,v] of Object.entries(a.models||{})){const x=agg[m]||(agg[m]={requests:0,tokens:0});x.requests+=v.requests;x.tokens+=v.tokens;}
   const list=Object.entries(agg).sort((a,b)=>b[1].tokens-a[1].tokens),models=$('build-models');
   if(!list.length)empty(models,4,'今日还没有调用');
@@ -120,6 +134,7 @@
   pmsg('已上传 '+done.join('、'));load();
  }
  const init=()=>{const b=$('build-refresh');if(b)b.addEventListener('click',load);
+  const ra=$('build-rotate-all');if(ra){ra.dataset.rot='all';ra.addEventListener('click',()=>rotate(null,ra));}
   const sp=$('bset-premium');if(sp)sp.addEventListener('change',()=>saveSet(sp));
   const o=$('bdoc-on');if(o)o.addEventListener('change',()=>save({enabled:o.checked},o));
   const f=$('build-preset-file');if(f)f.addEventListener('change',()=>{const list=[...f.files];f.value='';if(list.length)upload(list);});

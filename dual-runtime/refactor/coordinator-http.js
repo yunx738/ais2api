@@ -231,7 +231,8 @@ function createServer({keys,models,scheduler,status,actions,auth}){
       const body=await readBody();
       if(op==='restart')return json(res,200,await ops.restartUnit(body.unit));
       if(op==='backup')return json(res,200,await ops.backup());
-      const fn={'clear-cooldown':actions.clearCooldown,'reset-quota':actions.resetQuota,'write-back':actions.writeBack,'headless-concurrency':actions.setHeadlessConcurrency}[op];
+      const fn={'clear-cooldown':actions.clearCooldown,'reset-quota':actions.resetQuota,'write-back':actions.writeBack,'headless-concurrency':actions.setHeadlessConcurrency,
+       'pause':actions.setPaused,'account-enable':actions.setAccountEnabled,'test-account':actions.testAccount,'cancel-request':actions.cancelRequest}[op];
       if(typeof fn==='function')return json(res,200,await fn(body));
      }
      return json(res,404,{error:'当前模式不支持此操作'});

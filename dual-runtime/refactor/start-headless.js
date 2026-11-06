@@ -26,6 +26,8 @@ async function main(){
  let perAccount=Number(process.env.HEADLESS_PER_ACCOUNT)||2;
  try{const n=JSON.parse(fs.readFileSync(ccFile,'utf8')).perAccount;if(Number.isSafeInteger(n)&&n>=1&&n<=10)perAccount=n;}catch{}
  const dispatch=new HeadlessDispatch({core,usable:id=>importer.has(id),isPremium:id=>tiers.isPremium(id),perAccount:()=>perAccount});
+ const disFile=path.join(root,'headless-disabled.json');
+ try{for(const id of JSON.parse(fs.readFileSync(disFile,'utf8')))if(Number.isSafeInteger(id))dispatch.disabled.add(id);}catch{}
  const live=()=>core.pool.ids.filter(id=>core.accountFlags[id]?.status!=='deleted');
  const syncImport=()=>{try{const r=importer.sync(live());if(r.added.length||r.changed.length)console.log('[Headless] imported',JSON.stringify(r));return r;}catch(e){console.error('[Headless] import failed',e.message);return null;}};
  syncImport();
@@ -92,7 +94,7 @@ async function main(){
  };
  const runModeStatus=()=>({mode:'headless',single:false,parked:null,serving:null,phase:'headless',error:null,leaseActive:false,modes:RunMode.MODES});
  const status=()=>({
-  halted:core.halted,queue:scheduler.queue.length,scheduling:scheduler.status(),runMode:runModeStatus(),
+  halted:core.halted,paused:dispatch.paused,queue:scheduler.queue.length,scheduling:scheduler.status(),runMode:runModeStatus(),
   headless:{...dispatch.status(),models:routing.models.size,modelsAt:routing.at},
   streamingMode:'real',ultra:tiers.status(core.pool.ids),analytics:recordedForward.status(),gatewayRepair:{...sanitizeStats},
   quotaMode:'per-account-per-model',quotaLimits:require('./model-quota-ledger').TIER_LIMITS,
@@ -102,7 +104,7 @@ async function main(){
    const names=tiers.names(id),flag=core.accountFlags[id];
    return {cookie:cookieStatus(id),authStatus:flag?.status||'unknown',invalidReason:flag?.reason,invalidAt:flag?.at,
     canDelete:flag?.status!=='deleted'&&!dispatch.busy(id),id,name:names.alias||names.accountName||'N/A (未命名)',alias:names.alias,accountName:names.accountName,
-    tier:tiers.tier(id),owner:dispatch.busy(id)?SLOT:null,busy:dispatch.busy(id),headless:importer.has(id),cooldownUntil:core.pool.cooldowns.get(id)||0,quota:core.quotas.summary(id,policyStore.policies)};
+    tier:tiers.tier(id),owner:dispatch.busy(id)?SLOT:null,busy:dispatch.busy(id),headless:importer.has(id),disabled:dispatch.disabled.has(id),cooldownUntil:core.pool.cooldowns.get(id)||0,quota:core.quotas.summary(id,policyStore.policies)};
   })
  });
  const nope=()=>{throw Object.assign(Error('无浏览器模式下没有实例，此操作不可用'),{statusCode:409});};
@@ -125,8 +127,9 @@ async function main(){
   concurrency:()=>({A:perAccount,B:perAccount,perAccount,headless:true}),setConcurrency:nope,
   setHeadlessConcurrency(b){const n=Number(b?.perAccount);if(!Number.isSafeInteger(n)||n<1||n>10)throw Object.assign(Error('并发数只能是 1 到 10 的整数'),{statusCode:400});
    const t=ccFile+'.tmp';fs.writeFileSync(t,JSON.stringify({perAccount:n}),{mode:0o600});fs.renameSync(t,ccFile);perAccount=n;console.log('[Headless] per-account concurrency -> '+n);return {perAccount:n};},
-  opsStatus:()=>({mode:'headless',perAccount,active:dispatch.state.active,queue:scheduler.queue.length,halted:core.halted,
-   accounts:live().map(id=>({id,email:accountEmail(id),imported:importer.has(id),busy:dispatch.busy(id),cooldownUntil:core.pool.cooldowns.get(id)||0,flag:core.accountFlags[id]?.status||null,
+  opsStatus:()=>({mode:'headless',perAccount,active:dispatch.state.active,queue:scheduler.queue.length,halted:core.halted,paused:dispatch.paused,
+   running:Object.values(dispatch.state.executions).map(t=>({id:t.id,account:t.account,model:t.model,kind:t.kind,phase:t.phase,createdAt:t.createdAt,cancellable:dispatch.live.has(t.id)})),
+   accounts:live().map(id=>({id,email:accountEmail(id),imported:importer.has(id),busy:dispatch.busy(id),limit:perAccount,disabled:dispatch.disabled.has(id),cooldownUntil:core.pool.cooldowns.get(id)||0,flag:core.accountFlags[id]?.status||null,
     modelCooldowns:Object.entries(core.quotas.account(id)?.models||{}).filter(([,q])=>q.cooldownUntil>Date.now()).map(([m,q])=>({model:m,until:q.cooldownUntil}))}))}),
   clearCooldown(b){const id=Number(b?.id);if(!core.pool.ids.includes(id))throw Object.assign(Error('账号 '+b?.id+' 不在账号池'),{statusCode:404});
    core.pool.cooldowns.delete(id);let models=0;for(const q of Object.values(core.quotas.account(id)?.models||{}))if(q.cooldownUntil){q.cooldownUntil=0;models++;}
@@ -135,6 +138,27 @@ async function main(){
    if(b?.confirm!=='RESET '+id)throw Object.assign(Error('确认文字不匹配'),{statusCode:400});
    let n=0;for(const q of Object.values(core.quotas.account(id)?.models||{})){if(q.used){q.used=0;n++;}}
    core.checkpoint();console.log('[Ops] quota counters reset #'+id);return {id,reset:n};},
+  setPaused(b){if(typeof b?.paused!=='boolean')throw Object.assign(Error('参数无效'),{statusCode:400});
+   dispatch.paused=b.paused;console.log('[Ops] dispatch '+(b.paused?'paused':'resumed'));if(!b.paused)scheduler.pump();return {paused:dispatch.paused};},
+  setAccountEnabled(b){const id=Number(b?.id);if(!core.pool.ids.includes(id))throw Object.assign(Error('账号 '+b?.id+' 不在账号池'),{statusCode:404});
+   if(typeof b?.enabled!=='boolean')throw Object.assign(Error('参数无效'),{statusCode:400});
+   if(b.enabled)dispatch.disabled.delete(id);else dispatch.disabled.add(id);
+   const t=disFile+'.tmp';fs.writeFileSync(t,JSON.stringify([...dispatch.disabled].sort((x,y)=>x-y)),{mode:0o600});fs.renameSync(t,disFile);
+   console.log('[Ops] account #'+id+' '+(b.enabled?'enabled':'disabled'));if(b.enabled)scheduler.pump();return {id,enabled:!dispatch.disabled.has(id)};},
+  // One tiny request pinned to the account; bypasses the quota ledger (it is a health check, not client traffic).
+  async testAccount(b){const id=Number(b?.id);if(!core.pool.ids.includes(id))throw Object.assign(Error('账号 '+b?.id+' 不在账号池'),{statusCode:404});
+   const email=accountEmail(id);if(!email||!importer.has(id))throw Object.assign(Error('账号未导入无浏览器服务'),{statusCode:409});
+   const pick=['gemini-3.5-flash-lite','gemini-3.1-flash-lite','gemini-3.6-flash','gemini-3.8-flash'].find(m=>routing.models.has(m))||[...routing.models].find(m=>/flash/.test(m)&&!/(image|tts|search|live|audio)/.test(m));
+   if(!pick)throw Object.assign(Error('模型列表为空，请先刷新模型'),{statusCode:409});
+   const c=new AbortController(),timer=setTimeout(()=>c.abort(),30000),t0=Date.now();
+   try{const r=await service.call(email,'POST','/v1/chat/completions',{model:pick,messages:[{role:'user',content:'Reply with the single word OK.'}],stream:false},{signal:c.signal});
+    const text=String(r.json?.choices?.[0]?.message?.content||'').trim().slice(0,80),ms=Date.now()-t0;
+    console.log('[Ops] test #'+id+' '+pick+' status='+r.status+' ms='+ms);
+    return {id,model:pick,ok:r.status===200&&!!text,status:r.status,ms,text,error:r.status===200?(text?null:'返回为空'):String(r.json?.error?.message||r.text||'').slice(0,200)};}
+   catch(e){return {id,model:pick,ok:false,status:c.signal.aborted?504:502,ms:Date.now()-t0,error:c.signal.aborted?'30 秒未响应':String(e.message||e).slice(0,200)};}
+   finally{clearTimeout(timer);}},
+  cancelRequest(b){const id=String(b?.id||''),x=dispatch.live.get(id);if(!x)throw Object.assign(Error('请求已结束或不存在'),{statusCode:404});
+   try{x.res?.destroy?.();}catch{}console.log('[Ops] request cancelled '+id.slice(0,8)+' #'+x.ticket.account);return {id,cancelled:true};},
   writeBack:()=>importer.writeBack(live()),
   atPrompt:()=>atPrompt.status(),setAtPrompt:b=>atPrompt.set(b),importAtPrompt:b=>atPrompt.import(b),exportAtPrompt:()=>atPrompt.export(),
   targetApp:()=>({headless:true}),saveTargetApp:nope,applyTargetApp:nope,
