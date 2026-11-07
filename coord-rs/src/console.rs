@@ -253,8 +253,14 @@ fn mem_info() -> Value {
     };
     json!({"total":g("MemTotal"),"available":g("MemAvailable"),"swapTotal":g("SwapTotal"),"swapFree":g("SwapFree")})
 }
+fn mem_used(cur: Value, cache: &Value) -> Value {
+    match (cur.as_i64(), cache.as_i64()) {
+        (Some(c), Some(f)) => json!((c - f).max(0)),
+        _ => cur,
+    }
+}
 async fn ops_unit(key: &str, unit: &str, name: &str) -> Value {
-    let out = run(Duration::from_secs(15), "systemctl", &["show", unit, "-p", "ActiveState", "-p", "SubState", "-p", "MemoryCurrent", "-p", "ActiveEnterTimestamp", "-p", "NRestarts", "-p", "MemoryMax"]).await.unwrap_or_default();
+    let out = run(Duration::from_secs(15), "systemctl", &["show", unit, "-p", "ActiveState", "-p", "SubState", "-p", "MemoryCurrent", "-p", "ActiveEnterTimestamp", "-p", "NRestarts", "-p", "MemoryMax", "-p", "ControlGroup"]).await.unwrap_or_default();
     let kv: std::collections::HashMap<&str, &str> = out.lines().filter_map(|l| l.split_once('=')).collect();
     let num = |k: &str| kv.get(k).filter(|v| !v.is_empty() && v.bytes().all(|c| c.is_ascii_digit())).and_then(|v| v.parse::<i64>().ok()).map(|n| json!(n)).unwrap_or(Value::Null);
     let since = kv.get("ActiveEnterTimestamp").and_then(|ts| {
@@ -267,8 +273,12 @@ async fn ops_unit(key: &str, unit: &str, name: &str) -> Value {
         let off = if p.get(3) == Some(&"UTC") { 0 } else { 8 * 3600 };
         Some(json!((naive.and_utc().timestamp() - off) * 1000))
     }).unwrap_or(Value::Null);
+    // MemoryCurrent includes page cache charged by child commands (docker CLI, journalctl, git) and is
+    // reclaimed on demand; show the non-reclaimable part and report the cache separately
+    let cache = kv.get("ControlGroup").filter(|g| g.starts_with('/') && !g.contains("..")).and_then(|g| std::fs::read_to_string(format!("/sys/fs/cgroup{}/memory.stat", g)).ok())
+        .and_then(|t| t.lines().find_map(|l| l.strip_prefix("file ")).and_then(|v| v.trim().parse::<i64>().ok())).map(|n| json!(n)).unwrap_or(Value::Null);
     let st = kv.get("ActiveState").filter(|s| !s.is_empty()).copied().unwrap_or("unknown");
-    json!({"key":key,"unit":unit,"name":name,"state":st,"sub":kv.get("SubState").copied().unwrap_or(""),"memory":num("MemoryCurrent"),"memoryMax":num("MemoryMax"),"since":since,"restarts":num("NRestarts")})
+    json!({"key":key,"unit":unit,"name":name,"state":st,"sub":kv.get("SubState").copied().unwrap_or(""),"memory":mem_used(num("MemoryCurrent"), &cache),"memoryCache":cache,"memoryMax":num("MemoryMax"),"since":since,"restarts":num("NRestarts")})
 }
 pub async fn ops_overview(cwd: &str) -> Map<String, Value> {
     let mut units = vec![];
