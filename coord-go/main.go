@@ -402,7 +402,21 @@ func (a *App) syncAccounts() (*Obj, error) {
 		c.Checkpoint()
 	}
 	pool := intsAny(c.Ids)
+	var gone []int
+	for id := range a.build.Apps() {
+		if !c.InPool(id) || c.Deleted(id) {
+			gone = append(gone, id)
+		}
+	}
 	a.mu.Unlock()
+	for _, id := range gone {
+		if readOnlyState {
+			continue
+		}
+		a.build.forget(id)
+		a.rotation.forget(id)
+		logf("[Build] #%d removed from the Build channel (account deleted)", id)
+	}
 	imp := a.syncImport()
 	if len(removed) > 0 || len(imp.Arr("added")) > 0 || len(imp.Arr("changed")) > 0 {
 		a.reloadSoon()

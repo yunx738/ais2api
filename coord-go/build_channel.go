@@ -465,6 +465,37 @@ func (b *Build) Resolve(route string, parsed *Obj, allowUnavailable bool) (*Plan
 	return plan, nil
 }
 
+// forget: account deleted -> drop it from build-apps.json and the channel state
+func (b *Build) forget(id int) {
+	if raw, err := readJSONFile(b.appsFile); err == nil {
+		if o := asObj(raw); o != nil && o.Has(itoa(id)) {
+			o.Del(itoa(id))
+			writeSimple(b.appsFile, MarshalJS(o), 0600)
+		}
+	}
+	b.mu.Lock()
+	delete(b.inflight, id)
+	pre := itoa(id) + "|"
+	for k := range b.denied {
+		if strings.HasPrefix(k, pre) {
+			delete(b.denied, k)
+		}
+	}
+	b.mu.Unlock()
+}
+
+// forget: account deleted -> drop its rotation state
+func (ro *Rotation) forget(id int) {
+	st := ro.readState()
+	if st.Obj("accounts").Has(itoa(id)) {
+		st.Obj("accounts").Del(itoa(id))
+		ro.writeState(st)
+	}
+	ro.mu.Lock()
+	delete(ro.ensureAfter, id)
+	ro.mu.Unlock()
+}
+
 func (b *Build) free(id string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -704,12 +735,19 @@ type Rotation struct {
 	last         *Obj
 }
 
+// createAppletRequest: since 2026-11-07 Google installs and builds every project before a generation runs, so the project
+// must be a buildable Vite app (bare metadata.json + index.html fails with "Dependency installation failed").
 func createAppletRequest() []any {
 	name, desc := "GW Text Bridge", "Minimal private project for text-chat context files."
 	meta := []any{name, desc}
 	md := MarshalJSIndent(NewObj().Set("name", name).Set("description", desc).Set("requestFramePermissions", []any{}), "  ")
-	html := []byte("<!doctype html><html><body>Ready</body></html>\n")
-	return []any{nil, meta, nil, []any{meta, []any{[]any{"metadata.json", base64.StdEncoding.EncodeToString(md)}, []any{"index.html", base64.StdEncoding.EncodeToString(html)}}}}
+	pkg := MarshalJSIndent(NewObj().Set("name", "gw-text-bridge").Set("private", true).Set("version", "0.0.0").Set("type", "module").
+		Set("scripts", NewObj().Set("dev", "vite").Set("build", "vite build").Set("preview", "vite preview")).
+		Set("dependencies", NewObj()).Set("devDependencies", NewObj().Set("vite", "^6.2.0")), "  ")
+	html := []byte("<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"UTF-8\" /><title>Ready</title></head>\n<body><div id=\"root\">Ready</div><script type=\"module\" src=\"/index.js\"></script></body>\n</html>\n")
+	js := []byte("document.getElementById(\"root\").textContent = \"Ready\";\n")
+	enc := base64.StdEncoding.EncodeToString
+	return []any{nil, meta, nil, []any{meta, []any{[]any{"metadata.json", enc(md)}, []any{"index.html", enc(html)}, []any{"index.js", enc(js)}, []any{"package.json", enc(pkg)}}}}
 }
 
 func (ro *Rotation) rpc(email, method string, body any) (int, string, error) {

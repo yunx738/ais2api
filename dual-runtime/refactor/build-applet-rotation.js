@@ -6,11 +6,15 @@
 const fs=require('fs');
 const APP=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const NAME='GW Text Bridge',DESC='Minimal private project for text-chat context files.';
+// Since 2026-11-07 Google installs and builds every project before a generation runs: the project must be a buildable
+// Vite app (bare metadata.json + index.html fails with "Dependency installation failed").
 function createRequest(){
  const meta=[NAME,DESC];
  const md=Buffer.from(JSON.stringify({name:NAME,description:DESC,requestFramePermissions:[]},null,2));
- const html=Buffer.from('<!doctype html><html><body>Ready</body></html>\n');
- return [null,meta,null,[meta,[['metadata.json',md.toString('base64')],['index.html',html.toString('base64')]]]];
+ const pkg=Buffer.from(JSON.stringify({name:'gw-text-bridge',private:true,version:'0.0.0',type:'module',scripts:{dev:'vite',build:'vite build',preview:'vite preview'},dependencies:{},devDependencies:{vite:'^6.2.0'}},null,2));
+ const html=Buffer.from('<!doctype html>\n<html lang="en">\n<head><meta charset="UTF-8" /><title>Ready</title></head>\n<body><div id="root">Ready</div><script type="module" src="/index.js"></script></body>\n</html>\n');
+ const js=Buffer.from('document.getElementById("root").textContent = "Ready";\n');
+ return [null,meta,null,[meta,[['metadata.json',md.toString('base64')],['index.html',html.toString('base64')],['index.js',js.toString('base64')],['package.json',pkg.toString('base64')]]]];
 }
 function parseCreated(out){
  if(!out||out.status!==200)return null;

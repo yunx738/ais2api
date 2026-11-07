@@ -1,0 +1,4 @@
+coordinator
+coordinator.*
+target/
+tests/

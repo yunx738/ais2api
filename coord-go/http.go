@@ -1074,6 +1074,8 @@ func (a *App) deleteAccount(b *Obj) (*Obj, error) {
 	c.Checkpoint()
 	a.mu.Unlock()
 	removeLoginCredential(id)
+	a.build.forget(id)
+	a.rotation.forget(id)
 	go a.reloadSoon()
 	return NewObj().Set("deleted", true).Set("id", id).Set("historyPreserved", true), nil
 }
