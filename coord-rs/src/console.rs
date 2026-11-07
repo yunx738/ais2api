@@ -233,9 +233,19 @@ pub async fn run(timeout: Duration, name: &str, args: &[&str]) -> Result<String,
 }
 const UNITS: [(&str, &str, &str); 3] = [("headless", "ais2api-headless", "无浏览器服务"), ("coordinator", "ais2api-dual-coordinator", "调度器"), ("login", "ais2api-login", "登录服务")];
 const CONTAINERS: [&str; 3] = ["ais2api-dual-a", "ais2api-dual-b", "ais2api-dual-management"];
+/// management backend + login service run inside the coordinator process
+pub static MERGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+fn merged() -> bool {
+    MERGED.load(Ordering::Relaxed)
+}
 fn unit_of(key: &str) -> Option<&'static str> {
+    if merged() && key == "login" {
+        return Some("ais2api-dual-coordinator");
+    }
     UNITS.iter().find(|u| u.0 == key).map(|u| u.1)
 }
+/// coordinator log lines that belong to the login service when merged
+static RE_LOGIN_LOG: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\[(Login|Relogin|NightlyRelogin|Import|CookieSync|Management)\]|^login service").unwrap());
 static RE_CRED_URL: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\w+://)[^\s:@/]+:[^\s@/]+@").unwrap());
 static RE_BEARER: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(Bearer\s+)[A-Za-z0-9._~+/=-]{8,}").unwrap());
 static RE_SK: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b(sk-|AIza)[A-Za-z0-9_-]{8,}").unwrap());
@@ -283,6 +293,10 @@ async fn ops_unit(key: &str, unit: &str, name: &str) -> Value {
 pub async fn ops_overview(cwd: &str) -> Map<String, Value> {
     let mut units = vec![];
     for (k, u, n) in UNITS {
+        if merged() && k == "login" {
+            continue;
+        }
+        let n = if merged() && k == "coordinator" { "调度器（含管理后台、登录服务）" } else { n };
         units.push(ops_unit(k, u, n).await);
     }
     let out = run(Duration::from_secs(15), "docker", &["ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"]).await.unwrap_or_default();
@@ -290,7 +304,7 @@ pub async fn ops_overview(cwd: &str) -> Map<String, Value> {
         let p: Vec<&str> = l.split('\t').collect();
         (p.len() == 3).then(|| (p[0], json!({"name":p[0],"state":p[1],"status":p[2]})))
     }).collect();
-    let ctr: Vec<Value> = CONTAINERS.iter().map(|n| rows.get(n).cloned().unwrap_or_else(|| json!({"name":n,"state":"missing","status":""}))).collect();
+    let ctr: Vec<Value> = CONTAINERS.iter().filter(|n| !(merged() && **n == "ais2api-dual-management")).map(|n| rows.get(n).cloned().unwrap_or_else(|| json!({"name":n,"state":"missing","status":""}))).collect();
     let vo = run(Duration::from_secs(15), "git", &["-C", cwd, "log", "-1", "--format=%h%x09%ct%x09%s"]).await.unwrap_or_default();
     let vp: Vec<&str> = vo.trim().splitn(3, '\t').collect();
     let mut ver = json!({"hash":null,"at":null,"subject":""});
@@ -356,13 +370,18 @@ pub async fn ops_logs(source: &str, n: i64) -> R<Vec<Value>> {
         return Ok(out);
     }
     let Some(u) = unit_of(source) else { return herr(400, "未知日志来源") };
-    let text = run(Duration::from_secs(15), "journalctl", &["-u", u, "-n", &n.to_string(), "--no-pager", "-o", "json", "--output-fields=MESSAGE,PRIORITY,__REALTIME_TIMESTAMP"]).await.unwrap_or_default();
+    let only_login = merged() && source == "login";
+    let fetch = if only_login { (n * 20).min(20000) } else { n };
+    let text = run(Duration::from_secs(15), "journalctl", &["-u", u, "-n", &fetch.to_string(), "--no-pager", "-o", "json", "--output-fields=MESSAGE,PRIORITY,__REALTIME_TIMESTAMP"]).await.unwrap_or_default();
     for l in text.lines() {
         let Ok(j) = serde_json::from_str::<Value>(l) else { continue };
         let msg = match j.g("MESSAGE") {
             Value::Array(a) => String::from_utf8_lossy(&a.iter().map(|x| as_num(x).unwrap_or(0.0) as u8).collect::<Vec<u8>>()).into_owned(),
             v => js_str(v),
         };
+        if only_login && !RE_LOGIN_LOG.is_match(&msg) {
+            continue;
+        }
         let p: i64 = js_str(j.g("PRIORITY")).parse().unwrap_or(0);
         let lv = if (p <= 3 && !j.g("PRIORITY").is_null()) || RE_ERRW.is_match(&msg) { "error" } else if p == 4 || RE_WARN.is_match(&msg) { "warn" } else { "info" };
         let ts: i64 = js_str(j.g("__REALTIME_TIMESTAMP")).parse().unwrap_or(0);
@@ -372,6 +391,7 @@ pub async fn ops_logs(source: &str, n: i64) -> R<Vec<Value>> {
 }
 pub async fn ops_restart_unit(key: &str) -> R<Value> {
     let Some(u) = unit_of(key) else { return herr(400, "未知服务") };
+    let key = if merged() && key == "login" { "coordinator" } else { key };
     if ro() {
         return herr(409, "只读模式下不执行");
     }

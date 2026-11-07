@@ -17,6 +17,7 @@ mod login_jobs;
 mod login_nightly;
 mod login_http;
 mod login_srv;
+mod mgmt;
 mod login_store;
 mod login_ws;
 mod metrics;
@@ -71,6 +72,43 @@ fn main() {
         });
         return;
     }
+    // management backend (+ in-process login API) on its own: --mgmt-only [addr] [--sessions file]
+    if args.get(1).map(|s| s.as_str()) == Some("--mgmt-only") {
+        let addr = args.get(2).filter(|a| !a.starts_with("--")).cloned().unwrap_or_else(|| "127.0.0.1:8893".into());
+        if let Some(i) = args.iter().position(|a| a == "--sessions") {
+            if let Some(f) = args.get(i + 1) {
+                *mgmt::SESS_FILE.lock().unwrap() = f.clone();
+            }
+        }
+        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        rt.block_on(async move {
+            login_srv::install_coord(login_srv::loopback_coord("http://127.0.0.1:8890"));
+            let stop = async {
+                let mut t = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+                tokio::select! { _ = t.recv() => {}, _ = tokio::signal::ctrl_c() => {} }
+            };
+            if let Err(e) = mgmt::serve(&addr, stop).await {
+                util::elog(format!("[Management] {}", e));
+                std::process::exit(1);
+            }
+        });
+        return;
+    }
+    // browser modes: Node coordinator on 8890, this process serves 8893 + 8894 only
+    if args.get(1).map(|s| s.as_str()) == Some("--side") {
+        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        rt.block_on(async move {
+            start_side(true);
+            util::log("[Side] management 8893 + login 8894 (coordinator runs elsewhere)");
+            let mut t = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+            tokio::select! { _ = t.recv() => {}, _ = tokio::signal::ctrl_c() => {} }
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(600);
+            while login_jobs::running_count() > 0 && tokio::time::Instant::now() < deadline {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        });
+        return;
+    }
     if args.get(1).map(|s| s.as_str()) == Some("--dump-applet-template") {
         print!("{}", util::js(&build_chan::create_applet_request()));
         return;
@@ -108,6 +146,10 @@ async fn run(addr: String) -> Result<(), String> {
     let app = app::App::start()?;
     let ln = tokio::net::TcpListener::bind(&addr).await.map_err(|e| e.to_string())?;
     app.start_jobs();
+    let merged = merged_enabled();
+    if merged {
+        start_side(true);
+    }
     let n = {
         let st = app.lock();
         app.live_ids(&st).into_iter().filter(|&id| app.importer.has(&app.acc, id)).count()
@@ -136,8 +178,45 @@ async fn run(addr: String) -> Result<(), String> {
         }
     }
     drop(ln);
+    let stop_at = tokio::time::Instant::now();
     app.shutdown().await;
+    if merged {
+        // a running login must finish (its account file is written at the end); stay inside TimeoutStopSec (650 s)
+        let deadline = stop_at + Duration::from_secs(630);
+        let mut said = false;
+        while login_jobs::running_count() > 0 && tokio::time::Instant::now() < deadline {
+            if !said {
+                util::log("[Login] waiting for running login jobs before exit");
+                said = true;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    }
     Ok(())
+}
+/// management backend (8893) + login service (8894) in this process: enabled by /opt/ais2api/coord-rs/MERGED
+/// (or MERGED=1); MERGED=0 forces off. A port still held by the old service is logged, never fatal.
+fn merged_enabled() -> bool {
+    match std::env::var("MERGED").ok().as_deref() {
+        Some("1") => true,
+        Some("0") => false,
+        _ => std::path::Path::new("/opt/ais2api/coord-rs/MERGED").exists(),
+    }
+}
+fn start_side(loops: bool) {
+    login_srv::install_coord(login_srv::loopback_coord("http://127.0.0.1:8890"));
+    login_srv::start_background(loops);
+    tokio::spawn(async {
+        if let Err(e) = mgmt::serve("127.0.0.1:8893", std::future::pending()).await {
+            util::elog(format!("[Management] not started: {}", e));
+        }
+    });
+    tokio::spawn(async {
+        if let Err(e) = login_srv::serve("127.0.0.1:8894", std::future::pending()).await {
+            util::elog(format!("[Login] not started: {}", e));
+        }
+    });
+    console::MERGED.store(true, Ordering::Relaxed);
 }
 /// fingerprint for self-tests (never prints secrets)
 fn md5ish(s: &str) -> u64 {

@@ -44,7 +44,7 @@ pub fn install_coord(f: CoordFn) {
     *COORD.lock().unwrap() = Some(f);
 }
 /// body limited to max bytes (None = too large / broken)
-async fn read_body(mut b: Incoming, max: usize) -> Option<Vec<u8>> {
+pub async fn read_body(mut b: Incoming, max: usize) -> Option<Vec<u8>> {
     let mut out = Vec::new();
     while let Some(f) = b.frame().await {
         let f = f.ok()?;
