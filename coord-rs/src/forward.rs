@@ -17,6 +17,12 @@ use serde_json::{json, Map, Value};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+static RE_AUTH_EXPIRED: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| regex::Regex::new(
+    r"(?i)needs to sign in again|sign-in session expired|需要重新登录|隔离登录态失效").unwrap());
+/// 503 from the no-browser service because the pinned account's Google sign-in expired
+fn auth_expired(status: u16, body: &[u8]) -> bool {
+    status == 503 && RE_AUTH_EXPIRED.is_match(&String::from_utf8_lossy(&body[..body.len().min(16384)]))
+}
 fn retry_status(s: u16) -> bool {
     matches!(s, 401 | 403 | 429)
 }
@@ -130,7 +136,7 @@ impl App {
         let ra = hdr(&headers, "retry-after");
         let stream = hdr(&headers, "content-type").contains("text/event-stream");
         let mut obs = Metrics::new(stream);
-        let mut held = retry_status(status);
+        let mut held = retry_status(status) || status == 503;
         let mut chunks: Vec<u8> = vec![];
         let publish = || {
             for k in ["content-type", "retry-after", "cache-control"] {
@@ -191,7 +197,16 @@ impl App {
             }
         }
         if held {
+            if status == 503 && !auth_expired(status, &chunks) {
+                publish();
+                if !res.write(&chunks) {
+                    return mk(&mut obs, false, false, true);
+                }
+                res.end(b"");
+                return mk(&mut obs, true, false, false);
+            }
             let mut r = mk(&mut obs, true, false, false);
+            r.auth_expired = status == 503;
             r.rejection = Some(rejection_of(status, &headers, Bytes::from(chunks)));
             return r;
         }
@@ -228,8 +243,9 @@ impl App {
             return ExecResult { cancelled: true, metrics: fin(&obs, false), ..Default::default() };
         }
         if !r.ok {
-            if r.upstream && retry_status(st) {
-                return ExecResult { status: st, retry_after: r.retry_after.clone(), rejection: Some(json_rejection(st, &r.payload, &r.retry_after, &[])), metrics: fin(&obs, true), ..Default::default() };
+            let expired = r.upstream && auth_expired(st, &js_bytes(&r.payload));
+            if r.upstream && (retry_status(st) || expired) {
+                return ExecResult { status: st, retry_after: r.retry_after.clone(), rejection: Some(json_rejection(st, &r.payload, &r.retry_after, &[])), metrics: fin(&obs, true), auth_expired: expired, ..Default::default() };
             }
             let h: Vec<(&str, &str)> = if r.retry_after.is_empty() { vec![] } else { vec![("Retry-After", r.retry_after.as_str())] };
             res.json(st, &r.payload, &h);
@@ -280,8 +296,9 @@ impl App {
         };
         obs.write(&data);
         if st != 200 {
-            if retry_status(st) {
-                return ExecResult { status: st, retry_after: ra, rejection: Some(rejection_of(st, &headers, data)), metrics: Some(obs.finish(true)), ..Default::default() };
+            let expired = auth_expired(st, &data);
+            if retry_status(st) || expired {
+                return ExecResult { status: st, retry_after: ra, rejection: Some(rejection_of(st, &headers, data)), metrics: Some(obs.finish(true)), auth_expired: expired, ..Default::default() };
             }
             let p: Value = serde_json::from_slice(&data).ok().filter(|v: &Value| v.get("error").is_some())
                 .unwrap_or_else(|| json!({"error":{"message":clip_runes(&String::from_utf8_lossy(&data), 500),"code":st}}));

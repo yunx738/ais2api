@@ -358,6 +358,8 @@ pub struct ExecResult {
     pub uncertain: bool,
     pub cancelled: bool,
     pub worker_rejection: bool,
+    /// the no-browser service reported this account's Google sign-in as expired (503 auth_required)
+    pub auth_expired: bool,
 }
 
 // ---------------- prices / cost ----------------

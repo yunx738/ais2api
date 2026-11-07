@@ -504,13 +504,22 @@ impl App {
             }
         };
         cancel.cancel();
+        let expired = r.as_ref().map_or(false, |r| r.auth_expired && !r.uncertain && !r.cancelled);
         let mut st = self.lock();
         Self::apply_rejection(&mut st, &t, r.as_ref());
+        if expired && st.core.flag(t.account).is_none() && !crate::app::ro() {
+            // take the account out of dispatch now (the 60 s sync would do the same) and retry elsewhere;
+            // the nightly queue re-logs it in (never Gmail accounts)
+            st.core.set_flag(t.account, Some(json!({"status":"invalid","reason":"login_required","at":now_ms(),"source":"headless",
+                "message":"no-browser service: sign-in session expired"})));
+            st.core.checkpoint();
+            log(format!("[Auth] #{} marked invalid (login_required): sign-in expired during a request", t.account));
+        }
         st.disp.mark_uncertain(&t);
         let res = &it.req.res;
         let retryable = r.as_ref().map(|r| {
             r.rejection.is_some() && !r.worker_rejection && !r.uncertain && !r.cancelled
-                && ([401, 403, 429].contains(&r.status) || (r.status == 400 && r.rejection.as_ref().unwrap().header("x-ais-build-retry") == Some("upstream_failed")))
+                && ([401, 403, 429].contains(&r.status) || r.auth_expired || (r.status == 400 && r.rejection.as_ref().unwrap().header("x-ais-build-retry") == Some("upstream_failed")))
         }).unwrap_or(false) && !res.started() && !res.gone();
         st.disp.finish_if_settled(&t.id);
         st.executing.remove(&t.id);
