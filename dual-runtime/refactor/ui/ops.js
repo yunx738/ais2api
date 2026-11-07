@@ -73,6 +73,9 @@ function renderAccounts(co){
  say('ops-hl-sum','处理中 '+co.active+' · 排队 '+co.queue+(co.halted?' · 调度已停止':'')+(co.paused?' · 已暂停派发':''));
  paused=!!co.paused;const pb=$('ops-pause');pb.textContent=paused?'恢复派发':'暂停派发';pb.setAttribute('aria-pressed',String(paused));
  renderRunning(co.running||[]);
+ co.impl=Array.isArray(co.groups)?'go':'node';streamMode=co.streamingMode||null;
+ {const sb=$('ops-stream');if(sb){sb.hidden=!streamMode;sb.textContent='流模式：'+(streamMode==='fake'?'假流式':'真流式');sb.setAttribute('aria-pressed',String(streamMode==='fake'));}}
+ if(co.groups&&co.groups.length)say('ops-hl-sum',$('ops-hl-sum').textContent+' · 分组 '+co.groups.join('、'));
  for(const a of co.accounts){
   const tr=el('tr',undefined,a.disabled?'is-off':''),now=Date.now(),cool=a.cooldownUntil>now;
   const id=el('td');id.append(el('strong','#'+a.id),el('small',a.email||'—','muted'));
@@ -82,6 +85,17 @@ function renderAccounts(co){
   if(cool)cd.append(el('div','账号到 '+clock(a.cooldownUntil)));
   for(const m of a.modelCooldowns)cd.append(el('div',m.model+' 到 '+clock(m.until),'muted'));
   if(!cool&&!a.modelCooldowns.length)cd.textContent='—';
+  const sc=el('td','','ops-sched');
+  if(co.impl==='go'||Array.isArray(a.groups)){
+   const g=(a.groups||[]).join('、');sc.append(el('div',(g?'分组 '+g:'无分组')+' · 优先级 '+(a.priority||0)));
+   const eb=el('button','编辑','small ghost');eb.type='button';eb.title='设置这个账号的分组和优先级';
+   eb.addEventListener('click',()=>{const gs=prompt('#'+a.id+' 的分组（多个用逗号或空格分开，留空清除）：',(a.groups||[]).join(','));if(gs===null)return;
+    const ps=prompt('#'+a.id+' 的优先级（-100 到 100，数字大的先用，默认 0）：',String(a.priority||0));if(ps===null)return;const pr=Number(ps.trim()||'0');
+    if(!Number.isInteger(pr)||pr<-100||pr>100){say('ops-hl-msg','优先级只能是 -100 到 100 的整数',true);return;}
+    const groups=gs.split(/[,，、\s]+/).map(x=>x.trim()).filter(Boolean);
+    act(eb,()=>post('/api/ops/account-schedule',{id:a.id,groups,priority:pr}),'ops-hl-msg',r=>'#'+a.id+' 已保存：'+(r.groups.length?'分组 '+r.groups.join('、'):'无分组')+' · 优先级 '+r.priority);});
+   sc.append(eb);
+  }else sc.textContent='—';
   const on=el('td'),sw=el('label',undefined,'ops-switch'),ck=el('input');ck.type='checkbox';ck.checked=!a.disabled;ck.setAttribute('aria-label','#'+a.id+' 参与派发');
   ck.addEventListener('change',()=>{const want=ck.checked;
    if(!want&&!confirm('停用 #'+a.id+'：新请求不再分给这个账号，正在处理的会继续完成。继续？')){ck.checked=true;return;}
@@ -98,7 +112,7 @@ function renderAccounts(co){
   const r=el('button','清零额度','small ghost');r.type='button';
   r.addEventListener('click',()=>{const t=prompt('把 #'+a.id+' 今天已用次数清零（不影响 Google 那边的真实额度）。\n输入 RESET '+a.id+' 确认：');if(t===null)return;
    act(r,()=>post('/api/ops/reset-quota',{id:a.id,confirm:t.trim()}),'ops-hl-msg',x=>'#'+a.id+' 已清零 '+x.reset+' 个模型的计数');});
-  op.append(r);tr.append(id,st,cd,on,op);box.append(tr);
+  op.append(r);tr.append(id,st,cd,sc,on,op);box.append(tr);
  }
 }
 function renderRunning(list){
@@ -121,7 +135,7 @@ function renderMaint(o){
  for(const b of (o.backups||[]).slice(0,6))list.append(el('li',b.name+' · '+(b.size/1024).toFixed(0)+' KB · '+ago(b.at)+'前'));
  if(!(o.backups||[]).length)list.append(el('li','还没有备份','muted'));
 }
-let loading=false,paused=false;const tests=new Map();
+let loading=false,paused=false,streamMode=null;const tests=new Map();
 async function load(){
  if(loading||$('ops').hidden)return;loading=true;
  try{const o=await get('/api/ops/overview');renderHost(o.host);renderUnits(o.units);renderContainers(o.containers);renderAccounts(o.coordinator);renderMaint(o);say('ops-updated','更新于 '+new Date(o.at).toLocaleTimeString('zh-CN',{hour12:false}));say('ops-error','');}
@@ -155,6 +169,9 @@ function init(){
  $('ops-cc').addEventListener('input',()=>{$('ops-cc').dataset.touched='1';});
  $('ops-cc-save').addEventListener('click',e=>{const n=Number($('ops-cc').value);if(!Number.isInteger(n)||n<1||n>10){say('ops-hl-msg','并发数只能是 1 到 10 的整数',true);return;}
   act(e.currentTarget,()=>post('/api/ops/headless-concurrency',{perAccount:n}),'ops-hl-msg',r=>{delete $('ops-cc').dataset.touched;return '每个账号最多同时处理 '+r.perAccount+' 个请求';});});
+ $('ops-stream')?.addEventListener('click',e=>{const next=streamMode==='fake'?'real':'fake';
+  if(!confirm(next==='fake'?'切换为假流式：流式请求会等上游完整生成后再一次性按流式格式发出，等待期间保持连接。继续？':'切换为真流式：上游边生成边发送。继续？'))return;
+  act(e.currentTarget,()=>post('/api/ops/stream-mode',{mode:next}),'ops-hl-msg',r=>'流模式已切换为'+(r.mode==='fake'?'假流式':'真流式'));});
  $('ops-pause').addEventListener('click',e=>{const next=!paused;
   if(next&&!confirm('暂停派发：新请求会排队等待（最长 2 分钟后超时），正在处理的请求不受影响。继续？'))return;
   act(e.currentTarget,()=>post('/api/ops/pause',{paused:next}),'ops-hl-msg',r=>r.paused?'已暂停派发，新请求排队等待':'已恢复派发');});

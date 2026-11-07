@@ -85,3 +85,5 @@ button.ghost{background:transparent}
 .ops-empty-row td{color:var(--muted);text-align:center!important}
 button:focus-visible,a.button:focus-visible,.ops-switch input:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){.ops-meter-bar i{transition:none}}
+.ops-hint{font-size:12px;margin:4px 0 8px}
+.ops-sched div{font-size:12px;margin-bottom:4px}

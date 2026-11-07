@@ -230,9 +230,9 @@
 <h3>当前版本</h3><p id="ops-version" class="ops-version"></p></div>
 </div>
 <div id="ops-headless" class="card ops-card" hidden><div class="ops-head"><h2>无浏览器账号</h2><span id="ops-hl-sum" class="muted"></span>
-<button id="ops-pause" type="button" aria-pressed="false">暂停派发</button><label class="ops-cc">每个账号并发<input id="ops-cc" type="number" min="1" max="10" step="1" inputmode="numeric"></label><button id="ops-cc-save" type="button" class="primary">保存</button></div>
-<p id="ops-hl-msg" class="ops-msg" role="status"></p>
-<div class="table-scroll"><table class="ops-table"><thead><tr><th>账号</th><th>状态</th><th>冷却</th><th>参与派发</th><th></th></tr></thead><tbody id="ops-accounts"></tbody></table></div><h3>正在处理的请求</h3><div class="table-scroll"><table class="ops-table"><thead><tr><th>请求</th><th>账号</th><th>模型</th><th>已用时</th><th></th></tr></thead><tbody id="ops-running"></tbody></table></div></div>
+<button id="ops-pause" type="button" aria-pressed="false">暂停派发</button><button id="ops-stream" type="button" title="假流式：上游一次性生成后再按流式格式发给客户端，等待期间持续发送保活">流模式：—</button><label class="ops-cc">每个账号并发<input id="ops-cc" type="number" min="1" max="10" step="1" inputmode="numeric"></label><button id="ops-cc-save" type="button" class="primary">保存</button></div>
+<p id="ops-hl-msg" class="ops-msg" role="status"></p><p class="muted ops-hint">指定账号：模型名后加 <code>@31</code>，或请求头 <code>X-AIS-Account: 31</code>；指定分组：模型名后加 <code>@g:分组名</code>，或请求头 <code>X-AIS-Group: 分组名</code>。优先级 -100～100，数字大的先用。</p>
+<div class="table-scroll"><table class="ops-table"><thead><tr><th>账号</th><th>状态</th><th>冷却</th><th>调度</th><th>参与派发</th><th></th></tr></thead><tbody id="ops-accounts"></tbody></table></div><h3>正在处理的请求</h3><div class="table-scroll"><table class="ops-table"><thead><tr><th>请求</th><th>账号</th><th>模型</th><th>已用时</th><th></th></tr></thead><tbody id="ops-running"></tbody></table></div></div>
 <div class="card ops-card ops-logs"><div class="ops-head"><h2>日志</h2>
 <div id="ops-log-tabs" class="ops-seg" role="tablist" aria-label="日志来源"><button type="button" role="tab" data-src="headless" aria-selected="true">无浏览器服务</button><button type="button" role="tab" data-src="coordinator" aria-selected="false">调度器</button><button type="button" role="tab" data-src="login" aria-selected="false">登录服务</button></div></div>
 <div class="ops-log-bar"><input id="ops-log-q" type="search" placeholder="搜索日志" aria-label="搜索日志">
