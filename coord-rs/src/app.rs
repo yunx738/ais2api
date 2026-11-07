@@ -140,6 +140,62 @@ impl App {
         Ok(app)
     }
 
+    /// The no-browser service marks an account auth_required when Google sends it to the sign-in page.
+    /// Mirror that as an invalid/login_required flag so the account leaves dispatch and the nightly
+    /// re-login queue picks it up. Accounts whose login file changed in the last 15 minutes are skipped
+    /// (a fresh re-login the service has not reloaded yet).
+    pub async fn sync_auth_required(self: &Arc<Self>) {
+        let r = self.svc.call(&crate::resp::Cancel::new(), "", "GET", "/api/accounts", None).await;
+        if r.status != 200 {
+            return;
+        }
+        let list = if r.json.is_array() { r.json.clone() } else { r.json.g("accounts").clone() };
+        let bad: Vec<(String, String)> = list.as_array().map(|a| a.iter().filter(|x| x.s("state") == "auth_required")
+            .map(|x| (x.s("id").to_lowercase(), clip_runes(x.s("message"), 160))).collect()).unwrap_or_default();
+        let ready: HashSet<String> = list.as_array().map(|a| a.iter().filter(|x| x.s("state") == "ready").map(|x| x.s("id").to_lowercase()).collect()).unwrap_or_default();
+        let now = now_ms();
+        let mut marked = vec![];
+        let mut cleared = vec![];
+        {
+            let mut st = self.lock();
+            let ids = st.core.ids.clone();
+            for id in ids {
+                // flag set from the service's report: clear it once the login file was replaced (re-login or
+                // cookie import, e.g. Gmail accounts fixed by hand) and the service reports the account ready
+                if let Some(f) = st.core.flag(id) {
+                    if f.s("status") == "invalid" && f.s("source") == "headless" && ready.contains(&self.acc.email(id).to_lowercase()) {
+                        let at = as_num(f.g("at")).unwrap_or(0.0);
+                        if std::fs::metadata(self.acc.file(id)).map(|m| mtime_ms(&m) > at).unwrap_or(false) {
+                            st.core.set_flag(id, None);
+                            st.core.clear_cooldown(id);
+                            cleared.push(id);
+                        }
+                    }
+                    continue;
+                }
+                if st.disp.busy(id) > 0 {
+                    continue;
+                }
+                let email = self.acc.email(id).to_lowercase();
+                let Some((_, msg)) = bad.iter().find(|(e, _)| !e.is_empty() && *e == email) else { continue };
+                let fresh = std::fs::metadata(self.acc.file(id)).map(|m| now as f64 - mtime_ms(&m) < 900_000.0).unwrap_or(false);
+                if fresh {
+                    continue;
+                }
+                st.core.set_flag(id, Some(json!({"status":"invalid","reason":"login_required","at":now,"source":"headless","message":msg})));
+                marked.push(id);
+            }
+            if !marked.is_empty() || !cleared.is_empty() {
+                st.core.checkpoint();
+            }
+        }
+        for id in cleared {
+            log(format!("[Auth] #{} restored: login file replaced and the no-browser service reports it ready", id));
+        }
+        for id in marked {
+            log(format!("[Auth] #{} marked invalid (login_required): no-browser service reports the sign-in session expired", id));
+        }
+    }
     /// background jobs (same periods as the Go version)
     pub fn start_jobs(self: &Arc<Self>) {
         let a = self.clone();
@@ -167,6 +223,14 @@ impl App {
         }
         let a = self.clone();
         tokio::spawn(async move { a.stop_browser_workers().await });
+        let a = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(20)).await;
+            loop {
+                a.sync_auth_required().await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        });
         let a = self.clone();
         every(Duration::from_secs(300), true, move || {
             let h = a.hist.clone();

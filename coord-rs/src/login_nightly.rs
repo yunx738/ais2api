@@ -3,7 +3,7 @@
 use crate::login_acc::{email_of, mem_ok};
 use crate::login_jobs::{busy, cancel, coord, start_job, JobRef, Opts};
 use crate::login_store::{cred_get, cred_mark, cred_meta, cred_remove, write_secure};
-use crate::login_ws::registered;
+use crate::login_ws::{no_auto_login, registered};
 use crate::util::*;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -104,6 +104,9 @@ impl Nightly {
             return None;
         }
         let email = email_of(id).to_lowercase();
+        if no_auto_login(&email) {
+            return None;
+        }
         if reg.contains_key(&email) { Some(email) } else { None }
     }
     /// midnight: rebuild the queue from all invalid accounts; otherwise append newly failed ones
@@ -359,7 +362,7 @@ pub async fn auto_relogin() {
             }
         };
         let owner = email_of(id).to_lowercase();
-        if !owner.contains('@') {
+        if !owner.contains('@') || no_auto_login(&owner) || no_auto_login(&cem) {
             continue;
         }
         if owner != cem.to_lowercase() {

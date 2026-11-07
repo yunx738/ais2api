@@ -4,7 +4,7 @@ use crate::login_acc::{already_imported, email_of, mem_ok};
 use crate::login_jobs::{busy, cancel, find_target, get, send_input, start_job, ws_cancel, ws_job, Opts};
 use crate::login_nightly as nightly;
 use crate::login_store::cred_get;
-use crate::login_ws::{proxy_save, proxy_view, registered, ws_config, ws_save_config, WS_DATA};
+use crate::login_ws::{no_auto_login, proxy_save, proxy_view, registered, ws_config, ws_save_config, WS_DATA};
 use crate::util::*;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -145,6 +145,9 @@ fn relogin(b: &Value) -> (u16, Value) {
     let email = email_of(id).to_lowercase();
     if !email.contains('@') {
         return err(409, "该账号没有登录邮箱，无法自动登录");
+    }
+    if no_auto_login(&email) {
+        return err(409, "Gmail 账号不自动重新登录，请手动登录或导入 Cookie");
     }
     let (mut pw, totp) = registered().get(&email).cloned().map(|(p, t)| (Some(p), t)).unwrap_or((None, None));
     if pw.as_deref().map_or(true, |p| p.is_empty()) {

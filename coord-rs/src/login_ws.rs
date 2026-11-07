@@ -177,6 +177,11 @@ pub fn upstream_for() -> String {
 }
 
 // ---------------- auto-registered accounts (email -> password, totp) ----------------
+/// Gmail accounts are never logged in automatically (no stored password/TOTP; repeated attempts trigger risk control)
+pub fn no_auto_login(email: &str) -> bool {
+    let e = email.trim().to_lowercase();
+    e.ends_with("@gmail.com") || e.ends_with("@googlemail.com")
+}
 pub fn registered() -> HashMap<String, (String, Option<String>)> {
     let secrets = read_obj(&format!("{}/secrets.json", WS_DATA));
     let rows = std::fs::read_to_string(format!("{}/output/accounts.tsv", WS_DATA)).unwrap_or_default();
