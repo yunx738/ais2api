@@ -9,8 +9,8 @@
 - `dual-runtime/`：原有的 Node.js 实现、静态前端资源（`refactor/ui/`）、浏览器 worker 脚本和油猴导入脚本（`tools/`）。在双实例 / 单实例浏览器模式下仍由 Node 负责管理浏览器容器，Rust 以 `--side` 副进程提供管理后台和登录服务。
 - `auto-register/`：Google Workspace 批量新号自动激活与登录态导出工具，见 [auto-register/README.md](auto-register/README.md)。
 - `docs/`：
-  - [docs/BUILD-APP.md](docs/BUILD-APP.md)：用自己的账号创建 AI Studio 应用（浏览器模式环境）
   - [docs/COOKIE-SYNC.md](docs/COOKIE-SYNC.md)：用油猴脚本从浏览器一键导入 / 刷新账号 Cookie
+  - 注：早期手动创建共享 AI Studio Build 应用（原 `docs/BUILD-APP.md`）的方式已废弃，现已不再需要，Build 项目均由协调器按账号自动创建与轮换。
 
 ## 运行模式
 
