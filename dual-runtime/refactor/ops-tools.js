@@ -6,6 +6,11 @@ const run=(cmd,args,timeout=15000)=>new Promise(r=>execFile(cmd,args,{timeout,ma
 const UNITS=Object.freeze({headless:'ais2api-headless',coordinator:'ais2api-dual-coordinator',login:'ais2api-login'});
 const UNIT_NAMES=Object.freeze({headless:'无浏览器服务',coordinator:'调度器',login:'登录服务'});
 const CONTAINERS=Object.freeze(['ais2api-dual-a','ais2api-dual-b','ais2api-dual-management']);
+// Merged (/opt/ais2api/coord-rs/MERGED): management 8893 + login 8894 run in a Rust side process inside the coordinator
+// unit (launch.sh). The old login unit and management container stay stopped; never start them from here.
+const merged=()=>fs.existsSync('/opt/ais2api/coord-rs/MERGED');
+const unitOf=key=>key==='login'&&merged()?UNITS.coordinator:UNITS[key];
+const LOGIN_LOG=/^\[(Login|Relogin|NightlyRelogin|Import|CookieSync|Management)\]|^login service/;
 // Hide credentials that appear in log lines (proxy URLs, bearer tokens, long secrets).
 function mask(s){
  return String(s)
@@ -21,16 +26,22 @@ function memInfo(){
 }
 function disk(p='/'){try{const s=fs.statfsSync(p);return {total:s.blocks*s.bsize,free:s.bavail*s.bsize};}catch{return null;}}
 async function unit(key){
- const r=await run('systemctl',['show',UNITS[key],'-p','ActiveState','-p','SubState','-p','MemoryCurrent','-p','ActiveEnterTimestamp','-p','NRestarts','-p','MemoryMax']);
+ const r=await run('systemctl',['show',UNITS[key],'-p','ActiveState','-p','SubState','-p','MemoryCurrent','-p','ActiveEnterTimestamp','-p','NRestarts','-p','MemoryMax','-p','ControlGroup']);
  const kv=Object.fromEntries(r.out.split('\n').filter(Boolean).map(l=>{const i=l.indexOf('=');return [l.slice(0,i),l.slice(i+1)];}));
  const num=v=>/^\d+$/.test(v||'')?Number(v):null;
  const since=kv.ActiveEnterTimestamp?Date.parse(kv.ActiveEnterTimestamp.replace(/ [A-Z]{2,5}$/,''))||null:null;
- return {key,unit:UNITS[key],name:UNIT_NAMES[key],state:kv.ActiveState||'unknown',sub:kv.SubState||'',memory:num(kv.MemoryCurrent),memoryMax:num(kv.MemoryMax),since,restarts:num(kv.NRestarts)};
+ // MemoryCurrent includes page cache charged by child commands (docker CLI, journalctl, git), reclaimed on demand:
+ // show the non-reclaimable part and report the cache separately
+ let cache=null;const g=kv.ControlGroup||'';
+ if(g.startsWith('/')&&!g.includes('..')){try{const m=fs.readFileSync('/sys/fs/cgroup'+g+'/memory.stat','utf8').match(/^file (\d+)$/m);if(m)cache=Number(m[1]);}catch{}}
+ const cur=num(kv.MemoryCurrent),memory=cur!==null&&cache!==null?Math.max(0,cur-cache):cur;
+ const name=key==='coordinator'&&merged()?'调度器（含管理后台、登录服务）':UNIT_NAMES[key];
+ return {key,unit:UNITS[key],name,state:kv.ActiveState||'unknown',sub:kv.SubState||'',memory,memoryCache:cache,memoryMax:num(kv.MemoryMax),since,restarts:num(kv.NRestarts)};
 }
 async function containers(){
  const r=await run('docker',['ps','-a','--format','{{.Names}}\t{{.State}}\t{{.Status}}']);
  const rows=r.out.split('\n').filter(Boolean).map(l=>{const [name,state,status]=l.split('\t');return {name,state,status};});
- return CONTAINERS.map(n=>rows.find(x=>x.name===n)||{name:n,state:'missing',status:''});
+ return CONTAINERS.filter(n=>!(merged()&&n==='ais2api-dual-management')).map(n=>rows.find(x=>x.name===n)||{name:n,state:'missing',status:''});
 }
 async function version(cwd){
  const r=await run('git',['-C',cwd,'log','-1','--format=%h%x09%ct%x09%s']);
@@ -39,7 +50,7 @@ async function version(cwd){
  return {hash:hash||null,at:at?Number(at)*1000:null,subject:subject||'',dirty:d.out.split('\n').filter(l=>l&&!l.startsWith('??')).length};
 }
 async function overview({cwd}){
- const [units,ctr,ver]=await Promise.all([Promise.all(Object.keys(UNITS).map(unit)),containers(),version(cwd)]);
+ const [units,ctr,ver]=await Promise.all([Promise.all(Object.keys(UNITS).filter(k=>!(merged()&&k==='login')).map(unit)),containers(),version(cwd)]);
  return {at:Date.now(),host:{hostname:os.hostname(),uptime:os.uptime(),load:os.loadavg(),cpus:os.cpus().length,memory:memInfo(),disk:disk('/')},units,containers:ctr,version:ver};
 }
 const LEVELS=['debug','info','warn','error'];
@@ -55,15 +66,18 @@ async function logs(source,n=200){
    return {t:Date.parse(j.time)||null,level:String(j.level||'info').toLowerCase(),source:j.source||'',msg:mask(msg||'')};}
    catch{return {t:null,level:'info',source:'',msg:mask(l)};}});
  }
- const u=UNITS[source];if(!u)throw Object.assign(Error('未知日志来源'),{statusCode:400});
- const r=await run('journalctl',['-u',u,'-n',String(n),'--no-pager','-o','json','--output-fields=MESSAGE,PRIORITY,__REALTIME_TIMESTAMP']);
+ const u=unitOf(source);if(!u)throw Object.assign(Error('未知日志来源'),{statusCode:400});
+ const onlyLogin=source==='login'&&merged();
+ const r=await run('journalctl',['-u',u,'-n',String(onlyLogin?Math.min(n*20,20000):n),'--no-pager','-o','json','--output-fields=MESSAGE,PRIORITY,__REALTIME_TIMESTAMP']);
  return r.out.split('\n').filter(Boolean).map(l=>{try{const j=JSON.parse(l);const p=Number(j.PRIORITY);
   const msg=Array.isArray(j.MESSAGE)?Buffer.from(j.MESSAGE).toString('utf8'):String(j.MESSAGE||'');
+  if(onlyLogin&&!LOGIN_LOG.test(msg))return null;
   const level=p<=3||/error|failed|失败/i.test(msg)?'error':p===4||/\bwarn|gave up|cooldown/i.test(msg)?'warn':'info';
   return {t:Math.round(Number(j.__REALTIME_TIMESTAMP)/1000)||null,level,source:'',msg:mask(msg)};}catch{return null;}}).filter(Boolean);
 }
 async function restartUnit(key){
  if(!UNITS[key])throw Object.assign(Error('未知服务'),{statusCode:400});
+ if(key==='login'&&merged())key='coordinator';
  // The coordinator restarts itself a moment later so this reply can still be delivered.
  if(key==='coordinator'){run('systemd-run',['--on-active=2','--unit=ais2api-ops-restart-'+Date.now(),'/bin/systemctl','restart',UNITS[key]]);return {scheduled:true};}
  const r=await run('systemctl',['restart',UNITS[key]],60000);

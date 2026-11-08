@@ -20,7 +20,8 @@ use std::time::Duration;
 
 const UI: &str = "/opt/ais2api/dual-runtime/refactor/ui";
 const IMPORT_HTML: &str = "/opt/ais2api/dual-runtime/code/import-ui.html";
-const COORD: &str = "http://127.0.0.1:8890";
+/// coordinator base URL (COORD_URL overrides; the side process in browser mode talks to the Node coordinator)
+static COORD: Lazy<String> = Lazy::new(|| std::env::var("COORD_URL").ok().filter(|u| u.starts_with("http://127.0.0.1:")).unwrap_or_else(|| "http://127.0.0.1:8890".into()));
 const FAILED: &str = "Coordinator unavailable; operation result may require a status refresh";
 const DAY_MS: i64 = 86_400_000;
 pub static SESS_FILE: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new("/opt/ais2api/dual-runtime/console-sessions.json".into()));
@@ -109,7 +110,7 @@ static HC: Lazy<Client<HttpConnector, Full<Bytes>>> = Lazy::new(|| {
 });
 async fn raw_call(method: &str, path: &str, body: Option<&Value>, timeout: u64, max: usize) -> Option<(u16, Bytes)> {
     let payload = body.map(js_bytes).unwrap_or_default();
-    let req = hyper::Request::builder().method(method).uri(format!("{}{}", COORD, path)).header("Authorization", format!("Bearer {}", *KEY))
+    let req = hyper::Request::builder().method(method).uri(format!("{}{}", *COORD, path)).header("Authorization", format!("Bearer {}", *KEY))
         .header("Content-Type", "application/json").body(Full::new(Bytes::from(payload))).ok()?;
     let run = async {
         let r = HC.request(req).await.ok()?;

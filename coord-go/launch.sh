@@ -5,10 +5,17 @@
 # Merged (/opt/ais2api/coord-rs/MERGED): management 8893 + login 8894 run in the Rust process; when Go or Node serves
 # 8890, a Rust side process (--side) serves them instead.
 ROOT="${DUAL_ROOT:-/opt/ais2api/dual-runtime}"
-RS=/opt/ais2api/coord-rs/coordinator
+RS="${COORD_RS:-/opt/ais2api/coord-rs/coordinator}"
 GO=/opt/ais2api/coord-go/coordinator
 NODE_ENTRY="$ROOT/refactor/start-coordinator.js"
-side() { [ -e /opt/ais2api/coord-rs/MERGED ] && [ -x "$RS" ] && { echo "[launcher] management + login -> Rust side process"; "$RS" --side & }; }
+# Side process (management 8893 + login 8894) next to a Go/Node coordinator; restarted if it exits.
+# On stop systemd signals the whole unit (KillMode=control-group): the loop and the side process both end.
+side() {
+  [ -e /opt/ais2api/coord-rs/MERGED ] && [ -x "$RS" ] || return 0
+  echo "[launcher] management + login -> Rust side process"
+  ( trap 'kill -TERM $child 2>/dev/null; wait $child; exit 0' TERM INT
+    while :; do "$RS" --side & child=$!; wait $child; echo "[launcher] side process exited ($?); restarting in 3 s"; sleep 3; done ) &
+}
 mode=$(sed -n 's/.*"mode":"\([a-z]*\)".*/\1/p' "$ROOT/run-mode.json" 2>/dev/null)
 [ -z "$mode" ] && mode=headless
 if [ "$mode" = headless ] && [ "$COORD_IMPL" != node ] && [ ! -e /opt/ais2api/coord-go/USE_NODE ]; then

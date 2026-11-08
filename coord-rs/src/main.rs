@@ -95,11 +95,22 @@ fn main() {
         return;
     }
     // browser modes: Node coordinator on 8890, this process serves 8893 + 8894 only
+    // --side [--no-loops] [--sessions file]; SIDE_MGMT_ADDR / SIDE_LOGIN_ADDR / COORD_URL override the defaults
     if args.get(1).map(|s| s.as_str()) == Some("--side") {
+        let loops = !args.iter().any(|a| a == "--no-loops");
+        if let Some(i) = args.iter().position(|a| a == "--sessions") {
+            if let Some(f) = args.get(i + 1) {
+                *mgmt::SESS_FILE.lock().unwrap() = f.clone();
+            }
+        }
+        unsafe {
+            libc::mallopt(libc::M_ARENA_MAX, 2);
+        }
         let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
         rt.block_on(async move {
-            start_side(true);
-            util::log("[Side] management 8893 + login 8894 (coordinator runs elsewhere)");
+            start_side_with(loops, true);
+            util::log(format!("[Side] management {} + login {} -> coordinator {}; automatic re-login loops {}",
+                side_addr("SIDE_MGMT_ADDR", "127.0.0.1:8893"), side_addr("SIDE_LOGIN_ADDR", "127.0.0.1:8894"), coord_url(), if loops { "on" } else { "off" }));
             let mut t = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
             tokio::select! { _ = t.recv() => {}, _ = tokio::signal::ctrl_c() => {} }
             let deadline = tokio::time::Instant::now() + Duration::from_secs(600);
@@ -203,17 +214,36 @@ fn merged_enabled() -> bool {
         _ => std::path::Path::new("/opt/ais2api/coord-rs/MERGED").exists(),
     }
 }
+/// loopback address from the environment (only 127.0.0.1:<port> accepted)
+fn side_addr(var: &str, def: &str) -> String {
+    std::env::var(var).ok().filter(|a| a.strip_prefix("127.0.0.1:").map_or(false, |p| p.parse::<u16>().is_ok())).unwrap_or_else(|| def.into())
+}
+fn coord_url() -> String {
+    std::env::var("COORD_URL").ok().filter(|u| u.starts_with("http://127.0.0.1:")).unwrap_or_else(|| "http://127.0.0.1:8890".into())
+}
+/// side process: a listener that cannot start ends the process (launch.sh restarts it); merged into the
+/// coordinator: logged only, the coordinator keeps serving 8890
 fn start_side(loops: bool) {
-    login_srv::install_coord(login_srv::loopback_coord("http://127.0.0.1:8890"));
+    start_side_with(loops, false)
+}
+fn start_side_with(loops: bool, fatal: bool) {
+    login_srv::install_coord(login_srv::loopback_coord(&coord_url()));
     login_srv::start_background(loops);
-    tokio::spawn(async {
-        if let Err(e) = mgmt::serve("127.0.0.1:8893", std::future::pending()).await {
+    let (ma, la) = (side_addr("SIDE_MGMT_ADDR", "127.0.0.1:8893"), side_addr("SIDE_LOGIN_ADDR", "127.0.0.1:8894"));
+    tokio::spawn(async move {
+        if let Err(e) = mgmt::serve(&ma, std::future::pending()).await {
             util::elog(format!("[Management] not started: {}", e));
+            if fatal {
+                std::process::exit(1);
+            }
         }
     });
-    tokio::spawn(async {
-        if let Err(e) = login_srv::serve("127.0.0.1:8894", std::future::pending()).await {
+    tokio::spawn(async move {
+        if let Err(e) = login_srv::serve(&la, std::future::pending()).await {
             util::elog(format!("[Login] not started: {}", e));
+            if fatal {
+                std::process::exit(1);
+            }
         }
     });
     console::MERGED.store(true, Ordering::Relaxed);
