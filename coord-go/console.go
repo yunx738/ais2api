@@ -384,6 +384,22 @@ var opsUnitNames = map[string]string{"headless": "无浏览器服务", "coordina
 var opsUnitOrder = []string{"headless", "coordinator", "login"}
 var opsContainers = []string{"ais2api-dual-a", "ais2api-dual-b", "ais2api-dual-management"}
 
+// opsMerged: management backend (8893) and login service (8894) run in the Rust process (/opt/ais2api/coord-rs/MERGED);
+// with the Go coordinator a Rust side process started by launch.sh serves them inside the coordinator unit.
+func opsMerged() bool {
+	_, err := os.Stat("/opt/ais2api/coord-rs/MERGED")
+	return err == nil
+}
+func opsUnitOf(key string) string {
+	if key == "login" && opsMerged() {
+		return opsUnits["coordinator"]
+	}
+	return opsUnits[key]
+}
+
+// coordinator log lines that belong to the login service when merged
+var reLoginLog = regexp.MustCompile(`^\[(Login|Relogin|NightlyRelogin|Import|CookieSync|Management)\]|^login service`)
+
 func run(timeout time.Duration, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -417,7 +433,7 @@ func memInfo() *Obj {
 }
 
 func opsUnit(key string) *Obj {
-	out, _ := run(15*time.Second, "systemctl", "show", opsUnits[key], "-p", "ActiveState", "-p", "SubState", "-p", "MemoryCurrent", "-p", "ActiveEnterTimestamp", "-p", "NRestarts", "-p", "MemoryMax")
+	out, _ := run(15*time.Second, "systemctl", "show", opsUnits[key], "-p", "ActiveState", "-p", "SubState", "-p", "MemoryCurrent", "-p", "ActiveEnterTimestamp", "-p", "NRestarts", "-p", "MemoryMax", "-p", "ControlGroup")
 	kv := map[string]string{}
 	for _, l := range strings.Split(out, "\n") {
 		if i := strings.Index(l, "="); i > 0 {
@@ -441,13 +457,42 @@ func opsUnit(key string) *Obj {
 	if st == "" {
 		st = "unknown"
 	}
-	return NewObj().Set("key", key).Set("unit", opsUnits[key]).Set("name", opsUnitNames[key]).Set("state", st).Set("sub", kv["SubState"]).
-		Set("memory", num(kv["MemoryCurrent"])).Set("memoryMax", num(kv["MemoryMax"])).Set("since", since).Set("restarts", num(kv["NRestarts"]))
+	// MemoryCurrent includes page cache charged by child commands (docker CLI, journalctl, git) and is reclaimed on
+	// demand; show the non-reclaimable part and report the cache separately
+	var cache any
+	if g := kv["ControlGroup"]; strings.HasPrefix(g, "/") && !strings.Contains(g, "..") {
+		if b, err := os.ReadFile("/sys/fs/cgroup" + g + "/memory.stat"); err == nil {
+			for _, l := range strings.Split(string(b), "\n") {
+				if v, ok := strings.CutPrefix(l, "file "); ok {
+					if n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64); err == nil {
+						cache = n
+					}
+					break
+				}
+			}
+		}
+	}
+	mem := num(kv["MemoryCurrent"])
+	if c, ok := mem.(int64); ok {
+		if f, ok := cache.(int64); ok {
+			mem = max(c-f, 0)
+		}
+	}
+	name := opsUnitNames[key]
+	if key == "coordinator" && opsMerged() {
+		name = "调度器（含管理后台、登录服务）"
+	}
+	return NewObj().Set("key", key).Set("unit", opsUnits[key]).Set("name", name).Set("state", st).Set("sub", kv["SubState"]).
+		Set("memory", mem).Set("memoryCache", cache).Set("memoryMax", num(kv["MemoryMax"])).Set("since", since).Set("restarts", num(kv["NRestarts"]))
 }
 
 func opsOverview(cwd string) *Obj {
 	units := []any{}
+	merged := opsMerged()
 	for _, k := range opsUnitOrder {
+		if merged && k == "login" {
+			continue
+		}
 		units = append(units, opsUnit(k))
 	}
 	out, _ := run(15*time.Second, "docker", "ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}")
@@ -459,6 +504,9 @@ func opsOverview(cwd string) *Obj {
 	}
 	ctr := []any{}
 	for _, n := range opsContainers {
+		if merged && n == "ais2api-dual-management" {
+			continue
+		}
 		if r := rows[n]; r != nil {
 			ctr = append(ctr, r)
 		} else {
@@ -571,11 +619,16 @@ func opsLogs(source string, n int) ([]any, error) {
 		}
 		return out, nil
 	}
-	u := opsUnits[source]
+	u := opsUnitOf(source)
 	if u == "" {
 		return nil, herr(400, "未知日志来源")
 	}
-	text, _ := run(15*time.Second, "journalctl", "-u", u, "-n", strconv.Itoa(n), "--no-pager", "-o", "json", "--output-fields=MESSAGE,PRIORITY,__REALTIME_TIMESTAMP")
+	onlyLogin := source == "login" && opsMerged()
+	fetch := n
+	if onlyLogin {
+		fetch = min(n*20, 20000)
+	}
+	text, _ := run(15*time.Second, "journalctl", "-u", u, "-n", strconv.Itoa(fetch), "--no-pager", "-o", "json", "--output-fields=MESSAGE,PRIORITY,__REALTIME_TIMESTAMP")
 	reErr := regexp.MustCompile(`(?i)error|failed|失败`)
 	reWarn := regexp.MustCompile(`(?i)\bwarn|gave up|cooldown`)
 	for _, l := range strings.Split(text, "\n") {
@@ -593,6 +646,9 @@ func opsLogs(source string, n int) ([]any, error) {
 			msg = string(b)
 		} else {
 			msg = jsStr(j.V("MESSAGE"))
+		}
+		if onlyLogin && !reLoginLog.MatchString(msg) {
+			continue
 		}
 		p, _ := strconv.Atoi(jsStr(j.V("PRIORITY")))
 		lv := "info"
@@ -612,9 +668,12 @@ func opsLogs(source string, n int) ([]any, error) {
 }
 
 func opsRestartUnit(key string) (*Obj, error) {
-	u := opsUnits[key]
+	u := opsUnitOf(key)
 	if u == "" {
 		return nil, herr(400, "未知服务")
+	}
+	if key == "login" && opsMerged() {
+		key = "coordinator"
 	}
 	if key == "coordinator" {
 		exec.Command("systemd-run", "--on-active=2", "--unit=ais2api-ops-restart-"+strconv.FormatInt(nowMs(), 10), "/bin/systemctl", "restart", u).Start()

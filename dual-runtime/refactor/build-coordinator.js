@@ -48,6 +48,15 @@ class BuildChannel{
   }catch{return {};}
  }
  appFor(id){return this.apps()[id]||null;}
+ // account deleted -> drop it from build-apps.json and the channel state
+ forget(id){
+  try{const d=JSON.parse(fs.readFileSync(this.appsFile,'utf8'));
+   if(d&&typeof d==='object'&&Object.prototype.hasOwnProperty.call(d,String(id))){delete d[String(id)];
+    const t=this.appsFile+'.tmp';fs.writeFileSync(t,JSON.stringify(d),{mode:0o600});fs.renameSync(t,this.appsFile);}
+  }catch{}
+  this.inflight.delete(id);
+  for(const k of [...this.denied.keys()])if(k.startsWith(id+'|'))this.denied.delete(k);
+ }
  inflightCap(account){return this.isPremium&&this.isPremium(account)?this.maxInflightPremium:this.maxInflight;}
  busy(account){
   const m=this.inflight.get(account);if(!m)return 0;

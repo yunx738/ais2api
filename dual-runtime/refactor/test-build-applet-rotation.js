@@ -15,9 +15,10 @@ function setup(rpc,{now=at(4),slot='B'}={}){
 }
 const ok=m=>m==='CreateApplet'?{status:200,text:JSON.stringify([NEW,[NEW]])}:{status:200,text:'[]'};
 test('Beijing hour helper',()=>{assert.strictEqual(bjHour(at(4)),4);assert.strictEqual(bjHour(at(23)),23);});
-test('create request is a minimal private applet',()=>{
+test('create request is a minimal buildable Vite applet',()=>{
  const b=createRequest();assert.strictEqual(b[1][0],'GW Text Bridge');
- const names=b[3][1].map(f=>f[0]);assert.deepStrictEqual(names,['metadata.json','index.html']);
+ const names=b[3][1].map(f=>f[0]);assert.deepStrictEqual(names,['metadata.json','index.html','index.js','package.json']);
+ const pkg=JSON.parse(Buffer.from(b[3][1][3][1],'base64').toString());assert.strictEqual(pkg.scripts.build,'vite build');assert.ok(pkg.devDependencies.vite);
  assert.strictEqual(parseCreated({status:200,text:JSON.stringify([NEW])}),NEW);
  assert.strictEqual(parseCreated({status:200,text:'["x"]'}),null);assert.strictEqual(parseCreated({status:409}),null);
 });
@@ -92,4 +93,9 @@ test('renew: failed delete is queued and retried next time',async()=>{
 });
 test('renew: account without project is left alone',async()=>{
  const t=setup(ok);assert.strictEqual(await t.r.renew(24,'A'),'no_project');assert.strictEqual(t.calls.length,0);
+});
+test('forget drops the rotation state of a deleted account',()=>{
+ const t=setup(ok);const st=t.r.readState();st.accounts[32]={lastAt:1};st.accounts[40]={lastAt:2};t.r.writeState(st);t.r.ensureAfter.set(32,1);
+ t.r.forget(32);assert.deepStrictEqual(Object.keys(t.r.readState().accounts),['40']);assert.strictEqual(t.r.ensureAfter.has(32),false);
+ t.r.forget(99);assert.deepStrictEqual(Object.keys(t.r.readState().accounts),['40']);
 });

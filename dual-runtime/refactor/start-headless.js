@@ -194,6 +194,7 @@ async function main(){
    if(email&&/^[^\/]+@[^\/]+$/.test(email)){try{fs.rmSync(path.join(importer.target,email),{recursive:true,force:true});}catch{}}
    f.status='deleted';f.deletedAt=Date.now();core.checkpoint();
    try{require('../login/login-credentials').remove(id);}catch{}
+   try{build.forget(id);appletRotation.forget(id);}catch(e){console.error('[Build] forget #'+id,e.message);}
    reloadSoon();
    return {deleted:true,id,historyPreserved:true};
   },
@@ -216,6 +217,9 @@ async function main(){
     core.accountFlags[id]={status:'deleted',reason:'login_required',at:Date.now(),deletedAt:Date.now()};removed.push(id);
    }
    if(added.length||removed.length)core.checkpoint();
+   for(const k of Object.keys(build.apps())){const id=Number(k);
+    if(core.pool.ids.includes(id)&&core.accountFlags[id]?.status!=='deleted')continue;
+    try{build.forget(id);appletRotation.forget(id);console.log('[Build] #'+id+' removed from the Build channel (account deleted)');}catch{}}
    const imp=syncImport();
    if(removed.length||imp&&(imp.added.length||imp.changed.length))reloadSoon();
    return {added,removed,pool:core.pool.ids,imported:imp};

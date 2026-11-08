@@ -48,6 +48,8 @@ type Result struct {
 	Uncertain       bool
 	Cancelled       bool
 	WorkerRejection string
+	// AuthExpired: the no-browser service reported this account's Google sign-in as expired (503 auth_required)
+	AuthExpired bool
 }
 
 type Item struct {
@@ -560,9 +562,17 @@ func (s *Scheduler) execute(t *Ticket, it *Item) {
 	defer s.app.mu.Unlock()
 	defer func() { delete(s.executing, t.ID); s.pumpL() }()
 	s.applyRejectionL(t, r)
+	if r != nil && r.AuthExpired && !r.Uncertain && !r.Cancelled && s.app.core.Flag(t.Account) == nil && !readOnlyState {
+		// take the account out of dispatch now (the 60 s sync would do the same) and retry elsewhere;
+		// the nightly queue re-logs it in (never Gmail accounts)
+		s.app.core.SetFlag(t.Account, NewObj().Set("status", "invalid").Set("reason", "login_required").Set("at", nowMs()).
+			Set("source", "headless").Set("message", "no-browser service: sign-in session expired"))
+		s.app.core.Checkpoint()
+		logf("[Auth] #%d marked invalid (login_required): sign-in expired during a request", t.Account)
+	}
 	s.app.disp.markUncertain(t)
 	retryable := r != nil && r.Rejection != nil && r.WorkerRejection == "" && !r.Uncertain && !r.Cancelled &&
-		(inInts(r.Status, 401, 403, 429) || (r.Status == 400 && r.Rejection.Headers["x-ais-build-retry"] == "upstream_failed")) &&
+		(inInts(r.Status, 401, 403, 429) || r.AuthExpired || (r.Status == 400 && r.Rejection.Headers["x-ais-build-retry"] == "upstream_failed")) &&
 		!it.res.Started() && !it.res.Gone()
 	s.app.disp.finishIfSettled(t)
 	if r == nil || r.Rejection == nil {

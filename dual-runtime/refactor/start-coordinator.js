@@ -235,6 +235,7 @@ async function main(){
    f.status='deleted';f.deletedAt=Date.now();dispatch.checkpoint();
    // Drop the saved password too, so a reused ID never auto-logs in with the old account.
    try{require('../login/login-credentials').remove(id);}catch{}
+   try{build.forget(id);appletRotation.forget(id);}catch(e){console.error('[Build] forget #'+id,e.message);}
    return {deleted:true,id,historyPreserved:true,retiredCopiesPreserved:true};
   },
   verifyAccount(body){
@@ -356,6 +357,10 @@ async function main(){
    }
    if(removed.length)console.log('[Accounts] auth file missing, marked deleted',removed.join(','));
    if(added.length||removed.length)dispatch.checkpoint();
+   // Build entries of accounts no longer in the pool (deleted elsewhere): drop project + rotation state
+   for(const k of Object.keys(build.apps())){const id=Number(k);
+    if(dispatch.pool.ids.includes(id)&&dispatch.accountFlags[id]?.status!=='deleted')continue;
+    try{build.forget(id);appletRotation.forget(id);console.log('[Build] #'+id+' removed from the Build channel (account deleted)');}catch{}}
    return {added,removed,pool:dispatch.pool.ids};
   }
  };

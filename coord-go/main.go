@@ -197,6 +197,7 @@ func start(addr string) error {
 				logf("[BuildRotation] %s", MarshalJS(r))
 			}
 		}, false)
+		time.AfterFunc(20*time.Second, func() { every(time.Minute, a.syncAuthRequired, true) })
 		time.AfterFunc(15*time.Second, a.provision)
 		every(5*time.Minute, a.provision, false)
 		time.AfterFunc(30*time.Second, a.writeBack)

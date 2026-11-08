@@ -9,11 +9,25 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
 
 var retryStatus = map[int]bool{401: true, 403: true, 429: true}
+
+var reAuthExpired = regexp.MustCompile(`(?i)needs to sign in again|sign-in session expired|需要重新登录|隔离登录态失效`)
+
+// authExpired: 503 from the no-browser service because the pinned account's Google sign-in expired
+func authExpired(status int, body []byte) bool {
+	if status != 503 {
+		return false
+	}
+	if len(body) > 16384 {
+		body = body[:16384]
+	}
+	return reAuthExpired.Match(body)
+}
 
 func rejectionOf(status int, h http.Header, body []byte) *Rejection {
 	ct := h.Get("Content-Type")
@@ -164,7 +178,7 @@ func (a *App) passthrough(ctx context.Context, t *Ticket, it *Item, email string
 	ra := up.Header.Get("Retry-After")
 	stream := strings.Contains(up.Header.Get("Content-Type"), "text/event-stream")
 	obs := NewMetrics(stream)
-	held := retryStatus[status]
+	held := retryStatus[status] || status == 503
 	var chunks bytes.Buffer
 	publish := func() {
 		h := res.Header()
@@ -216,7 +230,15 @@ func (a *App) passthrough(ctx context.Context, t *Ticket, it *Item, email string
 		}
 	}
 	if held {
-		return &Result{Status: status, RetryAfter: ra, Rejection: rejectionOf(status, up.Header, chunks.Bytes()), Metrics: obs.Finish(true)}
+		if status == 503 && !authExpired(status, chunks.Bytes()) {
+			publish()
+			if !res.Write(chunks.Bytes()) {
+				return &Result{Status: status, RetryAfter: ra, Cancelled: true, Metrics: obs.Finish(false)}
+			}
+			res.End(nil)
+			return &Result{Status: status, RetryAfter: ra, Metrics: obs.Finish(true)}
+		}
+		return &Result{Status: status, RetryAfter: ra, Rejection: rejectionOf(status, up.Header, chunks.Bytes()), Metrics: obs.Finish(true), AuthExpired: status == 503}
 	}
 	res.End(nil)
 	return &Result{Status: status, RetryAfter: ra, Metrics: obs.Finish(true)}
@@ -319,8 +341,9 @@ func (a *App) antiTruncation(ctx context.Context, t *Ticket, it *Item, email str
 		return &Result{Cancelled: true, Metrics: obs.Finish(false)}
 	}
 	if !r.ok {
-		if r.upstream && retryStatus[st] {
-			return &Result{Status: st, RetryAfter: r.retryAfter, Rejection: jsonRejection(st, r.payload, r.retryAfter, nil), Metrics: obs.Finish(true)}
+		expired := r.upstream && r.payload != nil && authExpired(st, MarshalJS(r.payload))
+		if r.upstream && (retryStatus[st] || expired) {
+			return &Result{Status: st, RetryAfter: r.retryAfter, Rejection: jsonRejection(st, r.payload, r.retryAfter, nil), Metrics: obs.Finish(true), AuthExpired: expired}
 		}
 		var h map[string]string
 		if r.retryAfter != "" {
@@ -374,8 +397,8 @@ func (a *App) fakeStream(ctx context.Context, t *Ticket, it *Item, email string)
 	ra := up.Header.Get("Retry-After")
 	obs.Write(data)
 	if st != 200 {
-		if retryStatus[st] {
-			return &Result{Status: st, RetryAfter: ra, Rejection: rejectionOf(st, up.Header, data), Metrics: obs.Finish(true)}
+		if expired := authExpired(st, data); retryStatus[st] || expired {
+			return &Result{Status: st, RetryAfter: ra, Rejection: rejectionOf(st, up.Header, data), Metrics: obs.Finish(true), AuthExpired: expired}
 		}
 		p, perr := ParseObj(data)
 		if perr != nil || p.V("error") == nil {

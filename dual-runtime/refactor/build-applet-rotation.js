@@ -52,6 +52,12 @@ class BuildAppletRotation{
    return 'created';
   }finally{this.ensuring.delete(id);}
  }
+ // account deleted -> drop its rotation state
+ forget(id){
+  const state=this.readState();
+  if(Object.prototype.hasOwnProperty.call(state.accounts,String(id))){delete state.accounts[String(id)];this.writeState(state);}
+  this.ensureAfter.delete(id);this.ensuring.delete(id);
+ }
  readApps(){try{return JSON.parse(fs.readFileSync(this.appsFile,'utf8'));}catch{return null;}}
  writeApps(d){const t=this.appsFile+'.tmp';fs.writeFileSync(t,JSON.stringify(d),{mode:0o600});fs.renameSync(t,this.appsFile);}
  readState(){try{const s=JSON.parse(fs.readFileSync(this.stateFile,'utf8'));return s&&s.accounts&&typeof s.accounts==='object'?s:{accounts:{}};}catch{return {accounts:{}};}}
