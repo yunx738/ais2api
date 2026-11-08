@@ -1,35 +1,47 @@
 # ais2api
 
-Dual-worker AI Studio proxy with OpenAI-compatible responses and an authenticated management console.
+把 Google AI Studio 转成 OpenAI / Gemini 兼容接口的自用反代，带多账号轮换、配额账本、Build 通道、抗截断和管理后台。
 
-## Current production architecture
-- `dual-runtime/refactor/`: coordinator, protocol-v2 workers, model catalog, independent quota ledger, request history and dashboard.
-- `dual-runtime/code/`: shared browser/server code and legacy support modules. `unified-server.runtime.js` contains the deployed response adapter.
-- Account/model quotas are independent: Flash 100 requests and Pro 10 requests per configured window. Anti-truncation aliases use their canonical model quota.
-- Token prices are reference valuations only; they never affect request admission, quota windows or scheduling.
-- Persistent request records do not store prompts, response text, credentials or raw errors.
-- Native usage metadata is retained through OpenAI stream/non-stream conversion. Missing counts remain unknown.
-- A received stream terminator is distinguished from an unconfirmed HTTP transport close. Worker settlement still requires execution-ledger evidence.
+## 目录结构
 
-## AI Studio app
-Workers run the client script inside an AI Studio app owned by your own Google account. See [docs/BUILD-APP.md](docs/BUILD-APP.md) for creating, sharing and switching the app.
-## Browser import userscript
-Import or refresh accounts straight from a logged-in browser with the Tampermonkey script in `dual-runtime/tools/`. Each user sets their own server address and sync key in the script. See [docs/COOKIE-SYNC.md](docs/COOKIE-SYNC.md).
-## Private runtime data
-Account credentials, environment files, coordinator configuration, quota/execution state, request history, model policies and price configuration are local deployment data and must not be committed. Model policies and prices require explicit configuration on a new installation; they are not reconstructed from repository history.
+- `coord-rs/`：当前线上默认使用的 Rust 协调器。单个进程同时提供调度接口（`8890`）、管理后台（`8893`）和登录服务（`8894`），内存占用约 20 MB。
+- `coord-go/`：Go 版协调器（无浏览器模式回退备选）及启动脚本 `launch.sh`。
+- `dual-runtime/`：原有的 Node.js 实现、静态前端资源（`refactor/ui/`）、浏览器 worker 脚本和油猴导入脚本（`tools/`）。在双实例 / 单实例浏览器模式下仍由 Node 负责管理浏览器容器，Rust 以 `--side` 副进程提供管理后台和登录服务。
+- `auto-register/`：Google Workspace 批量新号自动激活与登录态导出工具，见 [auto-register/README.md](auto-register/README.md)。
+- `docs/`：
+  - [docs/BUILD-APP.md](docs/BUILD-APP.md)：用自己的账号创建 AI Studio 应用（浏览器模式环境）
+  - [docs/COOKIE-SYNC.md](docs/COOKIE-SYNC.md)：用油猴脚本从浏览器一键导入 / 刷新账号 Cookie
 
-## Coordinator resilience and console
-Slot health checks, rotation and recovery progress independently. Rejected requests can safely move to another account after execution settlement; per-model cooldowns do not stop healthy accounts. The management console includes a compact mobile layout, searchable account table, quota details and expandable request diagnostics.
-See [behavior, verification and rollout notes](dual-runtime/refactor/RESILIENCE.md). Run `npm test` for the offline coordinator regressions; `npm run test:ui` runs the fixture-based Playwright checks after installing its Chromium browser.
+## 运行模式
 
-## Verification and limitations
-The usage adapter passed 102 offline tests on Node 18.20.8 and Node 22. Completion-state handling subsequently passed 93 regression tests and UI rendering checks on both versions.
-These tests do not replace live end-to-end acceptance. Missing cache/reasoning counts, incomplete transport and anti-truncation continuation totals can leave cost unknown.
-Scalar price configuration does not automatically handle long-context tiers, mixed media, storage or tool charges.
+可在管理后台切换，状态保存在 `dual-runtime/run-mode.json`：
 
-## Anti-truncation
-Prefix a configured canonical model with `anti-truncation/`. The proxy uses a synthetic `emit_answer` tool and bounded continuation attempts. Do not treat single-segment usage as the complete continuation total.
+1. **无浏览器模式（`headless`，默认）**：协调器把请求转发给本机的无浏览器后端服务（`127.0.0.1:2048`），所有已导入账号可同时并发使用，不需要跑浏览器容器。
+2. **双实例 / 单实例浏览器模式（`dual` / `single`）**：由 A/B 两个隔离的浏览器容器承载账号，支持自动换号、冷备保活与故障恢复。
 
-## Deployment
-A deployment requires an explicit admission pause, drainage of in-flight executions, current-state backups, code identity checks and health verification before reopening.
-Never overwrite the current quota/execution ledger with an old snapshot to recover a service.
+### 协调器版本切换
+
+`coord-go/launch.sh` 默认在无浏览器模式下启动 Rust 版（`coord-rs/coordinator`）：
+
+- 临时切回 Go 版：`touch /opt/ais2api/coord-go/USE_GO && systemctl restart ais2api-dual-coordinator`
+- 临时切回 Node 版：`touch /opt/ais2api/coord-go/USE_NODE && systemctl restart ais2api-dual-coordinator`
+- 拆开管理后台与登录服务（不用单进程合并）：执行 `coord-rs/unmerge.sh`；重新合并执行 `coord-rs/merge.sh`
+
+## 主要功能
+
+- **接口兼容**：支持 `/v1/chat/completions`（含流式、假流式）、`/v1/models` 以及原生 `/v1beta/models/*:generateContent`、`:streamGenerateContent`。
+- **Build 通道**：模型名前加 `build/`、`build-st/` 或 `bridge/` 走 AI Studio Build 应用通道，带独立 Token 账本、预设注入和每账号独立项目自动创建与轮换。
+- **抗截断**：模型名前加 `anti-truncation/`，通过内置工具调用与续写拼接长输出。
+- **账号与重登**：
+  - 支持按前缀指定账号（`@账号ID:模型名`）或按分组调度。
+  - 请求遇到账号登录态过期（503）时，立即将该账号标为失效并自动换号重试，不把错误直接抛给客户端。
+  - 配置了凭据的 Workspace 账号支持每晚排队重登与失效自动重登；`@gmail.com` 账号固定排除在一切自动重登之外，避免触发风控，仅通过油猴脚本或手动更新 Cookie 恢复。
+- **隐私与本地数据**：账号 Cookie、密码库、API Key、配额状态、请求历史、价格与预设均存放在本机运行目录（已在 `.gitignore` 排除），不会进入仓库，持久化历史也不记录对话正文。
+
+## 编译
+
+Rust 协调器（使用 Docker `rust:1-slim-bookworm`，无需宿主机安装工具链）：
+
+```bash
+cd coord-rs && ./b.sh
+```
