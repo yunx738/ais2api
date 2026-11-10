@@ -9,19 +9,24 @@ const {tokens,WIRE_PREFIX}=require('./build-context');
 const isEnvelope=m=>Array.isArray(m)&&m.length===1&&m[0]&&m[0].role==='user'&&typeof m[0].content==='string'&&m[0].content.startsWith(WIRE_PREFIX);
 const APP=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // Build channel settings (build-settings.json). premiumOnly: Build runs on Pro/Ultra accounts only;
-// off = flash may also use Free (standard) accounts, Free first.
+// off = flash may also use Free (standard) accounts, Free first. enabled: master switch for the whole channel.
 class BuildSettings{
  constructor(file,{fs:f=fs}={}){
-  this.file=file;this.fs=f;this.state={premiumOnly:true};
-  if(file)try{const d=JSON.parse(f.readFileSync(file,'utf8'));if(typeof d.premiumOnly==='boolean')this.state.premiumOnly=d.premiumOnly;}
+  this.file=file;this.fs=f;this.state={premiumOnly:true,enabled:true};
+  if(file)try{const d=JSON.parse(f.readFileSync(file,'utf8'));
+   if(typeof d.premiumOnly==='boolean')this.state.premiumOnly=d.premiumOnly;
+   if(typeof d.enabled==='boolean')this.state.enabled=d.enabled;
+  }
   catch(e){if(e.code!=='ENOENT')console.error('[BuildSettings] build-settings.json unreadable, using defaults');}
  }
  get premiumOnly(){return this.state.premiumOnly;}
+ get enabled(){return this.state.enabled;}
  status(){return {...this.state};}
  set(body){
   const next={...this.state};
   if(body?.premiumOnly!==undefined){if(typeof body.premiumOnly!=='boolean')throw Object.assign(Error('premiumOnly 必须是 true/false'),{statusCode:400});next.premiumOnly=body.premiumOnly;}
-  if(this.file){const tmp=this.file+'.tmp';this.fs.writeFileSync(tmp,JSON.stringify(next,null,1));this.fs.renameSync(tmp,this.file);}
+  if(body?.enabled!==undefined){if(typeof body.enabled!=='boolean')throw Object.assign(Error('enabled 必须是 true/false'),{statusCode:400});next.enabled=body.enabled;}
+  if(this.file){const tmp=this.file+'.tmp';this.fs.writeFileSync(tmp,JSON.stringify({premiumOnly:next.premiumOnly,enabled:next.enabled},null,1));this.fs.renameSync(tmp,this.file);}
   this.state=next;return this.status();
  }
 }
@@ -74,6 +79,7 @@ class BuildChannel{
   let parsed;try{parsed=Buffer.isBuffer(body)||typeof body==='string'?JSON.parse(body.toString()):body;}catch{return null;}
   const spec=parseBuildModel(parsed?.model);
   if(!spec)return null;
+  if(this.settings.enabled===false)throw Object.assign(Error('Build 通道已关闭，请在管理后台开启后再使用'),{statusCode:503});
   if(route!=='/v1/chat/completions')throw Object.assign(Error('Build 通道只支持 /v1/chat/completions'),{statusCode:400});
   const candidates=Object.keys(this.apps()).map(Number);
   if(!candidates.length)throw Object.assign(Error('没有已开通 Build 项目的账号'),{statusCode:503});
@@ -147,7 +153,7 @@ class BuildChannel{
    }
   };
  }
- models(){return listModels();}
+ models(){return this.settings.enabled===false?[]:listModels();}
  status(ids){
   const apps=this.apps();
   const {LIMITS}=require('./build-context'),{periodStart,WINDOW}=require('./model-quota-ledger'),now=Date.now();

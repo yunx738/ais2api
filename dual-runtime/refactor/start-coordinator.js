@@ -72,7 +72,9 @@ async function main(){
   req.setTimeout(90000,()=>req.destroy(Error('applet rpc deadline')));req.on('error',reject);req.end(payload);});
  const appletRotation=new BuildAppletRotation({appsFile:path.join(root,'build-apps.json'),stateFile:path.join(root,'build-applet-rotation.json'),rpc:appletRpc,
   slotOf:id=>['A','B'].find(slot=>dispatch.pool.slots.get(slot)?.current===id)||null});
- const appletTimer=setInterval(()=>{appletRotation.tick().then(r=>{if(r&&!r.skipped)console.log('[BuildRotation]',JSON.stringify(r));}).catch(e=>console.error('[BuildRotation]',e.message));},600000);appletTimer.unref();
+ const appletTimer=setInterval(()=>{
+  if(buildSettings.enabled===false)return;
+  appletRotation.tick().then(r=>{if(r&&!r.skipped)console.log('[BuildRotation]',JSON.stringify(r));}).catch(e=>console.error('[BuildRotation]',e.message));},600000);appletTimer.unref();
  // Per-request project renewal: after each Build request the account switches to a new project and the used one
  // is deleted. Waits until the account has no Build request in flight and its worker is idle; retries on 409.
  const renewing=new Map();
@@ -99,7 +101,7 @@ async function main(){
   frontendGuard.observe(slot,status);
   // Account switched onto a slot without a Build project: create one automatically once the worker is ready.
   const acct=dispatch.pool.slots.get(slot)?.current;
-  if(status?.ready===true&&status.account===acct&&Number.isSafeInteger(acct)&&!build.appFor(acct)&&cfg.buildAutoProvision!==false)
+  if(status?.ready===true&&status.account===acct&&Number.isSafeInteger(acct)&&!build.appFor(acct)&&cfg.buildAutoProvision!==false&&buildSettings.enabled)
    appletRotation.ensure(acct,slot).then(r=>{if(r!=='present'&&r!=='busy'&&r!=='backoff')console.log('[BuildProvision] #'+acct+' '+slot+' '+r);}).catch(e=>console.error('[BuildProvision]',e.message));
  };
  rotation.frontendHold=slot=>frontendGuard.hold(slot);

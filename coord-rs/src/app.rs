@@ -242,6 +242,9 @@ impl App {
         every(Duration::from_secs(600), false, move || {
             let a = a.clone();
             async move {
+                if !a.build.enabled() {
+                    return;
+                }
                 let r = a.rotation.tick(&a, false, 0).await;
                 if r.get("skipped").is_none() {
                     log(format!("[BuildRotation] {}", js(&r)));
@@ -314,7 +317,7 @@ impl App {
         res
     }
     fn provision(self: &Arc<Self>) {
-        if self.cfg.get("buildAutoProvision") == Some(&Value::Bool(false)) {
+        if self.cfg.get("buildAutoProvision") == Some(&Value::Bool(false)) || !self.build.enabled() {
             return;
         }
         let todo: Vec<i64> = {

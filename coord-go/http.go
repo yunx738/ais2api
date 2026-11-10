@@ -100,7 +100,11 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "GET" && path == "/v1/models" {
 		data := []any{}
-		for _, id := range append(a.routing.List(), buildModels()...) {
+		ids := a.routing.List()
+		if a.build.settings.enabled() {
+			ids = append(ids, buildModels()...)
+		}
+		for _, id := range ids {
 			data = append(data, NewObj().Set("id", id).Set("object", "model").Set("owned_by", "google"))
 		}
 		writeJSON(w, 200, NewObj().Set("object", "list").Set("data", data))

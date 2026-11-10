@@ -17,7 +17,8 @@ async function getToken(force){
 async function post(url,body,retry=true){
  const r=await fetch(url,{method:'POST',credentials:'same-origin',redirect:'error',headers:{'Content-Type':'application/json','X-Import-Token':await getToken(!retry)},body:JSON.stringify(body||{})});
  if(r.status===403&&retry)return post(url,body,false);
- const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||('操作失败（'+r.status+'）'));return d;
+ const d=await r.json().catch(()=>({}));
+ if(!r.ok)throw Error(d.error||(Array.isArray(d.skipped)&&d.skipped.map(x=>x&&x.reason).filter(Boolean).join('；'))||('操作失败（'+r.status+'）'));return d;
 }
 async function get(url){const r=await fetch(url,{credentials:'same-origin',redirect:'error',cache:'no-store'});const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||('读取失败（'+r.status+'）'));return d;}
 window.AisOps={post,get};
@@ -43,28 +44,88 @@ function renderHost(h){
  if(d)cell('磁盘',gb(d.total-d.free)+' / '+gb(d.total),meter(d.total-d.free,d.total,'剩余 '+gb(d.free)));
  cell('运行时间',dur(h.uptime),el('small',h.hostname,'muted'));
 }
+const btn=(label,cls)=>{const b=el('button',label,'small'+(cls?' '+cls:''));b.type='button';return b;};
 function renderUnits(units){
  const body=$('ops-units');body.replaceChildren();
  for(const u of units){
-  const tr=el('tr'),ok=u.state==='active';
-  const name=el('td');name.append(el('strong',u.name),el('small',u.unit,'muted'));
-  const st=el('td');st.append(el('span',ok?'运行中':u.state==='activating'?'启动中':u.state==='failed'?'已失败':'已停止','ops-pill '+(ok?'ok':u.state==='activating'?'warn':'bad')));
-  const mem=el('td');mem.append(u.memoryMax?meter(u.memory,u.memoryMax,gb(u.memory)+' / '+gb(u.memoryMax)):el('span',gb(u.memory)));
+  const tr=el('tr'),ok=u.state==='active',starting=u.state==='activating';
+  // In browser modes the no-browser service is stopped on purpose: show that as idle, not as a failure.
+  const unused=u.key==='headless'&&!ok&&!starting&&u.state!=='failed'&&runMode&&runMode!=='headless';
+  const name=el('td');name.append(el('strong',u.name),el('small',unused?'当前模式不使用':u.unit,'muted'));
+  const st=el('td');st.append(el('span',ok?'运行中':starting?'启动中':u.state==='failed'?'已失败':'已停止','ops-pill '+(ok?'ok':starting?'warn':unused?'idle':'bad')));
+  const mem=el('td');mem.append(!ok?el('span','—','muted'):u.memoryMax?meter(u.memory,u.memoryMax,gb(u.memory)+' / '+gb(u.memoryMax)):el('span',gb(u.memory)));
   const since=el('td',ok?ago(u.since):'—');
   const rs=el('td',u.restarts??'—');
-  const op=el('td');const b=el('button','重启','small');b.type='button';
-  b.addEventListener('click',()=>{
-   const warn=u.key==='coordinator'?'重启调度器：正在处理的请求会中断，约 5 秒后恢复。继续？':u.key==='headless'?'重启无浏览器服务：正在处理的请求会失败，约 10 秒后恢复。继续？':'重启登录服务：正在进行的登录会中断。继续？';
-   if(!confirm(warn))return;
-   act(b,()=>post('/api/ops/restart',{unit:u.key}),'ops-units-msg',r=>r.scheduled?u.name+' 将在 2 秒后重启':u.name+' 已重启');});
-  op.append(b);tr.append(name,st,mem,since,rs,op);body.append(tr);
+  const op=el('td'),box=el('div',undefined,'ops-row-actions');op.append(box);
+  if(u.key==='headless'){
+   const running=ok||starting,b=btn(running?'停止':'启动',running?'ghost':'');
+   b.addEventListener('click',()=>{
+    const warn=running
+     ?(runMode==='headless'?'停止无浏览器服务：现在是无浏览器模式，停止后所有请求都会失败，直到重新启动。继续？':'停止无浏览器服务？当前模式不使用它。')
+     :(runMode==='headless'?'启动无浏览器服务？':'启动无浏览器服务：现在是浏览器模式，不会用到它，启动后只占内存。继续？');
+    if(!confirm(warn))return;
+    act(b,()=>post('/api/ops/unit',{unit:'headless',action:running?'stop':'start'}),'ops-units-msg',()=>'无浏览器服务已'+(running?'停止':'启动'));});
+   box.append(b);
+  }
+  if(ok||u.key!=='headless'){
+   const b=btn('重启');
+   b.addEventListener('click',()=>{
+    const warn=u.key==='coordinator'?'重启调度器：正在处理的请求会中断，约 5 秒后恢复。继续？':u.key==='headless'?'重启无浏览器服务：正在处理的请求会失败，约 10 秒后恢复。继续？':'重启登录服务：正在进行的登录会中断。继续？';
+    if(!confirm(warn))return;
+    act(b,()=>post('/api/ops/restart',{unit:u.key}),'ops-units-msg',r=>r.scheduled?u.name+' 将在 2 秒后重启':u.name+' 已重启');});
+   box.append(b);
+  }
+  tr.append(name,st,mem,since,rs,op);body.append(tr);
  }
 }
+const CTR={'ais2api-dual-a':['浏览器实例 A','A'],'ais2api-dual-b':['浏览器实例 B','B'],'ais2api-dual-management':['管理后台',null]};
 function renderContainers(list){
  const box=$('ops-containers');box.replaceChildren();
- const names={'ais2api-dual-a':'浏览器实例 A','ais2api-dual-b':'浏览器实例 B','ais2api-dual-management':'管理后台'};
- for(const c of list){const row=el('div',undefined,'ops-ctr');
-  row.append(el('span',names[c.name]||c.name),el('span',c.state==='running'?'运行中':c.state==='missing'?'不存在':'已停止','ops-pill '+(c.state==='running'?'ok':'idle')),el('small',c.status,'muted'));box.append(row);}
+ for(const c of list){
+  const [label,slot]=CTR[c.name]||[c.name,null],run=c.state==='running',row=el('div',undefined,'ops-ctr');
+  const name=el('div',undefined,'ops-ctr-name');name.append(el('strong',label),el('small',c.status||(c.state==='missing'?'还没有创建':'—'),'muted'));
+  const st=el('span',run?'运行中':c.state==='missing'?'不存在':'已停止','ops-pill '+(run?'ok':'idle'));
+  const mem=el('div',undefined,'ops-ctr-mem');
+  if(run&&c.memory!=null)mem.append(c.memoryMax?meter(c.memory,c.memoryMax,gb(c.memory)+' / '+gb(c.memoryMax)):el('span',gb(c.memory)));
+  else mem.append(el('span',run?'读不到内存占用':'未占用内存','muted'));
+  const ops=el('div',undefined,'ops-row-actions');
+  if(slot){
+   const lg=btn('日志','ghost');lg.setAttribute('aria-label','查看'+label+'的日志');
+   lg.addEventListener('click',()=>{logPicked=true;selectLog('worker-'+slot.toLowerCase());$('ops-log-tabs').scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});});
+   ops.append(lg);
+   if(run){const rs=btn('重启');rs.setAttribute('aria-label','重启'+label);
+    rs.addEventListener('click',()=>{if(!confirm('重启'+label+'：这个实例上正在处理的请求会中断，重新加载页面期间它不可用。继续？'))return;
+     act(rs,()=>post('/api/restart',{slot}),'ops-units-msg',r=>Array.isArray(r.started)&&r.started.includes(slot)?label+' 正在重启':label+' 没有重启：'+((r.skipped||[]).map(x=>x.reason).filter(Boolean).join('；')||'原因未知'));});
+    ops.append(rs);}
+  }
+  row.append(name,st,mem,ops);box.append(row);
+ }
+}
+const MODE_NOTE={headless:'所有账号同时可用，不启动浏览器',dual:'实例 A、B 各承载一个账号，其余账号待命轮换',single:'只保留一个浏览器实例'};
+function renderMode(o,bs){
+ runMode=o.runMode||null;
+ document.querySelectorAll('#ops-mode-seg button').forEach(b=>{b.setAttribute('aria-checked',String(b.dataset.mode===runMode));b.disabled=modeBusy||!runMode;});
+ say('ops-mode-sub',MODE_NOTE[runMode]||'读不到当前运行模式');
+ const sw=$('ops-build'),known=!!bs&&typeof bs.enabled==='boolean';
+ if(!buildBusy){sw.disabled=!known;if(known)sw.checked=bs.enabled;}
+ say('ops-build-text',!known?'读不到状态':bs.enabled?'已开启':'已关闭');
+ if(!logPicked&&runMode&&runMode!=='headless'&&logSource==='headless')selectLog('coordinator');
+}
+// What the server's memory is spent on: this project's services and browser instances, everything else, and what is free.
+function renderMem(o){
+ const box=$('ops-mem');box.replaceChildren();const m=(o.host||{}).memory||{};if(!m.total)return;
+ const parts=[];
+ for(const u of o.units)if(u.state==='active'&&u.memory)parts.push([u.key==='coordinator'?'调度器':u.name,u.memory,u.key==='coordinator'?'c1':'c2']);
+ for(const c of o.containers)if(c.memory){const x=CTR[c.name]||[c.name,null];parts.push([x[0],c.memory,x[1]==='B'?'c4':'c3']);}
+ const mine=parts.reduce((n,p)=>n+p[1],0),used=Math.max(0,m.total-m.available);
+ parts.push(['服务器上其他程序',Math.max(0,used-mine),'c5'],['可用',m.available,'c6']);
+ const bar=el('div',undefined,'ops-mem-bar'),leg=el('div',undefined,'ops-mem-legend');
+ bar.setAttribute('role','img');bar.setAttribute('aria-label','内存占用构成：'+parts.filter(p=>p[1]).map(p=>p[0]+' '+gb(p[1])).join('，'));
+ for(const [name,n,cls] of parts){if(!n)continue;
+  const s=el('i',undefined,cls);s.style.flexGrow=String(n);s.title=name+' '+gb(n);bar.append(s);
+  const k=el('span',undefined,'ops-mem-key '+cls);k.append(el('i'),el('span',name),el('b',gb(n)));leg.append(k);}
+ const head=el('div',undefined,'ops-mem-head');head.append(el('strong','本项目占用 '+gb(mine)),el('span','服务器内存 '+gb(m.total)+'，已用 '+gb(used),'muted'));
+ box.append(head,bar,leg);
 }
 function renderAccounts(co){
  const box=$('ops-accounts'),cc=$('ops-cc');box.replaceChildren();
@@ -135,18 +196,20 @@ function renderMaint(o){
  for(const b of (o.backups||[]).slice(0,6))list.append(el('li',b.name+' · '+(b.size/1024).toFixed(0)+' KB · '+ago(b.at)+'前'));
  if(!(o.backups||[]).length)list.append(el('li','还没有备份','muted'));
 }
-let loading=false,paused=false,streamMode=null;const tests=new Map();
+let loading=false,paused=false,streamMode=null,runMode=null,modeBusy=false,buildBusy=false;const tests=new Map();
 async function load(){
  if(loading||$('ops').hidden)return;loading=true;
- try{const o=await get('/api/ops/overview');renderHost(o.host);renderUnits(o.units);renderContainers(o.containers);renderAccounts(o.coordinator);renderMaint(o);say('ops-updated','更新于 '+new Date(o.at).toLocaleTimeString('zh-CN',{hour12:false}));say('ops-error','');}
+ try{const [o,bs]=await Promise.all([get('/api/ops/overview'),get('/api/build/settings').catch(()=>null)]);
+  renderMode(o,bs);renderHost(o.host);renderMem(o);renderUnits(o.units);renderContainers(o.containers);renderAccounts(o.coordinator);renderMaint(o);say('ops-updated','更新于 '+new Date(o.at).toLocaleTimeString('zh-CN',{hour12:false}));say('ops-error','');}
  catch(e){say('ops-error','运维数据读取失败：'+e.message,true);}finally{loading=false;}
 }
 // ---- logs ----
-let logSource='headless',logTimer=null,logLines=[];
+let logSource='headless',logTimer=null,logLines=[],logShown=[],logPicked=false;
+function selectLog(src){logSource=src;document.querySelectorAll('#ops-log-tabs button').forEach(x=>x.setAttribute('aria-selected',String(x.dataset.src===src)));logLines=[];renderLogs();loadLogs();}
 function renderLogs(){
  const box=$('ops-log'),q=$('ops-log-q').value.trim().toLowerCase(),lv=$('ops-log-level').value;
  const keep=l=>(lv==='all'||(lv==='warn'?['warn','error'].includes(l.level):l.level===lv))&&(!q||(l.msg+' '+l.source).toLowerCase().includes(q));
- const rows=logLines.filter(keep).slice(-400);
+ const rows=logLines.filter(keep).slice(-400);logShown=rows;
  const atBottom=box.scrollHeight-box.scrollTop-box.clientHeight<40;
  box.replaceChildren(...rows.map(l=>{const r=el('div',undefined,'ops-log-row lv-'+l.level);
   r.append(el('time',l.t?new Date(l.t).toLocaleTimeString('zh-CN',{hour12:false}):''),el('span',{error:'错误',warn:'警告',info:'信息',debug:'调试'}[l.level]||l.level,'lv'),el('span',l.source||'','src'),el('span',l.msg,'msg'));return r;}));
@@ -162,7 +225,7 @@ async function loadLogs(){
 function schedule(){clearInterval(logTimer);logTimer=null;if($('ops-log-auto').checked&&!$('ops').hidden)logTimer=setInterval(loadLogs,5000);}
 function init(){
  if(!$('ops'))return;
- document.querySelectorAll('#ops-log-tabs button').forEach(b=>b.addEventListener('click',()=>{logSource=b.dataset.src;document.querySelectorAll('#ops-log-tabs button').forEach(x=>x.setAttribute('aria-selected',String(x===b)));loadLogs();}));
+ document.querySelectorAll('#ops-log-tabs button').forEach(b=>b.addEventListener('click',()=>{logPicked=true;selectLog(b.dataset.src);}));
  for(const id of ['ops-log-q','ops-log-level'])$(id).addEventListener('input',renderLogs);
  $('ops-log-n').addEventListener('change',loadLogs);$('ops-log-auto').addEventListener('change',schedule);
  $('ops-log-reload').addEventListener('click',loadLogs);
@@ -179,6 +242,35 @@ function init(){
  $('ops-writeback').addEventListener('click',e=>act(e.currentTarget,()=>post('/api/ops/write-back'),'ops-maint-msg',r=>r.written?.length?'已写回 '+r.written.length+' 个账号：'+r.written.join('、'):'没有需要写回的 Cookie'));
  $('ops-sync').addEventListener('click',e=>act(e.currentTarget,()=>post('/api/sync-accounts'),'ops-maint-msg',r=>'同步完成'+(r.added?.length?'，新增 '+r.added.join('、'):'')+(r.removed?.length?'，移除 '+r.removed.join('、'):'')));
  $('ops-refresh').addEventListener('click',()=>{load();loadLogs();});
+ document.querySelectorAll('#ops-mode-seg button').forEach(b=>b.addEventListener('click',async()=>{
+  const next=b.dataset.mode,cur=runMode;if(!cur||next===cur||modeBusy)return;
+  const restart=next==='headless'||cur==='headless';
+  const what={headless:'切到无浏览器模式：停止浏览器实例，启动无浏览器服务，所有账号同时可用。',
+   dual:'切到双浏览器模式：'+(restart?'停止无浏览器服务，':'')+'启动实例 A、B。'+(restart?'浏览器要重新打开页面，大约 2 到 3 分钟后才能处理请求。':''),
+   single:'切到单浏览器模式：'+(restart?'停止无浏览器服务，':'')+'只保留一个浏览器实例。'+(restart?'浏览器要重新打开页面，大约 2 到 3 分钟后才能处理请求。':'')}[next];
+  if(!confirm(what+(restart?'\n调度器会在当前请求完成后重启。':'')+'\n继续？'))return;
+  modeBusy=true;document.querySelectorAll('#ops-mode-seg button').forEach(x=>{x.disabled=true;});say('ops-mode-msg','正在切换…');
+  try{await post('/api/run-mode',{mode:next});
+   say('ops-mode-msg','已切换到'+b.textContent+'模式'+(restart?'，调度器正在重启，这个页面会短暂读不到数据':''));
+   for(const t of [3000,9000,20000,45000])setTimeout(load,t);}
+  catch(e){say('ops-mode-msg','切换失败：'+e.message,true);}
+  finally{setTimeout(()=>{modeBusy=false;load();},restart?9000:1500);}
+ }));
+ $('ops-build').addEventListener('change',async e=>{const sw=e.currentTarget,want=sw.checked;
+  if(!want&&!confirm('关闭 Build 通道：build/、build-st/、bridge/、code/ 开头的模型会立即返回错误，也不再自动新建或轮换项目。普通模型不受影响。继续？')){sw.checked=true;return;}
+  buildBusy=true;sw.disabled=true;say('ops-mode-msg','处理中…');
+  try{const r=await post('/api/build/settings',{enabled:want});
+   if(typeof r.enabled!=='boolean')throw Error('当前调度器版本没有这个开关');
+   say('ops-mode-msg',r.enabled?'Build 通道已开启':'Build 通道已关闭');}
+  catch(err){sw.checked=!want;say('ops-mode-msg','Build 通道没有改动：'+err.message,true);}
+  finally{buildBusy=false;load();}});
+ $('ops-log-copy').addEventListener('click',async()=>{
+  if(!logShown.length){say('ops-log-msg','没有可复制的日志',true);return;}
+  const t=logShown.map(l=>(l.t?new Date(l.t).toLocaleString('zh-CN',{hour12:false}):'')+' ['+l.level+'] '+(l.source?l.source+' ':'')+l.msg).join('\n');
+  try{if(navigator.clipboard&&isSecureContext)await navigator.clipboard.writeText(t);
+   else{const a=document.createElement('textarea');a.value=t;a.setAttribute('readonly','');a.style.position='fixed';a.style.opacity='0';document.body.append(a);a.select();const ok=document.execCommand('copy');a.remove();if(!ok)throw Error('浏览器不允许复制');}
+   say('ops-log-msg','已复制 '+logShown.length+' 行');}
+  catch(err){say('ops-log-msg','复制失败：'+err.message,true);}});
  const onShow=()=>{if(!$('ops').hidden){load();loadLogs();schedule();}else schedule();};
  addEventListener('hashchange',()=>setTimeout(onShow,0));setTimeout(onShow,0);
  setInterval(load,15000);

@@ -79,12 +79,18 @@
  }
  // Build settings: premiumOnly (Pro/Ultra accounts only).
  let setBusy=false;
- function setts(d){const b=$('bset-premium'),m=$('bset-message');if(!b||setBusy)return;b.checked=!!d.premiumOnly;
-  if(m){m.textContent=d.premiumOnly?'已开启：Build 只用 Pro/Ultra 账号':'已关闭：flash 会先用 Free 账号';m.classList.remove('bad');}}
- async function saveSet(b){setBusy=true;b.disabled=true;const m=$('bset-message');
-  try{const r=await fetch('/api/build/settings',{method:'POST',credentials:'same-origin',redirect:'error',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({premiumOnly:b.checked})});
-   const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(typeof d.error==='string'?d.error:'保存失败');setBusy=false;setts(d);}
-  catch(e){b.checked=!b.checked;if(m){m.textContent=e.message;m.classList.add('bad');}}
+ function setts(d){if(setBusy)return;
+  const b=$('bset-premium'),m=$('bset-message');
+  if(b){b.checked=!!d.premiumOnly;if(m){m.textContent=d.premiumOnly?'已开启：Build 只用 Pro/Ultra 账号':'已关闭：flash 会先用 Free 账号';m.classList.remove('bad');}}
+  const e=$('bset-enabled'),em=$('bset-enabled-message');
+  if(e){const known=typeof d.enabled==='boolean';e.disabled=!known;if(known)e.checked=d.enabled;
+   if(em){em.textContent=!known?'当前调度器版本没有这个开关':d.enabled?'已开启':'已关闭：Build 模型的请求会立即返回错误，其他模型不受影响';em.classList.remove('bad');}}
+ }
+ async function saveSet(b,key,msgId){setBusy=true;b.disabled=true;const m=$(msgId);
+  try{const r=await fetch('/api/build/settings',{method:'POST',credentials:'same-origin',redirect:'error',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({[key]:b.checked})});
+   const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(typeof d.error==='string'?d.error:'保存失败');
+   if(typeof d[key]!=='boolean')throw Error('当前调度器版本没有这个开关');setBusy=false;setts(d);}
+  catch(e){b.checked=!b.checked;if(m){m.textContent='没有保存：'+e.message;m.classList.add('bad');}}
   finally{setBusy=false;b.disabled=false;}}
  // Anti-truncation switch (build-document.json on the coordinator; applies to the next request).
  const docPost=async body=>{const r=await fetch('/api/build/document',{method:'POST',credentials:'same-origin',redirect:'error',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(body)});
@@ -135,7 +141,10 @@
  }
  const init=()=>{const b=$('build-refresh');if(b)b.addEventListener('click',load);
   const ra=$('build-rotate-all');if(ra){ra.dataset.rot='all';ra.addEventListener('click',()=>rotate(null,ra));}
-  const sp=$('bset-premium');if(sp)sp.addEventListener('change',()=>saveSet(sp));
+  const sp=$('bset-premium');if(sp)sp.addEventListener('change',()=>saveSet(sp,'premiumOnly','bset-message'));
+  const se=$('bset-enabled');if(se)se.addEventListener('change',()=>{
+   if(!se.checked&&!confirm('关闭 Build 通道：build/、build-st/、bridge/、code/ 开头的模型会立即返回错误，也不再自动新建或轮换项目。普通模型不受影响。继续？')){se.checked=true;return;}
+   saveSet(se,'enabled','bset-enabled-message');});
   const o=$('bdoc-on');if(o)o.addEventListener('change',()=>save({enabled:o.checked},o));
   const f=$('build-preset-file');if(f)f.addEventListener('change',()=>{const list=[...f.files];f.value='';if(list.length)upload(list);});
   load();};

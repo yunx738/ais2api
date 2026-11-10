@@ -64,7 +64,7 @@ async function main(){
  const appletRpc=(email,method,request)=>H.appletRpc(service.raw,email,method,request).then(r=>{if(r.status===0)throw Error('headless rpc failed');return r;});
  const appletRotation=new BuildAppletRotation({appsFile:path.join(root,'build-apps.json'),stateFile:path.join(root,'build-applet-rotation.json'),rpc:appletRpc,
   slotOf:id=>importer.has(id)?accountEmail(id):null});
- setInterval(()=>{appletRotation.tick().then(r=>{if(r&&!r.skipped)console.log('[BuildRotation]',JSON.stringify(r));}).catch(e=>console.error('[BuildRotation]',e.message));},600000).unref();
+ setInterval(()=>{if(buildSettings.enabled===false)return;appletRotation.tick().then(r=>{if(r&&!r.skipped)console.log('[BuildRotation]',JSON.stringify(r));}).catch(e=>console.error('[BuildRotation]',e.message));},600000).unref();
  const renewing=new Map();
  const scheduleRenew=(acct,attempt=0)=>{
   if(cfg.buildRenewPerRequest===false||renewing.has(acct))return;
@@ -77,7 +77,7 @@ async function main(){
  };
  build.onFinished=acct=>scheduleRenew(acct);
  // Every imported Pro/Ultra (or any, when premiumOnly is off) account gets a Build project.
- const provision=()=>{if(cfg.buildAutoProvision===false)return;
+ const provision=()=>{if(cfg.buildAutoProvision===false||!buildSettings.enabled)return;
   for(const id of live()){if(core.accountFlags[id]||!importer.has(id)||build.appFor(id))continue;
    if(buildSettings.premiumOnly&&!tiers.isPremium(id))continue;
    appletRotation.ensure(id,accountEmail(id)).then(r=>{if(!['present','busy','backoff'].includes(r))console.log('[BuildProvision] #'+id+' '+r);}).catch(()=>{});}};

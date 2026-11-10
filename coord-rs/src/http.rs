@@ -104,7 +104,9 @@ impl App {
         }
         if c.method == "GET" && c.path == "/v1/models" {
             let mut ids = self.routing.list(&self);
-            ids.extend(build_models());
+            if self.build.enabled() {
+                ids.extend(build_models());
+            }
             let data: Vec<Value> = ids.into_iter().map(|id| json!({"id":id,"object":"model","owned_by":"google"})).collect();
             return write_json(200, &json!({"object":"list","data":data}));
         }
@@ -647,6 +649,9 @@ impl App {
             o.insert("backups".into(), Value::Array(ops_backups()));
             o.insert("coordinator".into(), self.ops_status());
             return write_json(200, &Value::Object(o));
+        }
+        if c.method == "GET" && op == "status" {
+            return write_json(200, &self.ops_status());
         }
         if c.method == "GET" && op == "logs" {
             let n: i64 = c.q("n").parse().unwrap_or(0);

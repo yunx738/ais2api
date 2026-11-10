@@ -18,21 +18,30 @@ type BuildSettings struct {
 	mu          sync.Mutex
 	file        string
 	PremiumOnly bool
+	Enabled     bool
 }
 
 func NewBuildSettings(file string) *BuildSettings {
-	s := &BuildSettings{file: file, PremiumOnly: true}
+	s := &BuildSettings{file: file, PremiumOnly: true, Enabled: true}
 	if raw, err := readJSONFile(file); err == nil {
 		if b, ok := asObj(raw).V("premiumOnly").(bool); ok {
 			s.PremiumOnly = b
 		}
+		if b, ok := asObj(raw).V("enabled").(bool); ok {
+			s.Enabled = b
+		}
 	}
 	return s
 }
-func (s *BuildSettings) Status() *Obj { s.mu.Lock(); defer s.mu.Unlock(); return NewObj().Set("premiumOnly", s.PremiumOnly) }
+func (s *BuildSettings) Status() *Obj {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return NewObj().Set("premiumOnly", s.PremiumOnly).Set("enabled", s.Enabled)
+}
 func (s *BuildSettings) Set(b *Obj) (*Obj, error) {
 	s.mu.Lock()
 	next := s.PremiumOnly
+	en := s.Enabled
 	if v, ok := b.Get("premiumOnly"); ok && v != nil {
 		bv, isB := v.(bool)
 		if !isB {
@@ -41,15 +50,25 @@ func (s *BuildSettings) Set(b *Obj) (*Obj, error) {
 		}
 		next = bv
 	}
-	if err := writeSimple(s.file, MarshalJSIndent(NewObj().Set("premiumOnly", next), " "), 0644); err != nil {
+	if v, ok := b.Get("enabled"); ok && v != nil {
+		bv, isB := v.(bool)
+		if !isB {
+			s.mu.Unlock()
+			return nil, herr(400, "enabled 必须是 true/false")
+		}
+		en = bv
+	}
+	if err := writeSimple(s.file, MarshalJSIndent(NewObj().Set("premiumOnly", next).Set("enabled", en), " "), 0644); err != nil {
 		s.mu.Unlock()
 		return nil, err
 	}
 	s.PremiumOnly = next
+	s.Enabled = en
 	s.mu.Unlock()
 	return s.Status(), nil
 }
 func (s *BuildSettings) premium() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.PremiumOnly }
+func (s *BuildSettings) enabled() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.Enabled }
 
 var docPrefixes = []string{"build/", "build-st/", "bridge/", "code/"}
 
@@ -376,6 +395,9 @@ func (b *Build) Resolve(route string, parsed *Obj, allowUnavailable bool) (*Plan
 	}
 	if spec == nil {
 		return nil, nil
+	}
+	if !b.settings.enabled() {
+		return nil, herr(503, "Build 通道已关闭，请在管理后台开启后再使用")
 	}
 	if route != "/v1/chat/completions" {
 		return nil, herr(400, "Build 通道只支持 /v1/chat/completions")

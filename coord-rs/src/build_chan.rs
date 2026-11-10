@@ -135,6 +135,7 @@ impl TokenLedger {
 // ---------------- channel ----------------
 struct BState {
     premium_only: bool,
+    enabled: bool,
     ledger: TokenLedger,
     reservations: HashMap<String, (i64, i64)>,
     inflight: HashMap<i64, HashMap<String, i64>>,
@@ -158,6 +159,7 @@ impl Build {
     pub fn new(root: &str) -> Self {
         let settings_file = format!("{}/build-settings.json", root);
         let premium_only = read_json(&settings_file).ok().and_then(|v| v.get("premiumOnly").and_then(|b| b.as_bool())).unwrap_or(true);
+        let enabled = read_json(&settings_file).ok().and_then(|v| v.get("enabled").and_then(|b| b.as_bool())).unwrap_or(true);
         let stats = json!({"requests":0,"charged":0,"missingUsage":0,"rejected":0}).as_object().unwrap().clone();
         Build {
             root: root.into(),
@@ -165,7 +167,7 @@ impl Build {
             settings_file,
             doc: DocumentSwitch::open(&format!("{}/build-document.json", root)),
             presets: PresetStore::new(&format!("{}/build-presets.json", root)),
-            st: Mutex::new(BState { premium_only, ledger: TokenLedger::open(&format!("{}/build-tokens.json", root)), reservations: HashMap::new(),
+            st: Mutex::new(BState { premium_only, enabled, ledger: TokenLedger::open(&format!("{}/build-tokens.json", root)), reservations: HashMap::new(),
                 inflight: HashMap::new(), denied: HashMap::new(), stats }),
             max_inflight: env_cap("BUILD_MAX_INFLIGHT_PER_ACCOUNT", 1),
             max_premium: env_cap("BUILD_MAX_INFLIGHT_PREMIUM", 2),
@@ -182,8 +184,13 @@ impl Build {
     pub fn premium_only(&self) -> bool {
         self.lock().premium_only
     }
+    /// channel switch: when off, Build models are rejected at once and no project is created or rotated
+    pub fn enabled(&self) -> bool {
+        self.lock().enabled
+    }
     pub fn settings_status(&self) -> Value {
-        json!({"premiumOnly":self.premium_only()})
+        let s = self.lock();
+        json!({"premiumOnly":s.premium_only,"enabled":s.enabled})
     }
     pub fn set_settings(&self, b: &Value) -> R<Value> {
         let mut s = self.lock();
@@ -191,11 +198,19 @@ impl Build {
         if let Some(v) = b.get("premiumOnly").filter(|v| !v.is_null()) {
             next = v.as_bool().ok_or_else(|| HttpErr::new(400, "premiumOnly 必须是 true/false"))?;
         }
+        let mut on = s.enabled;
+        if let Some(v) = b.get("enabled").filter(|v| !v.is_null()) {
+            on = v.as_bool().ok_or_else(|| HttpErr::new(400, "enabled 必须是 true/false"))?;
+        }
         if !ro() {
-            write_simple(&self.settings_file, js_indent(&json!({"premiumOnly":next}), " ").as_bytes(), 0o644).map_err(|e| HttpErr::plain(e.to_string()))?;
+            write_simple(&self.settings_file, js_indent(&json!({"premiumOnly":next,"enabled":on}), " ").as_bytes(), 0o644).map_err(|e| HttpErr::plain(e.to_string()))?;
+        }
+        if on != s.enabled {
+            log(format!("[Build] channel {}", if on { "enabled" } else { "disabled" }));
         }
         s.premium_only = next;
-        Ok(json!({"premiumOnly":next}))
+        s.enabled = on;
+        Ok(json!({"premiumOnly":next,"enabled":on}))
     }
     /// build-apps.json -> account -> applet id (key order as in the file)
     pub fn apps(&self) -> Vec<(i64, String)> {
@@ -234,6 +249,9 @@ impl Build {
     /// None for non-Build models
     pub fn resolve(&self, app: &App, route: &str, parsed: &Map<String, Value>, allow_unavailable: bool) -> R<Option<Plan>> {
         let Some(spec) = parse_build_model(parsed.s("model"))? else { return Ok(None) };
+        if !self.enabled() {
+            return herr(503, "Build 通道已关闭，请在管理后台开启后再使用");
+        }
         if route != "/v1/chat/completions" {
             return herr(400, "Build 通道只支持 /v1/chat/completions");
         }

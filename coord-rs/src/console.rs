@@ -193,6 +193,10 @@ impl StreamMode {
 pub fn run_modes() -> Value {
     json!(["headless", "dual", "single"])
 }
+/// current run mode from run-mode.json: headless | dual | single
+pub fn run_mode_now() -> String {
+    run_mode_read(&dual_root()).s("mode").to_string()
+}
 fn run_mode_read(root: &str) -> Value {
     let m = read_json(&format!("{}/run-mode.json", root)).ok().filter(|v| v.is_object()).unwrap_or(json!({}));
     let mode = if ["headless", "dual", "single"].contains(&m.s("mode")) { m.s("mode") } else { "headless" };
@@ -238,9 +242,17 @@ pub static MERGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool
 fn merged() -> bool {
     MERGED.load(Ordering::Relaxed)
 }
+/// no-browser service unit (HEADLESS_UNIT overrides, as in backend.rs; used by tests to point at a dummy unit)
+static HL_UNIT: Lazy<String> = Lazy::new(|| {
+    std::env::var("HEADLESS_UNIT").ok().filter(|u| !u.is_empty() && u.len() <= 64 && u.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-'))
+        .unwrap_or_else(|| "ais2api-headless".into())
+});
 fn unit_of(key: &str) -> Option<&'static str> {
     if merged() && key == "login" {
         return Some("ais2api-dual-coordinator");
+    }
+    if key == "headless" {
+        return Some(HL_UNIT.as_str());
     }
     UNITS.iter().find(|u| u.0 == key).map(|u| u.1)
 }
@@ -290,6 +302,22 @@ async fn ops_unit(key: &str, unit: &str, name: &str) -> Value {
     let st = kv.get("ActiveState").filter(|s| !s.is_empty()).copied().unwrap_or("unknown");
     json!({"key":key,"unit":unit,"name":name,"state":st,"sub":kv.get("SubState").copied().unwrap_or(""),"memory":mem_used(num("MemoryCurrent"), &cache),"memoryCache":cache,"memoryMax":num("MemoryMax"),"since":since,"restarts":num("NRestarts")})
 }
+/// (used, cache, max) of a cgroup v2 directory. used = memory.current minus the page cache the kernel gives
+/// back on demand (active_file + inactive_file); shared memory stays counted. Null where unreadable.
+fn cgroup_mem(dir: &str) -> (Value, Value, Value) {
+    let rd = |f: &str| std::fs::read_to_string(format!("{}/{}", dir, f)).ok();
+    let cur = rd("memory.current").and_then(|t| t.trim().parse::<i64>().ok());
+    let max = rd("memory.max").and_then(|t| t.trim().parse::<i64>().ok());
+    let cache = rd("memory.stat").map(|t| {
+        t.lines().filter_map(|l| l.strip_prefix("active_file ").or_else(|| l.strip_prefix("inactive_file "))).filter_map(|v| v.trim().parse::<i64>().ok()).sum::<i64>()
+    });
+    let j = |v: Option<i64>| v.map(|n| json!(n)).unwrap_or(Value::Null);
+    let used = match (cur, cache) {
+        (Some(c), Some(f)) => Some((c - f).max(0)),
+        (c, _) => c,
+    };
+    (j(used), j(cache), j(max))
+}
 pub async fn ops_overview(cwd: &str) -> Map<String, Value> {
     let mut units = vec![];
     for (k, u, n) in UNITS {
@@ -297,12 +325,22 @@ pub async fn ops_overview(cwd: &str) -> Map<String, Value> {
             continue;
         }
         let n = if merged() && k == "coordinator" { "调度器（含管理后台、登录服务）" } else { n };
-        units.push(ops_unit(k, u, n).await);
+        units.push(ops_unit(k, if k == "headless" { HL_UNIT.as_str() } else { u }, n).await);
     }
-    let out = run(Duration::from_secs(15), "docker", &["ps", "-a", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}"]).await.unwrap_or_default();
+    let out = run(Duration::from_secs(15), "docker", &["ps", "-a", "--no-trunc", "--format", "{{.Names}}\t{{.State}}\t{{.Status}}\t{{.ID}}"]).await.unwrap_or_default();
     let rows: std::collections::HashMap<&str, Value> = out.lines().filter_map(|l| {
         let p: Vec<&str> = l.split('\t').collect();
-        (p.len() == 3).then(|| (p[0], json!({"name":p[0],"state":p[1],"status":p[2]})))
+        if p.len() != 4 {
+            return None;
+        }
+        let mut v = json!({"name":p[0],"state":p[1],"status":p[2]});
+        if p[1] == "running" && p[3].len() == 64 && p[3].bytes().all(|c| c.is_ascii_hexdigit()) {
+            let (used, cache, max) = cgroup_mem(&format!("/sys/fs/cgroup/system.slice/docker-{}.scope", p[3]));
+            v["memory"] = used;
+            v["memoryCache"] = cache;
+            v["memoryMax"] = max;
+        }
+        Some((p[0], v))
     }).collect();
     let ctr: Vec<Value> = CONTAINERS.iter().filter(|n| !(merged() && **n == "ais2api-dual-management")).map(|n| rows.get(n).cloned().unwrap_or_else(|| json!({"name":n,"state":"missing","status":""}))).collect();
     let vo = run(Duration::from_secs(15), "git", &["-C", cwd, "log", "-1", "--format=%h%x09%ct%x09%s"]).await.unwrap_or_default();
@@ -369,6 +407,13 @@ pub async fn ops_logs(source: &str, n: i64) -> R<Vec<Value>> {
         }
         return Ok(out);
     }
+    if let Some(name) = match source {
+        "worker-a" => Some("ais2api-dual-a"),
+        "worker-b" => Some("ais2api-dual-b"),
+        _ => None,
+    } {
+        return Ok(container_logs(name, n).await);
+    }
     let Some(u) = unit_of(source) else { return herr(400, "未知日志来源") };
     let only_login = merged() && source == "login";
     let fetch = if only_login { (n * 20).min(20000) } else { n };
@@ -388,6 +433,55 @@ pub async fn ops_logs(source: &str, n: i64) -> R<Vec<Value>> {
         out.push(json!({"t":if ts > 0 { json!((ts + 500) / 1000) } else { Value::Null },"level":lv,"source":"","msg":mask_log(&msg)}));
     }
     Ok(out)
+}
+static RE_WLOG: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\[(INFO|WARN|ERROR|DEBUG)\] \S+ \[([^\]]+)\] - ").unwrap());
+/// last n lines of a browser worker container (stdout and stderr merged by timestamp)
+async fn container_logs(name: &str, n: usize) -> Vec<Value> {
+    let fut = tokio::process::Command::new("docker").args(["logs", "--tail", &n.to_string(), "--timestamps", name]).kill_on_drop(true).output();
+    let Ok(Ok(o)) = tokio::time::timeout(Duration::from_secs(15), fut).await else { return vec![] };
+    if !o.status.success() {
+        return vec![];
+    }
+    let mut rows: Vec<(i64, Value)> = vec![];
+    for buf in [&o.stdout, &o.stderr] {
+        for l in String::from_utf8_lossy(buf).lines() {
+            if l.is_empty() {
+                continue;
+            }
+            let (ts, tail) = l.split_once(' ').unwrap_or(("", l));
+            let t = chrono::DateTime::parse_from_rfc3339(ts).map(|t| t.timestamp_millis()).unwrap_or(0);
+            let rest = if t > 0 { tail } else { l };
+            let (lv, src, msg) = match RE_WLOG.captures(rest) {
+                Some(c) => (c[1].to_lowercase(), c[2].to_string(), rest[c.get(0).unwrap().end()..].to_string()),
+                None => ((if RE_ERRW.is_match(rest) { "error" } else { "info" }).to_string(), String::new(), rest.to_string()),
+            };
+            rows.push((t, json!({"t":if t > 0 { json!(t) } else { Value::Null },"level":lv,"source":src,"msg":mask_log(&msg)})));
+        }
+    }
+    rows.sort_by_key(|r| r.0);
+    let skip = rows.len().saturating_sub(n);
+    rows.into_iter().skip(skip).map(|r| r.1).collect()
+}
+/// start / stop / restart a service from the 运维 page. Only the no-browser service can be stopped or started:
+/// stopping the coordinator (which also hosts the console and the login service) would take this page down.
+pub async fn ops_unit_action(key: &str, action: &str) -> R<Value> {
+    if action == "restart" {
+        return ops_restart_unit(key).await;
+    }
+    if action != "start" && action != "stop" {
+        return herr(400, "未知操作");
+    }
+    if key != "headless" {
+        return herr(400, "这个服务只能重启");
+    }
+    let Some(u) = unit_of(key) else { return herr(400, "未知服务") };
+    if ro() {
+        return herr(409, "只读模式下不执行");
+    }
+    let word = if action == "start" { "启动" } else { "停止" };
+    run(Duration::from_secs(60), "systemctl", &[action, u]).await.map_err(|e| HttpErr::new(409, format!("{}失败：{}", word, clip_runes(&e, 200))))?;
+    log(format!("[Ops] unit {} {}", u, action));
+    Ok(json!({"unit":key,"action":action,"done":true}))
 }
 pub async fn ops_restart_unit(key: &str) -> R<Value> {
     let Some(u) = unit_of(key) else { return herr(400, "未知服务") };

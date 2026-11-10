@@ -44,3 +44,50 @@ test('on with only Free accounts: clear 403 instead of queueing forever',()=>{
  assert.throws(()=>c.resolve('/v1/chat/completions',body('build/gemini-3.8-flash')),e=>e.statusCode===403&&/只用 Pro\/Ultra/.test(e.message));
  fs.rmSync(dir,{recursive:true,force:true});
 });
+// Build channel master switch (enabled): off = no Build requests, no Build models, no provisioning.
+test('enabled defaults to true, also without a settings file',()=>{
+ const {c,settings,dir}=setup();
+ assert.equal(settings.enabled,true);
+ assert.equal(c.settings.enabled,true);
+ assert.equal(settings.status().enabled,true);
+ const bare=new BuildChannel({appsFile:path.join(dir,'a.json'),ledgerFile:path.join(dir,'l2.json'),tierOf:id=>tiers[id]||'standard',isPremium:id=>(tiers[id]||'standard')!=='standard',log:{warn(){},error(){},info(){}}});
+ assert.equal(bare.settings.enabled,true);assert.equal(bare.models().length>0,true);
+ fs.rmSync(dir,{recursive:true,force:true});
+});
+test('enabled off is persisted next to premiumOnly and keeps the other value',()=>{
+ const {c,settings,dir}=setup(false);
+ const st=settings.set({enabled:false});
+ assert.deepEqual(st,{premiumOnly:false,enabled:false});
+ assert.deepEqual(c.status([]).settings,{premiumOnly:false,enabled:false});
+ const raw=fs.readFileSync(path.join(dir,'s.json'),'utf8'),d=JSON.parse(raw);
+ assert.deepEqual(d,{premiumOnly:false,enabled:false});
+ assert.ok(raw.indexOf('"premiumOnly"')>=0&&raw.indexOf('"premiumOnly"')<raw.indexOf('"enabled"'));
+ const again=new BuildSettings(path.join(dir,'s.json'));
+ assert.equal(again.enabled,false);assert.equal(again.premiumOnly,false);
+ fs.rmSync(dir,{recursive:true,force:true});
+});
+test('enabled must be a boolean',()=>{
+ const {c,settings,dir}=setup();
+ assert.throws(()=>settings.set({enabled:'x'}),e=>e.statusCode===400&&e.message==='enabled 必须是 true/false');
+ assert.equal(settings.enabled,true);
+ assert.throws(()=>c.settings.set({enabled:1}),e=>e.statusCode===400);
+ fs.rmSync(dir,{recursive:true,force:true});
+});
+test('off: Build requests get 503, normal models still route',()=>{
+ const {c,settings,dir}=setup();
+ settings.set({enabled:false});
+ assert.throws(()=>c.resolve('/v1/chat/completions',body('build/gemini-3.8-flash')),e=>e.statusCode===503&&e.message==='Build 通道已关闭，请在管理后台开启后再使用');
+ assert.throws(()=>c.resolve('/v1/chat/completions',body('build-st/gemini-4-argon')),e=>e.statusCode===503);
+ assert.equal(c.resolve('/v1/chat/completions',body('gemini-3.8-flash')),null);
+ fs.rmSync(dir,{recursive:true,force:true});
+});
+test('off: no Build models listed; back on: listed again',()=>{
+ const {c,settings,dir}=setup();
+ assert.equal(c.models().length>0,true);
+ settings.set({enabled:false});
+ assert.deepEqual(c.models(),[]);
+ settings.set({enabled:true});
+ assert.equal(c.models().length>0,true);
+ assert.equal(c.resolve('/v1/chat/completions',body('build/gemini-3.8-flash')).model.startsWith('build-'),true);
+ fs.rmSync(dir,{recursive:true,force:true});
+});

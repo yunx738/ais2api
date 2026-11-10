@@ -193,6 +193,9 @@ func start(addr string) error {
 		go a.stopBrowserWorkers()
 		every(5*time.Minute, func() { a.hist.ExpireStale(900000) }, true)
 		every(10*time.Minute, func() {
+			if !a.build.settings.enabled() {
+				return
+			}
 			if r := a.rotation.Tick(false, 0); r.V("skipped") == nil {
 				logf("[BuildRotation] %s", MarshalJS(r))
 			}
@@ -277,7 +280,7 @@ func (a *App) stopBrowserWorkers() {
 }
 
 func (a *App) provision() {
-	if a.cfg.V("buildAutoProvision") == false {
+	if a.cfg.V("buildAutoProvision") == false || !a.build.settings.enabled() {
 		return
 	}
 	a.mu.Lock()

@@ -277,7 +277,7 @@ static ALLOWED: Lazy<HashSet<String>> = Lazy::new(|| {
     }
     s
 });
-const OPS: [&str; 12] = ["restart", "backup", "clear-cooldown", "reset-quota", "write-back", "headless-concurrency", "pause", "account-enable", "test-account",
+const OPS: [&str; 13] = ["unit", "restart", "backup", "clear-cooldown", "reset-quota", "write-back", "headless-concurrency", "pause", "account-enable", "test-account",
     "cancel-request", "account-schedule", "stream-mode"];
 
 // ---------------- small JS-compat helpers ----------------
@@ -792,7 +792,7 @@ async fn api(rq: &Rq, b: &Value, token: &str) -> Out {
         ("GET", "/api/build/presets") => fwd(call("GET", "/internal/build/presets", None).await),
         ("POST", "/api/build/presets") => fwd(call("POST", "/internal/build/presets", Some(pick(b, &["action", "id", "enabled", "name", "preset"]))).await),
         ("GET", "/api/build/settings") => fwd(call("GET", "/internal/build/settings", None).await),
-        ("POST", "/api/build/settings") => fwd(call("POST", "/internal/build/settings", Some(pick(b, &["premiumOnly"]))).await),
+        ("POST", "/api/build/settings") => fwd(call("POST", "/internal/build/settings", Some(pick(b, &["premiumOnly", "enabled"]))).await),
         ("GET", "/api/build/document") => fwd(call("GET", "/internal/build/document", None).await),
         ("POST", "/api/build/document") => fwd(call("POST", "/internal/build/document", Some(pick(b, &["enabled", "prefixes"]))).await),
         ("GET", "/api/build-status") => fwd(call("GET", "/internal/build-status", None).await),
@@ -859,14 +859,24 @@ async fn api(rq: &Rq, b: &Value, token: &str) -> Out {
             }
             fwd(call_t("POST", "/internal/build/rotate-applets", Some(json!({"account":a})), 120).await)
         }
-        ("GET", "/api/ops/overview") => fwd(call("GET", "/internal/ops/overview", None).await),
+        ("GET", "/api/ops/overview") => {
+            // host, services, containers and backups are read here; only the dispatch details come from the coordinator
+            let mut o = crate::console::ops_overview(&format!("{}/refactor", dual_root())).await;
+            o.insert("backups".into(), Value::Array(crate::console::ops_backups()));
+            o.insert("runMode".into(), json!(crate::console::run_mode_now()));
+            o.insert("coordinator".into(), coord_ops_status().await);
+            Out::json(200, &Value::Object(o))
+        }
         ("GET", "/api/ops/logs") => {
             let src = rq.q("source");
-            if !["headless", "coordinator", "login"].contains(&src.as_str()) {
+            if !["headless", "coordinator", "login", "worker-a", "worker-b"].contains(&src.as_str()) {
                 return bad("未知日志来源");
             }
             let n = js_number(Some(&json!(rq.q("n")))).as_f64().filter(|f| *f != 0.0).unwrap_or(200.0).min(1000.0).max(20.0);
-            fwd(call("GET", &format!("/internal/ops/logs?source={}&n={}", src, js_num_str(n)), None).await)
+            match crate::console::ops_logs(&src, n as i64).await {
+                Ok(lines) => Out::json(200, &json!({"source":src,"lines":lines})),
+                Err(e) => Out::err(400, &e.msg),
+            }
         }
         ("POST", _) if p.starts_with("/api/ops/") => ops(&p[9..], b, guard()).await,
         ("GET", "/api/at-prompt") => fwd(call("GET", "/internal/at-prompt", None).await),
@@ -967,6 +977,29 @@ async fn api(rq: &Rq, b: &Value, token: &str) -> Out {
         _ => Out::err(404, "Management endpoint unavailable"),
     }
 }
+/// result of an operation carried out in this process
+fn local(r: R<Value>) -> Out {
+    match r {
+        Ok(v) => Out::json(200, &v),
+        Err(e) if [400, 404, 409, 413].contains(&e.status) => Out::err(e.status, &e.msg),
+        Err(_) => Out::err(503, "操作未确认"),
+    }
+}
+/// dispatch details for the 运维 page. Only the headless coordinators have them; browser modes answer null.
+async fn coord_ops_status() -> Value {
+    let (s, v) = call("GET", "/internal/ops/status", None).await;
+    if s == 200 {
+        return v;
+    }
+    // Go / Node headless coordinators only expose them inside their own overview
+    if s == 404 && crate::console::run_mode_now() == "headless" {
+        let (s, v) = call("GET", "/internal/ops/overview", None).await;
+        if s == 200 {
+            return v.get("coordinator").cloned().unwrap_or(Value::Null);
+        }
+    }
+    Value::Null
+}
 /// /api/ops/<op> (start-management.js validation, then the coordinator)
 async fn ops(op: &str, b: &Value, guard: bool) -> Out {
     if !OPS.contains(&op) {
@@ -977,13 +1010,19 @@ async fn ops(op: &str, b: &Value, guard: bool) -> Out {
     }
     let mut p = Map::new();
     match op {
-        "restart" => {
-            let u = b.g("unit");
-            if !u.as_str().map_or(false, |s| ["headless", "coordinator", "login"].contains(&s)) {
+        // service control and backups run in this process (no coordinator round trip)
+        "restart" | "unit" => {
+            let u = b.s("unit");
+            if !["headless", "coordinator", "login"].contains(&u) {
                 return bad("未知服务");
             }
-            p.insert("unit".into(), u.clone());
+            let action = if op == "restart" { "restart" } else { b.s("action") };
+            if !["start", "stop", "restart"].contains(&action) {
+                return bad("未知操作");
+            }
+            return local(crate::console::ops_unit_action(u, action).await);
         }
+        "backup" => return local(crate::console::ops_backup().await),
         "clear-cooldown" | "reset-quota" => {
             let Some(id) = safe_id(b.g("id")) else { return bad("账号编号无效") };
             p.insert("id".into(), json!(id));

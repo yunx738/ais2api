@@ -194,7 +194,7 @@ require('./console-routes').install(dashboard);
  dashboard.get('/api/build/presets',async(req,res)=>{const r=await call('GET','/internal/build/presets');res.status(r.status).json(r.body);});
  dashboard.post('/api/build/presets',async(req,res)=>{const b=req.body||{};const r=await call('POST','/internal/build/presets',{action:b.action,id:b.id,enabled:b.enabled,name:b.name,preset:b.preset});res.status(r.status).json(r.body);});
  dashboard.get('/api/build/settings',async(req,res)=>{const r=await call('GET','/internal/build/settings');res.status(r.status).json(r.body);});
- dashboard.post('/api/build/settings',async(req,res)=>{const r=await call('POST','/internal/build/settings',{premiumOnly:req.body?.premiumOnly});res.status(r.status).json(r.body);});
+ dashboard.post('/api/build/settings',async(req,res)=>{const r=await call('POST','/internal/build/settings',{premiumOnly:req.body?.premiumOnly,enabled:req.body?.enabled});res.status(r.status).json(r.body);});
  dashboard.get('/api/build/document',async(req,res)=>{const r=await call('GET','/internal/build/document');res.status(r.status).json(r.body);});
  dashboard.post('/api/build/document',async(req,res)=>{const b=req.body||{};const r=await call('POST','/internal/build/document',{enabled:b.enabled,prefixes:b.prefixes});res.status(r.status).json(r.body);});
  dashboard.get('/api/build-status',async(req,res)=>{const r=await call('GET','/internal/build-status');res.status(r.status).json(r.body);});
