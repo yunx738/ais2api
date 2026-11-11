@@ -18,6 +18,8 @@ pub const AT_PREFIX: &str = "anti-truncation/";
 const QUEUE_LIMIT: usize = 10;
 const QUEUE_TIMEOUT_MS: i64 = 120_000;
 const MAX_ATTEMPTS: i64 = 3;
+/// a signature-rejected 403 (no quota used) gets one more attempt so two other accounts are tried
+const MAX_ATTEMPTS_SIGNATURE: i64 = 4;
 const EXECUTION_TIMEOUT_MS: u64 = 610_000;
 
 #[derive(Clone, Debug)]
@@ -529,14 +531,19 @@ impl App {
         st.executing.remove(&t.id);
         if let Some(rj) = r.and_then(|r| r.rejection) {
             it.rejection = Some(rj.clone());
-            if retryable && it.attempts < MAX_ATTEMPTS && !st.closed && !st.core.halted && self.has_retry_candidate(&st, &it) {
+            let sig403 = rj.status == 403 && RE_SIGNATURE.is_match(&body_text(&rj.body, 16384));
+            let max = if sig403 { MAX_ATTEMPTS_SIGNATURE } else { MAX_ATTEMPTS };
+            if retryable && it.attempts < max && !st.closed && !st.core.halted && self.has_retry_candidate(&st, &it) {
                 it.id = uuid4();
                 let status = rj.status;
                 if Self::enqueue(&mut st, it) {
                     st.counts.retried += 1;
-                    log(format!("[Scheduler] #{} {} rejected {}; retrying on another account", t.account, t.model, status));
+                    log(format!("[Scheduler] #{} {} rejected {}{}; retrying on another account", t.account, t.model, status, if sig403 { " (signature)" } else { "" }));
                 }
             } else {
+                if sig403 {
+                    log(format!("[Scheduler] #{} {} rejected 403 (signature); no other account left to try ({} attempts)", t.account, t.model, it.attempts));
+                }
                 it.req.res.respond_rejection(&rj);
             }
         }
