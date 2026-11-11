@@ -40,11 +40,11 @@ test('worker inline AT module exposes the same block/finish helpers',()=>{
  const p=IAT.atFinishPayload({reason:'OTHER',round:1,chars:5,promptTokens:1,outputTokens:2},502);
  assert.equal(p.error.status,'FINISH_OTHER');assert.equal(p.choices,undefined);
 });
-test('anti-truncation stops continuing after 6 minutes and fails with AT_TIME_LIMIT',async()=>{
+test('anti-truncation stops continuing after 16 minutes and fails with AT_TIME_LIMIT',async()=>{
  const fs=require('fs');const src=fs.readFileSync(path.join(__dirname,'..','code','unified-server.runtime.js'),'utf8');
  const a=src.indexOf('const AT = (function');const b=src.indexOf('})();',a)+5;
  const AT=new Function(src.slice(a,b)+'\nreturn AT;')();
- assert.equal(AT.AT_CONTINUE_DEADLINE_MS,360000);
+ assert.equal(AT.AT_CONTINUE_DEADLINE_MS,960000);
  const ms=src.indexOf('  async _atContinueUntilAnswer(');const me=src.indexOf('  _getKeepAliveChunk(req)',ms);
  const obj=new Function('AT','return {'+src.slice(ms,me)+'};')(AT);
  const round={candidates:[{finishReason:'MAX_TOKENS',content:{parts:[{text:'partial'}]}}],usageMetadata:{promptTokenCount:10,candidatesTokenCount:30000}};
@@ -52,10 +52,10 @@ test('anti-truncation stops continuing after 6 minutes and fails with AT_TIME_LI
  const mk=()=>Object.assign(Object.create(obj),{logger:{info(){},warn(){}},_atWaitOperationDone:async()=>true,_generateRequestId:()=>'c',
   _forwardRequest(){forwarded++;},connectionRegistry:{createMessageQueue:()=>({dequeue:async()=>{throw Error('stop here');}}),removeMessageQueue(){}}});
  const res={destroyed:false,writableEnded:false,on(){},removeListener(){}};
- await assert.rejects(mk()._atContinueUntilAnswer(round,{contents:[]},res,'anti-truncation/x','r',Date.now()-361000),
+ await assert.rejects(mk()._atContinueUntilAnswer(round,{contents:[]},res,'anti-truncation/x','r',Date.now()-961000),
   e=>e.message==='AT_continue_deadline'&&e.atFinish.timeLimit===true&&e.atFinish.reason==='MAX_TOKENS'&&e.atFinish.chars===7);
  assert.equal(forwarded,0);
- const p=AT.atFinishPayload({reason:'MAX_TOKENS',chars:7,elapsedMs:361000,timeLimit:true,promptTokens:10,outputTokens:30000},502);
+ const p=AT.atFinishPayload({reason:'MAX_TOKENS',chars:7,elapsedMs:961000,timeLimit:true,promptTokens:10,outputTokens:30000},502);
  assert.equal(p.error.status,'AT_TIME_LIMIT');assert.equal(p.choices,undefined);
  assert.equal(await mk()._atContinueUntilAnswer(round,{contents:[]},res,'anti-truncation/x','r',Date.now()-60000),null);
  assert.equal(forwarded,1);

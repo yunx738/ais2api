@@ -245,7 +245,7 @@ const (
 	queueLimit         = 10
 	queueTimeoutMs     = 120000
 	maxAttempts        = 3
-	executionTimeoutMs = 610000
+	executionTimeoutMs = 1200000
 )
 
 func NewScheduler(app *App) *Scheduler {

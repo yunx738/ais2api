@@ -42,8 +42,8 @@ test('repeated empty responses: original request resent 3 times, then falls back
  assert.equal(r.answer.length,5);
  assert.deepEqual(sent.map(x=>JSON.stringify(x)===JSON.stringify(body)?'orig':'cont'),['orig','orig','orig','cont']);
 });
-test('empty response after 6 minutes is not resent',async()=>{
- const {h,sent}=mk([]);await h._atContinueUntilAnswer(empty(),body,res,'anti-truncation/m','r',Date.now()-361000).catch(()=>null);
+test('empty response after 16 minutes is not resent',async()=>{
+ const {h,sent}=mk([]);await h._atContinueUntilAnswer(empty(),body,res,'anti-truncation/m','r',Date.now()-961000).catch(()=>null);
  assert.ok(sent.every(x=>JSON.stringify(x)!==JSON.stringify(body)));
 });
 test('blocked prompt with no candidates is not treated as empty-retry',async()=>{

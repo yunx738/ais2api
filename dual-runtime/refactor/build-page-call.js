@@ -23,7 +23,7 @@ const PAGE_FN=String(async function(parts,model,think,hx,app,key,opts){
   var uw=[];for(var wi=0;wi<18;wi++)uw.push(null);uw[17]=[um,upath,pu.__upload[2],String(ubytes.length)];parts[ui]=uw;
  }
  var ht=parts.map(function(p){return p[1]!=null?p[1]:(p[2]?p[2][1]:'');}).join(' ');
- var ac=new AbortController(),hm=opts.hardMs||600000,wd=setTimeout(function(){ac.abort();},hm);
+ var ac=new AbortController(),hm=opts.hardMs||1200000,wd=setTimeout(function(){ac.abort();},hm);
  var ab=w.__gcAb=w.__gcAb||{};if(opts.op)ab[opts.op]=ac;
  var t0=Date.now(),r1,t1='',tries=0,sds=[],gen=0,resent=0;
  try{

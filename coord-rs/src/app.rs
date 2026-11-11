@@ -524,7 +524,7 @@ impl App {
     pub async fn shutdown(&self) {
         self.lock().stopping = true;
         self.close_scheduler();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(620);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1220);
         while tokio::time::Instant::now() < deadline {
             if self.lock().disp.active == 0 {
                 break;

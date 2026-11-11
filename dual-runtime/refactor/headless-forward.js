@@ -97,7 +97,8 @@ function createHeadlessForward({service,emailOf=accountEmail,log=console}){
    json(res,st,r.payload,r.headers?.['retry-after']?{'Retry-After':r.headers['retry-after']}:{});
    return {status:st,retryAfter:r.headers?.['retry-after'],metrics:obs.finish({complete:true})};
   }
-  completion(res,{model,stream,message:{role:'assistant',content:r.answer,...(r.reasoning?{reasoning_content:r.reasoning}:{})},finish:'stop',usage:r.usage});
+  const hasTc=Array.isArray(r.toolCalls)&&r.toolCalls.length>0;
+  completion(res,{model,stream,message:{role:'assistant',content:hasTc&&!r.answer?null:r.answer,...(r.reasoning?{reasoning_content:r.reasoning}:{}),...(hasTc?{tool_calls:r.toolCalls}:{})},finish:hasTc?'tool_calls':'stop',usage:r.usage});
   return {status:200,metrics:obs.finish({complete:true})};
  }
  // Build prefixes: same composition as build-worker.js, but signed/sent by the headless service. Body carries __build.
@@ -119,7 +120,7 @@ function createHeadlessForward({service,emailOf=accountEmail,log=console}){
   res.on('close',onClose);options.signal?.addEventListener('abort',()=>ac.abort(),{once:true});
   const t0=Date.now();
   let r;
-  try{r=await H.callBuild(service.raw,{account:email,parts:packed.parts,model:spec.model,thinking:spec.thinking,app:spec.app,hardMs:600000,signal:ac.signal});}
+  try{r=await H.callBuild(service.raw,{account:email,parts:packed.parts,model:spec.model,thinking:spec.thinking,app:spec.app,hardMs:1200000,signal:ac.signal});}
   finally{res.removeListener('close',onClose);}
   log.info?.('[HL-Build] #'+ticket.account+' '+spec.model+' t'+spec.thinking+' '+packed.mode+' bytes='+packed.bytes+' stage='+r.stage+' status='+r.s+' tries='+(r.tries||0)+' resent='+(r.resent||0)+' polls='+(r.polls||0)+' ms='+(Date.now()-t0));
   if(ac.signal.aborted||r.s===499){if(!res.destroyed)res.destroy();return done({cancelled:true});}

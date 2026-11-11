@@ -9,7 +9,7 @@ pub const AT_TOOL: &str = "seal_final_reply";
 const NAMES: [&str; 3] = ["seal_final_reply", "final_answer", "emit_answer"];
 const MAX_ATTEMPTS: i64 = 3;
 const MAX_RETRIES: i64 = 3;
-const DEADLINE_MS: i64 = 360_000;
+const DEADLINE_MS: i64 = 960_000;
 const STOP_MIN: usize = 2000;
 const EMPTY_DELAY_MS: u64 = 3000;
 const KEYS: [&str; 5] = ["classic", "once", "tool_only", "lite", "custom"];
@@ -174,24 +174,49 @@ fn inject(body: &Map<String, Value>, p: &AtPreset) -> Map<String, Value> {
         None => msgs.insert(0, json!({"role":"system","content":p.hint})),
     }
     b.insert("messages".into(), Value::Array(msgs));
+    cap_round_tokens(&mut b);
     b
+}
+
+static RE_ARG_ANS: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\{\s*"answer"\s*:\s*""#).unwrap());
+const AT_ROUND_MAX_TOKENS: i64 = 32768;
+
+fn cap_round_tokens(b: &mut Map<String, Value>) {
+    let mut capped = false;
+    for k in ["max_tokens", "max_completion_tokens"] {
+        if let Some(n) = as_safe_int(b.g(k)) {
+            if n > AT_ROUND_MAX_TOKENS {
+                b.insert(k.into(), json!(AT_ROUND_MAX_TOKENS));
+            }
+            capped = true;
+        }
+    }
+    if !capped {
+        b.insert("max_tokens".into(), json!(AT_ROUND_MAX_TOKENS));
+    }
 }
 
 struct X {
     found: bool,
     answer: String,
+    partial: String,
     finish: String,
     plain: String,
     calls: Vec<Value>,
+    ext_calls: Vec<Value>,
     reasoning: String,
 }
 fn extract(r: &Value) -> X {
     let c = r.a("choices").first().cloned().unwrap_or(Value::Null);
     let m = c.g("message");
-    let mut x = X { found: false, answer: String::new(), finish: c.s("finish_reason").into(), plain: m.s("content").into(), calls: m.a("tool_calls").to_vec(), reasoning: String::new() };
+    let mut x = X { found: false, answer: String::new(), partial: String::new(), finish: c.s("finish_reason").into(), plain: m.s("content").into(), calls: m.a("tool_calls").to_vec(), ext_calls: vec![], reasoning: String::new() };
     for tc in &x.calls {
         let f = tc.g("function");
-        if !NAMES.contains(&f.s("name")) {
+        let name = f.s("name");
+        if !NAMES.contains(&name) {
+            if !name.is_empty() {
+                x.ext_calls.push(tc.clone());
+            }
             continue;
         }
         let args = if f.s("arguments").is_empty() { "{}" } else { f.s("arguments") };
@@ -199,6 +224,11 @@ fn extract(r: &Value) -> X {
             if let Some(s) = a.g("answer").as_str() {
                 x.answer = s.into();
                 x.found = true;
+            }
+        } else if let Some(mm) = RE_ARG_ANS.find(args) {
+            let (dec, _) = decode_json_string(args, mm.end() - 1);
+            if !dec.is_empty() {
+                x.partial = dec;
             }
         }
     }
@@ -263,6 +293,7 @@ pub struct CallResult {
 pub struct AtResult {
     pub ok: bool,
     pub answer: String,
+    pub tool_calls: Vec<Value>,
     pub reasoning: String,
     pub usage: Option<Value>,
     pub rounds: i64,
@@ -274,7 +305,7 @@ pub struct AtResult {
 }
 impl AtResult {
     fn fail(status: u16, payload: Value) -> Self {
-        AtResult { ok: false, answer: String::new(), reasoning: String::new(), usage: None, rounds: 0, status, payload, upstream: false, retry_after: String::new(), cancelled: false }
+        AtResult { ok: false, answer: String::new(), tool_calls: vec![], reasoning: String::new(), usage: None, rounds: 0, status, payload, upstream: false, retry_after: String::new(), cancelled: false }
     }
 }
 fn at_err(status: u16, typ: &str, st: &str, msg: &str, usage: Option<Value>) -> Value {
@@ -324,13 +355,16 @@ where
         let elapsed = now_ms() - t0;
         log(format!("[HL-AT] round {} finish={} seal={} plain={} calls={} ms={}", attempt, if x.finish.is_empty() { "-" } else { &x.finish },
             if x.found { format!("yes({})", js_len(&x.answer)) } else { "no".into() }, js_len(&x.plain), x.calls.len(), elapsed));
-        let done = |answer: String| AtResult { ok: true, answer, reasoning: x.reasoning.clone(), usage: sum.out(), rounds: attempt, status: 200,
+        let done = |answer: String, tool_calls: Vec<Value>| AtResult { ok: true, answer, tool_calls, reasoning: x.reasoning.clone(), usage: sum.out(), rounds: attempt, status: 200,
             payload: Value::Null, upstream: false, retry_after: String::new(), cancelled: false };
         if x.found && x.finish != "content_filter" && (x.finish == "stop" || x.finish == "tool_calls" || !x.answer.trim().is_empty()) {
-            return done(x.answer.clone());
+            return done(x.answer.clone(), vec![]);
+        }
+        if !x.found && !x.ext_calls.is_empty() && x.calls.len() == x.ext_calls.len() && x.finish != "content_filter" && x.finish != "length" {
+            return done(x.plain.clone(), x.ext_calls.clone());
         }
         if !x.found && x.finish == "stop" && x.calls.is_empty() && js_len(x.plain.trim()) >= STOP_MIN {
-            return done(clean_plain_answer(&x.plain).0);
+            return done(clean_plain_answer(&x.plain).0, vec![]);
         }
         let u = sum.out();
         if x.finish == "content_filter" {
@@ -345,11 +379,11 @@ where
             tokio::time::sleep(std::time::Duration::from_millis(EMPTY_DELAY_MS)).await;
         }
         if !resend && (attempt >= MAX_ATTEMPTS || elapsed >= DEADLINE_MS) {
-            let chars = js_len(&x.answer).max(js_len(&x.plain));
+            let chars = js_len(&x.answer).max(js_len(&x.partial)).max(js_len(&x.plain));
             let late = elapsed >= DEADLINE_MS;
             let f = if x.finish.is_empty() { "NO_ANSWER".to_string() } else { x.finish.clone() };
             let (msg, st) = if late {
-                (format!("已用时约 {} 分钟仍未得到完整答案，超过 6 分钟不再续写，直接返回失败。已生成约 {} 字被丢弃，可重试。", (elapsed as f64 / 60000.0).round() as i64, chars), "AT_TIME_LIMIT".to_string())
+                (format!("已用时约 {} 分钟仍未得到完整答案，超过 16 分钟不再续写，直接返回失败。已生成约 {} 字被丢弃，可重试。", (elapsed as f64 / 60000.0).round() as i64, chars), "AT_TIME_LIMIT".to_string())
             } else {
                 (format!("上游中途结束（finish={}），未返回内容。已生成约 {} 字被丢弃，可重试。", f, chars), format!("FINISH_{}", f.to_uppercase()))
             };
@@ -362,7 +396,8 @@ where
             last_partial.clear();
             continue;
         }
-        let prev = if !x.answer.is_empty() && js_len(&x.answer) >= js_len(&x.plain) { x.answer.clone() } else { x.plain.clone() };
+        let best_ans = if !x.answer.is_empty() { &x.answer } else { &x.partial };
+        let prev = if !best_ans.is_empty() && js_len(best_ans) >= js_len(&x.plain) { best_ans.clone() } else { x.plain.clone() };
         if !prev.is_empty() {
             last_partial = prev;
         }
@@ -382,8 +417,8 @@ where
         let partial = if last_partial.is_empty() { String::new() } else { format!("Previous partial answer: {}\n\n", last_partial) };
         msgs.push(json!({"role":"user","content":p.cont.replace("{tool}", AT_TOOL).replace("{partial}", &partial)}));
         cur.insert("messages".into(), Value::Array(msgs));
-        cur.shift_remove("max_tokens");
         cur.shift_remove("max_completion_tokens");
+        cur.insert("max_tokens".into(), json!(AT_ROUND_MAX_TOKENS));
         log(format!("[HL-AT] continuing (attempt {}/{})", attempt + 1, MAX_ATTEMPTS));
     }
 }
@@ -466,4 +501,62 @@ pub fn clean_plain_answer(plain: &str) -> (String, &'static str) {
         }
     }
     (plain.into(), "as-is")
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn dummy_preset() -> AtPreset {
+        AtPreset { desc: "seal".into(), hint: "use {tool}".into(), cont: "{partial}continue {tool}".into() }
+    }
+    #[tokio::test]
+    async fn at_caps_tokens_passes_ext_tools_and_recovers_partial_json() {
+        // 1) max_tokens > 32768 is capped to 32768; external tool_calls pass straight through on round 1
+        let mut req = Map::new();
+        req.insert("model".into(), json!("gemini-4-argon"));
+        req.insert("max_tokens".into(), json!(65535));
+        req.insert("tools".into(), json!([{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]));
+        req.insert("messages".into(), json!([{"role":"user","content":"hi"}]));
+        let seen_max = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+        let sm = seen_max.clone();
+        let r = run(move |b| {
+            let sm = sm.clone();
+            async move {
+                sm.lock().unwrap().push(b.g("max_tokens").as_i64().unwrap_or(-1));
+                let j = json!({"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,
+                    "tool_calls":[{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\":\"a.txt\"}"}}]}}],
+                    "usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}});
+                CallResult { status: 200, json: j, text: String::new(), retry_after: String::new() }
+            }
+        }, || false, &req, &dummy_preset()).await;
+        assert!(r.ok && r.rounds == 1 && r.tool_calls.len() == 1);
+        assert_eq!(*seen_max.lock().unwrap(), vec![32768]);
+
+        // 2) truncated seal_final_reply JSON extracts partial answer and continues cleanly on round 2
+        let mut req2 = Map::new();
+        req2.insert("model".into(), json!("gemini-4-carbon"));
+        req2.insert("messages".into(), json!([{"role":"user","content":"write long"}]));
+        let seen_msgs = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+        let sm2 = seen_msgs.clone();
+        let n = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let n2 = n.clone();
+        let r2 = run(move |b| {
+            let sm2 = sm2.clone();
+            let k = n2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async move {
+                sm2.lock().unwrap().push(js(&Value::Object(b)));
+                let j = if k == 0 {
+                    json!({"choices":[{"finish_reason":"length","message":{"role":"assistant","content":null,
+                        "tool_calls":[{"id":"c1","type":"function","function":{"name":"seal_final_reply","arguments":"{\"answer\":\"half_story_12345"}}]}}],
+                        "usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}})
+                } else {
+                    json!({"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,
+                        "tool_calls":[{"id":"c2","type":"function","function":{"name":"seal_final_reply","arguments":"{\"answer\":\"half_story_12345_completed\"}"}}]}}],
+                        "usage":{"prompt_tokens":30,"completion_tokens":25,"total_tokens":55}})
+                };
+                CallResult { status: 200, json: j, text: String::new(), retry_after: String::new() }
+            }
+        }, || false, &req2, &dummy_preset()).await;
+        assert!(r2.ok && r2.rounds == 2 && r2.answer == "half_story_12345_completed" && r2.tool_calls.is_empty());
+        assert!(seen_msgs.lock().unwrap()[1].contains("Previous partial answer: half_story_12345"));
+    }
 }

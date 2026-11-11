@@ -65,7 +65,7 @@ function install(system,{log=console}={}){
   const t0=Date.now();
   let raw;
   try{
-   const code=expression({parts:packed.parts,model:spec.model,thinking:spec.thinking,hx,app:spec.app,opts:{hardMs:600000,op}});
+   const code=expression({parts:packed.parts,model:spec.model,thinking:spec.thinking,hx,app:spec.app,opts:{hardMs:1200000,op}});
    let timer;
    raw=await Promise.race([page.evaluate(c=>window.wrappedJSObject.eval(c),code),new Promise(r=>{timer=setTimeout(()=>r(JSON.stringify({s:504,stage:'page',t:'page timeout'})),630000);})]).finally(()=>clearTimeout(timer));
   }catch(e){res.removeListener('close',onClose);return send(res,502,'页面执行失败：'+String(e&&e.message||e).slice(0,160),'page_eval_failed');}

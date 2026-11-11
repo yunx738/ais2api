@@ -629,7 +629,7 @@ func (a *App) buildCall(ctx context.Context, t *Ticket, it *Item, email string, 
 		return fail(400, err.Error(), "build_context_invalid", nil)
 	}
 	t0 := nowMs()
-	r := callBuild(ctx, a.svc.Raw, email, packed.Parts, model, thinking, app, 600*time.Second)
+	r := callBuild(ctx, a.svc.Raw, email, packed.Parts, model, thinking, app, 1200*time.Second)
 	logf("[HL-Build] #%d %s t%d %s bytes=%d stage=%s status=%d tries=%d resent=%d polls=%d ms=%d", t.Account, model, thinking, packed.Mode, packed.Bytes, r.stage, r.s, r.tries, r.resent, r.polls, nowMs()-t0)
 	if ctx.Err() != nil || r.s == 499 {
 		res.Destroy()

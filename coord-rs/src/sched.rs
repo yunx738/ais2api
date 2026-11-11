@@ -20,7 +20,7 @@ const QUEUE_TIMEOUT_MS: i64 = 120_000;
 const MAX_ATTEMPTS: i64 = 3;
 /// a signature-rejected 403 (no quota used) gets one more attempt so two other accounts are tried
 const MAX_ATTEMPTS_SIGNATURE: i64 = 4;
-const EXECUTION_TIMEOUT_MS: u64 = 610_000;
+const EXECUTION_TIMEOUT_MS: u64 = 1_200_000;
 
 #[derive(Clone, Debug)]
 pub struct Plan {

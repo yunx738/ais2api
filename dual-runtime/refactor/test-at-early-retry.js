@@ -26,9 +26,9 @@ test('small output within 6 minutes: original request resent, tokens of both rou
  assert.equal(sent.length,1);assert.deepEqual(sent[0],body);
  assert.equal(r.answer.length,500);assert.equal(r.usageMetadata.promptTokenCount,200);
 });
-test('finish=OTHER after 6 minutes: fails as before, no retry (even with many chars)',async()=>{
+test('finish=OTHER after 16 minutes: fails as before, no retry (even with many chars)',async()=>{
  const {h,sent}=mk([]);
- await assert.rejects(h._atContinueUntilAnswer(round('OTHER',15522),body,res,'anti-truncation/m','r',Date.now()-361000),e=>e.message==='AT_upstream_finish_OTHER'&&e.atFinish.chars===15522);
+ await assert.rejects(h._atContinueUntilAnswer(round('OTHER',15522),body,res,'anti-truncation/m','r',Date.now()-961000),e=>e.message==='AT_upstream_finish_OTHER'&&e.atFinish.chars===15522);
  assert.equal(sent.length,0);
 });
 test('retries are capped at 3, then 502 as before',async()=>{
@@ -36,8 +36,8 @@ test('retries are capped at 3, then 502 as before',async()=>{
  await assert.rejects(h._atContinueUntilAnswer(round('OTHER',10),body,res,'anti-truncation/m','r',Date.now()-1000),e=>e.message==='AT_upstream_finish_OTHER');
  assert.equal(sent.length,3);for(const b of sent)assert.deepEqual(b,body);
 });
-test('6-minute limit during normal continuation still fails with AT_continue_deadline (no partial)',async()=>{
- const {h,sent}=mk([]);await assert.rejects(h._atContinueUntilAnswer(round('MAX_TOKENS',25432),body,res,'anti-truncation/m','r',Date.now()-368000),e=>e.message==='AT_continue_deadline'&&e.atFinish.timeLimit===true);
+test('16-minute limit during normal continuation still fails with AT_continue_deadline (no partial)',async()=>{
+ const {h,sent}=mk([]);await assert.rejects(h._atContinueUntilAnswer(round('MAX_TOKENS',25432),body,res,'anti-truncation/m','r',Date.now()-968000),e=>e.message==='AT_continue_deadline'&&e.atFinish.timeLimit===true);
  assert.equal(sent.length,0);
 });
 test('content safety block is never retried or returned',async()=>{

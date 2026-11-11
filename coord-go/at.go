@@ -22,7 +22,7 @@ var atNames = []string{"seal_final_reply", "final_answer", "emit_answer"}
 const (
 	atMaxAttempts = 3
 	atMaxRetries  = 3
-	atDeadlineMs  = 360000
+	atDeadlineMs  = 960000
 	atStopMin     = 2000
 	atEmptyDelay  = 3000
 )
@@ -241,6 +241,18 @@ func atInject(body *Obj, p atPreset) *Obj {
 		msgs = append([]any{NewObj().Set("role", "system").Set("content", p.hint)}, msgs...)
 	}
 	b.Set("messages", msgs)
+	capped := false
+	for _, k := range []string{"max_tokens", "max_completion_tokens"} {
+		if n, ok := asSafeInt(b.V(k)); ok {
+			if n > 32768 {
+				b.Set(k, int64(32768))
+			}
+			capped = true
+		}
+	}
+	if !capped {
+		b.Set("max_tokens", int64(32768))
+	}
 	return b
 }
 
@@ -438,7 +450,7 @@ func atRun(ctx context.Context, call func(*Obj) *CallResult, body *Obj, p atPres
 			}
 			var msg, st string
 			if late {
-				msg = "已用时约 " + itoa(int(math.Floor(float64(elapsed)/60000+0.5))) + " 分钟仍未得到完整答案，超过 6 分钟不再续写，直接返回失败。已生成约 " + itoa(chars) + " 字被丢弃，可重试。"
+				msg = "已用时约 " + itoa(int(math.Floor(float64(elapsed)/60000+0.5))) + " 分钟仍未得到完整答案，超过 16 分钟不再续写，直接返回失败。已生成约 " + itoa(chars) + " 字被丢弃，可重试。"
 				st = "AT_TIME_LIMIT"
 			} else {
 				msg = "上游中途结束（finish=" + f + "），未返回内容。已生成约 " + itoa(chars) + " 字被丢弃，可重试。"

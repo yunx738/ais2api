@@ -114,7 +114,7 @@ fn main() {
                 side_addr("SIDE_MGMT_ADDR", "127.0.0.1:8893"), side_addr("SIDE_LOGIN_ADDR", "127.0.0.1:8894"), coord_url(), if loops { "on" } else { "off" }));
             let mut t = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
             tokio::select! { _ = t.recv() => {}, _ = tokio::signal::ctrl_c() => {} }
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(600);
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(1200);
             while login_jobs::running_count() > 0 && tokio::time::Instant::now() < deadline {
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
@@ -194,7 +194,7 @@ async fn run(addr: String) -> Result<(), String> {
     app.shutdown().await;
     if merged {
         // a running login must finish (its account file is written at the end); stay inside TimeoutStopSec (650 s)
-        let deadline = stop_at + Duration::from_secs(630);
+        let deadline = stop_at + Duration::from_secs(1230);
         let mut said = false;
         while login_jobs::running_count() > 0 && tokio::time::Instant::now() < deadline {
             if !said {

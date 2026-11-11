@@ -59,7 +59,7 @@ class BrowserLease{
   this.dispatch.slots.get(slot).ready=false;
   this.switching='parking';
   (async()=>{
-   await this.drain(slot,600000);
+   await this.drain(slot,1200000);
    p.phase='stopping';Object.assign(p,await this.stopOwned(slot));
    p.phase='parked';this.lastError=null;
   })().catch(e=>{

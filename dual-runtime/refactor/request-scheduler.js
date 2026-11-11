@@ -8,7 +8,7 @@ class RequestScheduler {
   this.queue = []; this.executing = new Set(); this.checking = new Map();
   this.closed = false; this.pumping = false; this.resolveModel = null;
   this.limits = { queueLimit: 10, queueTimeoutMs: 120000, maxAttempts: 3,
-   executionTimeoutMs: 610000, controlTimeoutMs: 5500, confirmationTimeoutMs: 5500, ...options };
+   executionTimeoutMs: 1200000, controlTimeoutMs: 5500, confirmationTimeoutMs: 5500, ...options };
   for (const value of Object.values(this.limits)) {
    if (!Number.isSafeInteger(value) || value < 1) throw Error('Invalid scheduler limit');
   }

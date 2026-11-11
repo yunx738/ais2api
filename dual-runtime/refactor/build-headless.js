@@ -32,7 +32,7 @@ function createRaw({host='127.0.0.1',port=2048,key,rawKey,timeoutMs=120000}){
 const sleep=(ms,signal)=>new Promise((r,j)=>{const t=setTimeout(r,ms);signal?.addEventListener('abort',()=>{clearTimeout(t);j(Object.assign(Error('cancelled'),{status:499}));},{once:true});});
 const FAILED=/\[null,null,null,null,null,\["[^"]{1,300}",\[/;
 // Same result shape as the page function: {s, stage, t, gid, tries, polls, resent, firstModel, ms}.
-async function callBuild(raw,{account,parts,model,thinking,app,hardMs=600000,signal}){
+async function callBuild(raw,{account,parts,model,thinking,app,hardMs=1200000,signal}){
  if(!APP.test(app||''))return {s:400,stage:'args',t:'invalid applet'};
  const ac=new AbortController(),t0=Date.now();
  const wd=setTimeout(()=>ac.abort(),hardMs);

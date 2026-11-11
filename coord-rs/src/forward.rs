@@ -251,11 +251,15 @@ impl App {
             res.json(st, &r.payload, &h);
             return ExecResult { status: st, retry_after: r.retry_after.clone(), metrics: fin(&obs, true), ..Default::default() };
         }
-        let mut msg = json!({"role":"assistant","content":r.answer});
+        let has_tc = !r.tool_calls.is_empty();
+        let mut msg = json!({"role":"assistant","content": if has_tc && r.answer.is_empty() { Value::Null } else { json!(r.answer) }});
         if !r.reasoning.is_empty() {
             msg["reasoning_content"] = json!(r.reasoning);
         }
-        write_completion(res, &model, stream, &msg, "stop", r.usage.as_ref());
+        if has_tc {
+            msg["tool_calls"] = Value::Array(r.tool_calls);
+        }
+        write_completion(res, &model, stream, &msg, if has_tc { "tool_calls" } else { "stop" }, r.usage.as_ref());
         ExecResult { status: 200, metrics: fin(&obs, true), ..Default::default() }
     }
 
@@ -428,7 +432,7 @@ impl App {
             Err(e) => return fail(e.status, &e.msg, &e.code, &[]),
         };
         let t0 = now_ms();
-        let r = call_build(self.svc, cancel, email, &packed.parts, &model, thinking, &app_id, Duration::from_secs(600)).await;
+        let r = call_build(self.svc, cancel, email, &packed.parts, &model, thinking, &app_id, Duration::from_secs(1200)).await;
         log(format!("[HL-Build] #{} {} t{} {} bytes={} stage={} status={} tries={} resent={} polls={} ms={}", t.account, model, thinking, packed.mode, packed.bytes,
             r.stage, r.s, r.tries, r.resent, r.polls, now_ms() - t0));
         if cancel.is() || r.s == 499 {

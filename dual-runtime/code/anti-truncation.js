@@ -5,7 +5,7 @@ const AT_PREFIX = "anti-truncation/";
 const AT_TOOL_NAME = "emit_answer";
 const AT_MAX_ATTEMPTS = 3;
 // After this much time since the request arrived, an unfinished round fails instead of continuing.
-const AT_CONTINUE_DEADLINE_MS = 360000;
+const AT_CONTINUE_DEADLINE_MS = 960000;
 const AT_SYSTEM_HINT =
   "\n\n[SYSTEM CONSTRAINT] You have a tool named emit_answer. " +
   "When you are ready to output your final complete answer, you MUST call " +
