@@ -21,6 +21,7 @@ mod mgmt;
 mod login_store;
 mod login_ws;
 mod metrics;
+mod model_access;
 mod policy;
 mod prices;
 mod resp;

@@ -143,8 +143,12 @@ impl App {
         }
         match &plan.build {
             Some(b) => self.build.ready(self, acct, &b.model),
-            None => plan.family != "ultra" || self.acc.is_premium(acct),
+            None => plan.family != "ultra" || self.premium_for(&plan.model, acct),
         }
+    }
+    /// premium model on this account? Ultra-only models (model-access.json) skip Pro accounts.
+    pub fn premium_for(&self, model: &str, acct: i64) -> bool {
+        if crate::model_access::ultra_only(model) { self.acc.is_ultra(acct) } else { self.acc.is_premium(acct) }
     }
     fn rank(&self, plan: &Plan, a: i64) -> f64 {
         if let Some(b) = &plan.build {
@@ -238,7 +242,7 @@ impl App {
                 }
                 let c = &st.core;
                 if pol.family == "ultra" {
-                    let prem: Vec<i64> = c.ids.iter().copied().filter(|&id| self.acc.is_premium(id) && c.flag(id).is_none() && self.pin_ok(req, id)).collect();
+                    let prem: Vec<i64> = c.ids.iter().copied().filter(|&id| self.premium_for(up, id) && c.flag(id).is_none() && self.pin_ok(req, id)).collect();
                     if prem.is_empty() {
                         return herr(503, "This model needs a Pro or Ultra account; none is available in the account pool");
                     }
@@ -287,7 +291,7 @@ impl App {
                 reasons.push(format!("#{} 未导入无浏览器服务", id));
             } else if st.disp.disabled.contains(&id) {
                 reasons.push(format!("#{} 已停用", id));
-            } else if plan.build.is_none() && plan.family == "ultra" && !self.acc.is_premium(id) {
+            } else if plan.build.is_none() && plan.family == "ultra" && !self.premium_for(&plan.model, id) {
                 reasons.push(format!("#{} 不是 Pro/Ultra 账号", id));
             } else if plan.build.as_ref().map(|b| !self.build.ready(self, id, &b.model)).unwrap_or(false) {
                 reasons.push(format!("#{} 不能使用 Build {}", id, plan.build.as_ref().unwrap().model));

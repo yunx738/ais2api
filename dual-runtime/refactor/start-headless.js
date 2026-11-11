@@ -47,7 +47,7 @@ async function main(){
  const {ModelPolicyStore}=require('./model-policy-store');
  const policyStore=new ModelPolicyStore(path.join(root,'model-policies.json'),cfg.modelPolicies||{});
  const policyMap=()=>new Map(Object.entries(policyStore.policies).map(([id,p])=>[id,Object.freeze({...p})]));
- const routing=new HeadlessRouting({service,policies:policyMap(),dispatch,isPremium:id=>tiers.isPremium(id)});
+ const routing=new HeadlessRouting({service,policies:policyMap(),dispatch,isPremium:id=>tiers.isPremium(id),isUltra:id=>tiers.isUltra(id)});
  routing.start();
  // Build channel: identical ledger/apps/settings files as browser mode.
  const {BuildChannel,BuildSettings}=require('./build-coordinator');

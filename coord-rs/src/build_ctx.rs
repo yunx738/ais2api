@@ -6,7 +6,7 @@ use regex::Regex;
 use serde_json::{json, Map, Value};
 
 pub const WIRE_PREFIX: &str = "BUILD_ST_CONTEXT_V1\n";
-pub const BASES: [&str; 2] = ["gemini-4-argon", "gemini-3.8-flash"];
+pub const BASES: [&str; 3] = ["gemini-4-argon", "gemini-4-carbon", "gemini-3.8-flash"];
 pub const PREFIXES: [&str; 4] = ["build/", "build-st/", "bridge/", "code/"];
 const LEVELS: [(&str, i64); 3] = [("low", 1), ("medium", 2), ("high", 3)];
 const SHORT_PRESET: usize = 2000;

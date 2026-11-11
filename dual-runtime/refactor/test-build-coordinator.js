@@ -41,7 +41,7 @@ const body=o=>Buffer.from(JSON.stringify(o));
  assert.throws(()=>ch.resolve('/v1/chat/completions',body({model:'build/gemini-4-argon',messages:[{role:'user',content:'x'}]})),e=>e.statusCode===429&&e.retryAfter>0);
  // queued requests are still admitted while unavailable (allowUnavailable)
  assert.ok(ch.resolve('/v1/chat/completions',body({model:'build/gemini-4-argon',messages:[{role:'user',content:'x'}]}),{allowUnavailable:true}));
- assert.strictEqual(ch.models().length,32);
+ assert.strictEqual(ch.models().length,48);
  // per-account Build in-flight cap (default 1): a second call on the same account waits until the first finishes
  {const d2=fs.mkdtempSync(path.join(os.tmpdir(),'bc2-'));fs.writeFileSync(path.join(d2,'a.json'),JSON.stringify({31:APP,22:APP}));
   const c=new BuildChannel({appsFile:path.join(d2,'a.json'),ledgerFile:path.join(d2,'l.json'),tierOf:id=>tiers[id]||'standard',isPremium:id=>id!==31});

@@ -71,7 +71,9 @@ class BuildChannel{
  hold(account,id){let m=this.inflight.get(account);if(!m)this.inflight.set(account,m=new Map());m.set(id,Date.now());}
  free(id){for(const m of this.inflight.values())m.delete(id);}
  // Free (standard) accounts: never when premiumOnly is on (they stall); otherwise flash models only.
- canUse(id,model){if(!model)return true;const free=(this.tierOf?this.tierOf(id):'standard')==='standard';return !free||(!this.settings.premiumOnly&&/flash/.test(model));}
+ canUse(id,model){if(!model)return true;
+  if(require('./model-access').ultraOnly(model)&&!['ultra','ultra20'].includes(this.tierOf?this.tierOf(id):'standard'))return false;
+  const free=(this.tierOf?this.tierOf(id):'standard')==='standard';return !free||(!this.settings.premiumOnly&&/flash/.test(model));}
  blocked(id,model){return !this.canUse(id,model)||this.denied.get(id+'|'+model)>Date.now();}
  ready(id,model){return !!this.appFor(id)&&this.ledger.view(id).allowed&&!(model&&this.blocked(id,model));}
  // Returns null for non-Build models so the normal routing runs.

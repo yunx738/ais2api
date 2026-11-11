@@ -9,7 +9,7 @@ import (
 
 const WIRE_PREFIX = "BUILD_ST_CONTEXT_V1\n"
 
-var buildBases = []string{"gemini-4-argon", "gemini-3.8-flash"}
+var buildBases = []string{"gemini-4-argon", "gemini-4-carbon", "gemini-3.8-flash"}
 var buildPrefixes = []string{"build/", "build-st/", "bridge/", "code/"}
 var buildLevels = []struct {
 	name string

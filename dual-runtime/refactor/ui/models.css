@@ -26,3 +26,5 @@
  .catalog-worker .worker-head{align-items:flex-start;gap:8px}
  #catalog-search{width:100%}
 }
+
+.mdl-access{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:12px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--inset)}

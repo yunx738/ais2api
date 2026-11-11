@@ -260,7 +260,7 @@ static ALLOWED: Lazy<HashSet<String>> = Lazy::new(|| {
         "GET /login", "POST /login", "GET /import", "POST /api/import-account", "GET /", "GET /api/status", "GET /api/models", "POST /api/models/refresh",
         "GET /favicon.ico", "GET /console-assets/console.css", "GET /console-assets/console.js", "GET /console-assets/models.js", "POST /api/set-mode",
         "POST /api/rotate", "POST /api/restart", "GET /api/ultra-mode", "GET /api/usage-counts", "POST /api/ultra-mode", "POST /api/accounts/tier",
-        "POST /api/accounts/name", "POST /api/sync-accounts", "POST /api/models/policy", "GET /api/requests", "GET /api/build-status", "GET /api/build/presets",
+        "POST /api/accounts/name", "POST /api/sync-accounts", "POST /api/models/policy", "GET /api/models/access", "POST /api/models/access", "GET /api/requests", "GET /api/build-status", "GET /api/build/presets",
         "POST /api/build/presets", "GET /api/build/document", "POST /api/build/document", "GET /api/build/settings", "POST /api/build/settings", "GET /api/usage",
         "POST /api/login/start", "GET /api/client-script", "GET /api/target-app", "POST /api/target-app", "GET /api/run-mode", "POST /api/run-mode",
         "GET /api/ws/config", "POST /api/ws/config", "POST /api/login-proxy", "POST /api/ws/start", "GET /api/ws/job", "POST /api/ws/cancel", "GET /api/login/job",
@@ -746,6 +746,13 @@ async fn api(rq: &Rq, b: &Value, token: &str) -> Out {
                 return bad("Invalid model policy");
             }
             fwd(call("POST", "/internal/models/policy", Some(json!({"model":model,"quotaFamily":b.g("quotaFamily"),"antiTruncation":b.g("antiTruncation"),"revision":b.g("revision")}))).await)
+        }
+        ("GET", "/api/models/access") => local(crate::model_access::snapshot()),
+        ("POST", "/api/models/access") => {
+            if !rq.is_json() {
+                return Out::err(415, "JSON required");
+            }
+            local(crate::model_access::set(b.s("model"), b.g("pro").as_bool()))
         }
         ("POST", "/api/models/refresh") => {
             let slot = b.g("slot");

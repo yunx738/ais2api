@@ -10,7 +10,7 @@ const Tools=require('./build-tools');
 // Optional: an older container without the build-document.js mount just runs without anti-truncation.
 let Doc=null;try{Doc=require('./build-document');}catch(e){console.warn('[BuildDoc] build-document.js unavailable, anti-truncation off: '+e.message);}
 const APP=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const MODELS=new Set(['gemini-4-argon','gemini-3.8-flash']);
+const MODELS=new Set(['gemini-4-argon','gemini-4-carbon','gemini-3.8-flash']);
 function install(system,{log=console}={}){
  const h=system.requestHandler;
  const hx={};let watched=null,seq=0;

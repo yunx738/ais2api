@@ -1,11 +1,11 @@
 'use strict';
 // Coordinator side of the Build channel.
 // Model names: build/<base>[-low|-medium|-high], build-st/<base>[...] (same; the -st prefix is kept for
-// clients configured for build-standalone). base: gemini-4-argon, gemini-3.8-flash. Default thinking = high.
+// clients configured for build-standalone). base: gemini-4-argon, gemini-4-carbon, gemini-3.8-flash. Default thinking = high.
 // Quota: separate daily TOKEN budget per account (input+output, cached input included), reset 15:00 Beijing.
 const fs=require('fs'),path=require('path');
 const {periodStart,WINDOW}=require('./model-quota-ledger');
-const BASES=['gemini-4-argon','gemini-3.8-flash'];
+const BASES=['gemini-4-argon','gemini-4-carbon','gemini-3.8-flash'];
 const LEVELS={low:1,medium:2,high:3};
 // bridge/: same Build channel, but the name has no 'build' in it, so the build-standalone SillyTavern
 // extension does not intercept it; gateway applies uploaded presets and drops files.

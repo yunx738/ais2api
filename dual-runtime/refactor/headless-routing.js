@@ -3,8 +3,9 @@
 // all accounts). Same plan shape as CatalogRouting.resolve.
 const {parseRequestModel}=require('./request-model');
 class HeadlessRouting{
- constructor({service,policies,dispatch,isPremium=()=>false,refreshMs=600000}){
-  Object.assign(this,{service,policies,dispatch,isPremium,refreshMs});
+ constructor({service,policies,dispatch,isPremium=()=>false,isUltra=()=>false,refreshMs=600000}){
+  Object.assign(this,{service,policies,dispatch,isPremium,isUltra,refreshMs});
+  this.premiumFor=(model,id)=>require('./model-access').ultraOnly(model)?this.isUltra(id):this.isPremium(id);
   this.models=new Set();this.at=0;this.timer=null;
  }
  async refresh(){
@@ -22,7 +23,7 @@ class HeadlessRouting{
   if(this.models.size&&!this.models.has(request.upstreamId))throw Object.assign(Error('Model not available on the no-browser service'),{statusCode:404});
   const d=this.dispatch;
   if(policy.quotaFamily==='ultra'){
-   const prem=d.pool.ids.filter(id=>this.isPremium(id)&&!d.accountFlags[id]);
+   const prem=d.pool.ids.filter(id=>this.premiumFor(request.upstreamId,id)&&!d.accountFlags[id]);
    if(!prem.length)throw Object.assign(Error('This model needs a Pro or Ultra account; none is available in the account pool'),{statusCode:503});
    const now=Date.now();let soonest=Infinity;
    for(const id of prem){const q=d.quotas.view(id,request.upstreamId,'ultra');soonest=Math.min(soonest,Math.max(q.cooldownUntil||0,d.pool.cooldowns.get(id)||0));}
@@ -31,7 +32,7 @@ class HeadlessRouting{
     throw Object.assign(Error('All Pro/Ultra accounts are rate limited for '+request.upstreamId+' by Google; quota resets around '+at+' (Beijing time)'),{statusCode:429,retryAfter:Math.ceil((soonest-now)/1000)});
    }
   }
-  const eligible=(slot,account)=>policy.quotaFamily!=='ultra'||this.isPremium(account);
+  const eligible=(slot,account)=>policy.quotaFamily!=='ultra'||this.premiumFor(request.upstreamId,account);
   return {model:request.upstreamId,quotaFamily:policy.quotaFamily,eligible};
  }
  list(){

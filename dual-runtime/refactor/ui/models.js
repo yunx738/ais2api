@@ -2,6 +2,26 @@
 (() => {
   let data, loading=false, submitting=false, available=false;
   const buttons=new Map();
+
+  // Premium models: Ultra-only until opened to Pro (model-access.json, read by the coordinators on change).
+  let access={ultraOnly:[]};
+  async function readAccess(){try{const d=await api('/api/models/access');if(Array.isArray(d?.ultraOnly))access=d;}catch{}}
+  function renderAccess(){
+    const id=$("policy-model").value,p=data?.policyState?.policies?.[id],box=$("policy-access");
+    box.hidden=!(id&&p?.quotaFamily==='ultra');if(box.hidden)return;
+    const only=access.ultraOnly.includes(id);
+    $("policy-access-text").textContent=only?'当前只派给 Ultra 账号':'Pro 和 Ultra 账号都可用';
+    const b=$("policy-pro");b.textContent=only?'开放给 Pro':'改为仅 Ultra';b.disabled=loading||submitting;
+  }
+  async function toggleAccess(){
+    const id=$("policy-model").value;if(!id)return;const only=access.ultraOnly.includes(id);
+    if(!confirm(only?'把 '+id+' 开放给 Pro 账号？':'把 '+id+' 改回只派给 Ultra 账号？'))return;
+    submitting=true;gate();
+    try{const d=await api('/api/models/access',{model:id,pro:only});if(Array.isArray(d?.ultraOnly))access=d;
+      notice(only?id+' 已开放给 Pro 账号':id+' 已改为只派给 Ultra 账号');}
+    catch(e){notice('未确认：'+e.message+'。请刷新目录核实后再操作。');}
+    finally{submitting=false;renderAccess();gate();}
+  }
   let policyDirty=false,editRevision=null;
   function policyGate(){
     const blocked=loading||submitting||!available||!fresh||state?.halted||
@@ -15,7 +35,7 @@
     $("policy-bucket").value=p?.quotaFamily||"";
     $("policy-anti").checked=p?.antiTruncation===true;
     editRevision=data?.policyState?.revision;
-    policyDirty=false;policyGate();
+    policyDirty=false;policyGate();renderAccess();
   }
   function renderPolicies(){
     if(policyDirty){
@@ -164,7 +184,7 @@
   async function readCatalog() {
     if(loading||submitting)return;loading=true;gate();
     try{
-      const [result]=await Promise.all([api('/api/models'),readUsage()]);
+      const [result]=await Promise.all([api('/api/models'),readUsage(),readAccess()]);
       if(!result||typeof result.slots!=='object'||!result.slots)throw Error('目录接口格式错误');
       data=result;available=true;renderCatalog();
       $('catalog-message').textContent='';
@@ -190,6 +210,7 @@
     policyDirty=true;policyGate();
   });
   $("policy-save").addEventListener("click",savePolicy);
+  $("policy-pro").addEventListener("click",toggleAccess);
   $('catalog-read').addEventListener('click',readCatalog);
   $('catalog-search').addEventListener('input',rows);
   $('catalog-more').addEventListener('click',()=>{showAll=!showAll;rows();});

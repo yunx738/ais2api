@@ -237,6 +237,9 @@ impl Build {
         Self::busy_l(&mut self.lock(), id)
     }
     fn can_use(&self, app: &App, id: i64, model: &str) -> bool {
+        if crate::model_access::ultra_only(model) && !app.acc.is_ultra(id) {
+            return false;
+        }
         app.acc.tier(id) != "standard" || (!self.premium_only() && model.contains("flash"))
     }
     fn blocked(&self, app: &App, id: i64, model: &str) -> bool {

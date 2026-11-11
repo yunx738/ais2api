@@ -1,0 +1,30 @@
+'use strict';
+// Pro access switch: models in model-access.json are Ultra-only (normal routing, headless routing, Build).
+const fs=require('fs'),os=require('os'),path=require('path'),assert=require('assert');
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ma-'));process.env.DUAL_ROOT=dir;
+const f=path.join(dir,'model-access.json');
+fs.writeFileSync(f,JSON.stringify({ultraOnly:['gemini-4-carbon']}));
+const tier={1:'standard',2:'pro',3:'ultra',4:'ultra20'};
+const isUltra=id=>['ultra','ultra20'].includes(tier[id]),isPremium=id=>tier[id]!=='standard';
+const {CatalogRouting}=require('./catalog-routing');
+const r=new CatalogRouting({pool:{ids:[]}},{cache:new Map()},{});r.isUltra=isUltra;r.isPremium=isPremium;
+assert.deepStrictEqual([1,2,3,4].map(i=>r.premiumFor('gemini-4-carbon',i)),[false,false,true,true]);
+assert.deepStrictEqual([1,2,3,4].map(i=>r.premiumFor('gemini-4-argon',i)),[false,true,true,true]);
+const {BuildChannel}=require('./build-coordinator');
+const can=(id,m)=>BuildChannel.prototype.canUse.call({tierOf:i=>tier[i],settings:{premiumOnly:true}},id,m);
+assert.deepStrictEqual([1,2,3,4].map(i=>can(i,'gemini-4-carbon')),[false,false,true,true]);
+assert.deepStrictEqual([1,2,3,4].map(i=>can(i,'gemini-4-argon')),[false,true,true,true]);
+const {HeadlessRouting}=require('./headless-routing');
+const pol=new Map([['gemini-4-carbon',{quotaFamily:'ultra',antiTruncation:true}]]);
+const disp=ids=>({pool:{ids,cooldowns:new Map()},accountFlags:{},quotas:{view:()=>({cooldownUntil:0})}});
+const route='/v1beta/models/gemini-4-carbon:generateContent';
+assert.throws(()=>new HeadlessRouting({service:{},policies:pol,dispatch:disp([2]),isPremium,isUltra}).resolve(route,{}),/Ultra/);
+const plan=new HeadlessRouting({service:{},policies:pol,dispatch:disp([2,3]),isPremium,isUltra}).resolve(route,{});
+assert.strictEqual(plan.eligible('H',2),false);assert.strictEqual(plan.eligible('H',3),true);
+// opening to Pro is picked up without a restart
+fs.writeFileSync(f,JSON.stringify({ultraOnly:[]}));
+assert.strictEqual(r.premiumFor('gemini-4-carbon',2),true);assert.strictEqual(can(2,'gemini-4-carbon'),true);
+const plan2=new HeadlessRouting({service:{},policies:pol,dispatch:disp([2]),isPremium,isUltra}).resolve(route,{});
+assert.strictEqual(plan2.eligible('H',2),true);
+fs.rmSync(dir,{recursive:true,force:true});
+console.log('model-access: ok');
