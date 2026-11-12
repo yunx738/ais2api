@@ -302,10 +302,12 @@ pub struct AtResult {
     pub upstream: bool,
     pub retry_after: String,
     pub cancelled: bool,
+    /// non-empty when a salvaged (cut) answer is returned: "length" / "content_filter"
+    pub finish: String,
 }
 impl AtResult {
     fn fail(status: u16, payload: Value) -> Self {
-        AtResult { ok: false, answer: String::new(), tool_calls: vec![], reasoning: String::new(), usage: None, rounds: 0, status, payload, upstream: false, retry_after: String::new(), cancelled: false }
+        AtResult { ok: false, answer: String::new(), tool_calls: vec![], reasoning: String::new(), usage: None, rounds: 0, status, payload, upstream: false, retry_after: String::new(), cancelled: false, finish: String::new() }
     }
 }
 fn at_err(status: u16, typ: &str, st: &str, msg: &str, usage: Option<Value>) -> Value {
@@ -314,6 +316,52 @@ fn at_err(status: u16, typ: &str, st: &str, msg: &str, usage: Option<Value>) -> 
         p.as_object_mut().unwrap().insert("usage".into(), u);
     }
     p
+}
+
+const AT_BUDGET_MS: i64 = 1_140_000;
+const MIN_ROUND_MS: i64 = 90_000;
+const SALVAGE_MIN: usize = 200;
+const MAX_APPEND_ROUNDS: i64 = 5;
+const APPEND_CONT: &str = "Your previous {tool} call was cut off by the output length limit. Everything written so far is saved and shown in your previous message (it ends with: \"{tail}\"). Do NOT repeat any of it. Continue writing from exactly where it stopped, then call {tool} with ONLY the new remaining part (key \"answer\"). If the answer was already complete, call {tool} with an empty string.";
+
+fn tail_chars(s: &str, n: usize) -> String {
+    let v: Vec<char> = s.chars().collect();
+    v[v.len().saturating_sub(n)..].iter().collect()
+}
+
+/// Joins a saved (cut) answer with the next round's continuation, dropping any repeated overlap.
+pub fn merge_segments(a: &str, b: &str) -> String {
+    if b.trim().is_empty() {
+        return a.into();
+    }
+    if a.trim().is_empty() {
+        return b.into();
+    }
+    let head: String = a.chars().take(120).collect();
+    if js_len(a) >= 200 && b.trim_start().starts_with(head.trim_start()) {
+        return if js_len(b) >= js_len(a) { b.into() } else { a.into() };
+    }
+    for cand in [b, b.trim_start()] {
+        let mut best = 0usize;
+        for (n, (i, c)) in cand.char_indices().enumerate() {
+            if n >= 4000 {
+                break;
+            }
+            let end = i + c.len_utf8();
+            if n + 1 >= 6 && a.ends_with(&cand[..end]) {
+                best = end;
+            }
+        }
+        if best > 0 {
+            return format!("{}{}", a, &cand[best..]);
+        }
+    }
+    format!("{}{}", a, b)
+}
+
+fn salvaged(answer: String, finish: &str, reasoning: String, usage: Option<Value>, rounds: i64, why: &str) -> AtResult {
+    elog(format!("[HL-AT] salvaged {} chars after {} rounds ({}), returning finish={}", js_len(&answer), rounds, why, finish));
+    AtResult { ok: true, answer, tool_calls: vec![], reasoning, usage, rounds, status: 200, payload: Value::Null, upstream: false, retry_after: String::new(), cancelled: false, finish: finish.into() }
 }
 
 /// call(body) performs one upstream request; cancelled() reports client cancellation.
@@ -328,6 +376,8 @@ where
     let (mut attempt, mut retries) = (0i64, 0i64);
     let mut cur = base.clone();
     let mut last_partial = String::new();
+    let mut saved = String::new();
+    let mut reasoning = String::new();
     let mut first = true;
     loop {
         if cancelled() {
@@ -335,12 +385,24 @@ where
             r.cancelled = true;
             return r;
         }
-        let r = call(cur.clone()).await;
+        let left = (AT_BUDGET_MS - (now_ms() - t0)).max(1000) as u64;
+        let (r, timed_out) = match tokio::time::timeout(std::time::Duration::from_millis(left), call(cur.clone())).await {
+            Ok(r) => (r, false),
+            Err(_) => (CallResult { status: 504, json: json!({"error":{"message":"anti-truncation round ran out of time"}}), text: String::new(), retry_after: String::new() }, true),
+        };
+        if cancelled() {
+            let mut r = AtResult::fail(499, Value::Null);
+            r.cancelled = true;
+            return r;
+        }
         if r.status != 200 {
+            if !saved.is_empty() {
+                return salvaged(saved, "length", reasoning, sum.out(), attempt, &format!("continuation failed {}", r.status));
+            }
             if first {
                 let pl = if r.json.is_object() { r.json.clone() } else { json!({"error":{"message":clip_runes(&r.text, 500)}}) };
                 let mut x = AtResult::fail(r.status, pl);
-                x.upstream = true;
+                x.upstream = !timed_out;
                 x.retry_after = r.retry_after;
                 return x;
             }
@@ -352,43 +414,84 @@ where
         sum.add(r.json.g("usage"));
         attempt += 1;
         let x = extract(&r.json);
+        if !x.reasoning.is_empty() {
+            reasoning = x.reasoning.clone();
+        }
         let elapsed = now_ms() - t0;
-        log(format!("[HL-AT] round {} finish={} seal={} plain={} calls={} ms={}", attempt, if x.finish.is_empty() { "-" } else { &x.finish },
-            if x.found { format!("yes({})", js_len(&x.answer)) } else { "no".into() }, js_len(&x.plain), x.calls.len(), elapsed));
-        let done = |answer: String, tool_calls: Vec<Value>| AtResult { ok: true, answer, tool_calls, reasoning: x.reasoning.clone(), usage: sum.out(), rounds: attempt, status: 200,
-            payload: Value::Null, upstream: false, retry_after: String::new(), cancelled: false };
+        log(format!("[HL-AT] round {} finish={} seal={} plain={} calls={} saved={} ms={}", attempt, if x.finish.is_empty() { "-" } else { &x.finish },
+            if x.found { format!("yes({})", js_len(&x.answer)) } else if !x.partial.is_empty() { format!("cut({})", js_len(&x.partial)) } else { "no".into() }, js_len(&x.plain), x.calls.len(), js_len(&saved), elapsed));
+        let done = |answer: String, tool_calls: Vec<Value>, sum: &Sum| AtResult { ok: true, answer, tool_calls, reasoning: reasoning.clone(), usage: sum.out(), rounds: attempt, status: 200,
+            payload: Value::Null, upstream: false, retry_after: String::new(), cancelled: false, finish: String::new() };
         if x.found && x.finish != "content_filter" && (x.finish == "stop" || x.finish == "tool_calls" || !x.answer.trim().is_empty()) {
-            return done(x.answer.clone(), vec![]);
+            return done(merge_segments(&saved, &x.answer), vec![], &sum);
         }
-        if !x.found && !x.ext_calls.is_empty() && x.calls.len() == x.ext_calls.len() && x.finish != "content_filter" && x.finish != "length" {
-            return done(x.plain.clone(), x.ext_calls.clone());
+        if saved.is_empty() && !x.found && !x.ext_calls.is_empty() && x.calls.len() == x.ext_calls.len() && x.finish != "content_filter" && x.finish != "length" {
+            return done(x.plain.clone(), x.ext_calls.clone(), &sum);
         }
-        if !x.found && x.finish == "stop" && x.calls.is_empty() && js_len(x.plain.trim()) >= STOP_MIN {
-            return done(clean_plain_answer(&x.plain).0, vec![]);
+        if !x.found && x.finish == "stop" && x.calls.is_empty() && (js_len(x.plain.trim()) >= STOP_MIN || (!saved.is_empty() && !x.plain.trim().is_empty())) {
+            return done(merge_segments(&saved, &clean_plain_answer(&x.plain).0), vec![], &sum);
         }
         let u = sum.out();
         if x.finish == "content_filter" {
+            if !saved.is_empty() {
+                return salvaged(saved, "content_filter", reasoning, u, attempt, "content blocked mid-way");
+            }
             let uu = u.map(|u| json!({"prompt_tokens":u.g("prompt_tokens")}));
             return AtResult::fail(502, at_err(502, "content_blocked", "SAFETY", "上游内容安全拦截：模型拒绝生成，本次没有输出。这类拦截有时是误判，可以直接重试；多次被拦请调整内容。", uu));
+        }
+        // cut by the output limit: keep what was written and only ask for the rest
+        let cut = x.finish == "length" || x.finish == "max_tokens";
+        if cut {
+            let seg = if !x.partial.is_empty() {
+                x.partial.clone()
+            } else if !x.answer.is_empty() {
+                x.answer.clone()
+            } else if x.calls.is_empty() {
+                clean_plain_answer(&x.plain).0
+            } else {
+                String::new()
+            };
+            if js_len(seg.trim()) >= if saved.is_empty() { SALVAGE_MIN } else { 1 } {
+                saved = merge_segments(&saved, &seg);
+            }
         }
         let mut resend = false;
         if !x.found && x.plain.is_empty() && x.calls.is_empty() && elapsed < DEADLINE_MS && retries < MAX_RETRIES {
             retries += 1;
             resend = true;
-            elog(format!("[HL-AT] empty reply; resending original {}/{}", retries, MAX_RETRIES));
+            elog(format!("[HL-AT] empty reply; resending {}/{}", retries, MAX_RETRIES));
             tokio::time::sleep(std::time::Duration::from_millis(EMPTY_DELAY_MS)).await;
         }
-        if !resend && (attempt >= MAX_ATTEMPTS || elapsed >= DEADLINE_MS) {
+        let limit = if saved.is_empty() { MAX_ATTEMPTS } else { MAX_APPEND_ROUNDS };
+        let out_of_time = elapsed >= DEADLINE_MS || AT_BUDGET_MS - elapsed < MIN_ROUND_MS;
+        if !resend && (attempt >= limit || out_of_time) {
+            if !saved.is_empty() {
+                return salvaged(saved, "length", reasoning, u, attempt, if out_of_time { "time budget used up" } else { "round limit" });
+            }
             let chars = js_len(&x.answer).max(js_len(&x.partial)).max(js_len(&x.plain));
-            let late = elapsed >= DEADLINE_MS;
             let f = if x.finish.is_empty() { "NO_ANSWER".to_string() } else { x.finish.clone() };
-            let (msg, st) = if late {
+            let (msg, st) = if out_of_time {
                 (format!("已用时约 {} 分钟仍未得到完整答案，超过 16 分钟不再续写，直接返回失败。已生成约 {} 字被丢弃，可重试。", (elapsed as f64 / 60000.0).round() as i64, chars), "AT_TIME_LIMIT".to_string())
             } else {
                 (format!("上游中途结束（finish={}），未返回内容。已生成约 {} 字被丢弃，可重试。", f, chars), format!("FINISH_{}", f.to_uppercase()))
             };
             let uu = u.map(|u| json!({"prompt_tokens":u.g("prompt_tokens"),"completion_tokens":u.g("completion_tokens")}));
             return AtResult::fail(502, at_err(502, "upstream_incomplete", &st, &msg, uu));
+        }
+        if !saved.is_empty() {
+            if resend {
+                attempt -= 1;
+                continue;
+            }
+            let mut msgs = base.a("messages").to_vec();
+            msgs.push(json!({"role":"assistant","content":saved}));
+            msgs.push(json!({"role":"user","content":APPEND_CONT.replace("{tool}", AT_TOOL).replace("{tail}", &tail_chars(&saved, 80))}));
+            cur = base.clone();
+            cur.insert("messages".into(), Value::Array(msgs));
+            cur.shift_remove("max_completion_tokens");
+            cur.insert("max_tokens".into(), json!(AT_ROUND_MAX_TOKENS));
+            log(format!("[HL-AT] continuing from saved {} chars (round {}/{})", js_len(&saved), attempt + 1, MAX_APPEND_ROUNDS));
+            continue;
         }
         if resend {
             attempt = 0;
@@ -558,5 +661,66 @@ mod tests {
         }, || false, &req2, &dummy_preset()).await;
         assert!(r2.ok && r2.rounds == 2 && r2.answer == "half_story_12345_completed" && r2.tool_calls.is_empty());
         assert!(seen_msgs.lock().unwrap()[1].contains("Previous partial answer: half_story_12345"));
+    }
+    fn seal_cut(s: &str) -> Value {
+        json!({"choices":[{"finish_reason":"length","message":{"role":"assistant","content":null,
+            "tool_calls":[{"id":"c","type":"function","function":{"name":"seal_final_reply","arguments":format!("{{\"answer\":\"{}",s)}}]}}],
+            "usage":{"prompt_tokens":10,"completion_tokens":32768,"total_tokens":32778}})
+    }
+    fn seal_ok(s: &str) -> Value {
+        json!({"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":null,
+            "tool_calls":[{"id":"d","type":"function","function":{"name":"seal_final_reply","arguments":js(&json!({"answer":s}))}}]}}],
+            "usage":{"prompt_tokens":10,"completion_tokens":100,"total_tokens":110}})
+    }
+    fn ok(j: Value) -> CallResult { CallResult { status: 200, json: j, text: String::new(), retry_after: String::new() } }
+    #[test]
+    fn merge_drops_overlap() {
+        assert_eq!(merge_segments("abc 第一段结尾的句子在这里。", "第一段结尾的句子在这里。第二段"), "abc 第一段结尾的句子在这里。第二段");
+        assert_eq!(merge_segments("前文", "后文"), "前文后文");
+        assert_eq!(merge_segments("x", ""), "x");
+        let a = "甲".repeat(300);
+        assert_eq!(merge_segments(&a, &format!("{}乙乙", a)), format!("{}乙乙", a));
+    }
+    #[tokio::test]
+    async fn cut_answer_is_continued_and_joined() {
+        let p1 = format!("{}\\n第一部分最后一句话写到这里", "段落一。".repeat(100));
+        let mut req = Map::new();
+        req.insert("messages".into(), json!([{"role":"user","content":"write"}]));
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+        let n = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (s2, n2, p1c) = (seen.clone(), n.clone(), p1.clone());
+        let r = run(move |b| {
+            let k = n2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            s2.lock().unwrap().push(js(&Value::Object(b)));
+            let p1c = p1c.clone();
+            async move { if k == 0 { ok(seal_cut(&p1c)) } else { ok(seal_ok("最后一句话写到这里，然后是第二部分。")) } }
+        }, || false, &req, &dummy_preset()).await;
+        assert!(r.ok && r.rounds == 2 && r.finish.is_empty());
+        assert!(r.answer.starts_with("段落一。") && r.answer.ends_with("第一部分最后一句话写到这里，然后是第二部分。"), "{}", r.answer);
+        let s = seen.lock().unwrap();
+        assert!(s[1].contains("Do NOT repeat") && !s[1].contains("Previous partial answer") && !s[1].contains("\"tool_calls\""));
+    }
+    #[tokio::test]
+    async fn failed_continuation_returns_saved_text() {
+        let p1 = "已经写好的正文。".repeat(60);
+        let mut req = Map::new();
+        req.insert("messages".into(), json!([{"role":"user","content":"write"}]));
+        let n = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (n2, p1c) = (n.clone(), p1.clone());
+        let r = run(move |_b| {
+            let k = n2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let p1c = p1c.clone();
+            async move { if k == 0 { ok(seal_cut(&p1c)) } else { CallResult { status: 502, json: json!({"error":{"message":"boom"}}), text: String::new(), retry_after: String::new() } } }
+        }, || false, &req, &dummy_preset()).await;
+        assert!(r.ok && r.finish == "length" && r.answer == p1);
+        // every round cut again: all pieces are kept and returned after the round limit
+        let n = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let n2 = n.clone();
+        let r = run(move |_b| {
+            let k = n2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async move { ok(seal_cut(&format!("第{}段", k).repeat(80))) }
+        }, || false, &req, &dummy_preset()).await;
+        assert!(r.ok && r.finish == "length" && r.rounds == MAX_APPEND_ROUNDS);
+        assert!(r.answer.contains("第0段") && r.answer.contains("第4段"));
     }
 }

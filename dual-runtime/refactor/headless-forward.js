@@ -98,7 +98,7 @@ function createHeadlessForward({service,emailOf=accountEmail,log=console}){
    return {status:st,retryAfter:r.headers?.['retry-after'],metrics:obs.finish({complete:true})};
   }
   const hasTc=Array.isArray(r.toolCalls)&&r.toolCalls.length>0;
-  completion(res,{model,stream,message:{role:'assistant',content:hasTc&&!r.answer?null:r.answer,...(r.reasoning?{reasoning_content:r.reasoning}:{}),...(hasTc?{tool_calls:r.toolCalls}:{})},finish:hasTc?'tool_calls':'stop',usage:r.usage});
+  completion(res,{model,stream,message:{role:'assistant',content:hasTc&&!r.answer?null:r.answer,...(r.reasoning?{reasoning_content:r.reasoning}:{}),...(hasTc?{tool_calls:r.toolCalls}:{})},finish:hasTc?'tool_calls':(r.finish||'stop'),usage:r.usage});
   return {status:200,metrics:obs.finish({complete:true})};
  }
  // Build prefixes: same composition as build-worker.js, but signed/sent by the headless service. Body carries __build.

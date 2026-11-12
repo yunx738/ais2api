@@ -259,7 +259,8 @@ impl App {
         if has_tc {
             msg["tool_calls"] = Value::Array(r.tool_calls);
         }
-        write_completion(res, &model, stream, &msg, if has_tc { "tool_calls" } else { "stop" }, r.usage.as_ref());
+        let finish = if has_tc { "tool_calls" } else if !r.finish.is_empty() { r.finish.as_str() } else { "stop" };
+        write_completion(res, &model, stream, &msg, finish, r.usage.as_ref());
         ExecResult { status: 200, metrics: fin(&obs, true), ..Default::default() }
     }
 
