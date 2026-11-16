@@ -243,22 +243,20 @@ impl App {
                     return herr(404, "Model not available on the no-browser service");
                 }
                 let c = &st.core;
-                if pol.family == "ultra" {
-                    let prem: Vec<i64> = c.ids.iter().copied().filter(|&id| self.premium_for(up, id) && c.flag(id).is_none() && self.pin_ok(req, id)).collect();
-                    if prem.is_empty() {
-                        return herr(503, "This model needs a Pro or Ultra account; none is available in the account pool");
-                    }
-                    let now = now_ms();
-                    let mut soonest = i64::MAX;
-                    for id in prem {
-                        let w = c.view(id, up, "ultra", now).cooldown_until.max(c.cooldown_of(id));
-                        soonest = soonest.min(w);
-                    }
-                    if soonest > now + 120_000 {
-                        let mut e = HttpErr::new(429, format!("All Pro/Ultra accounts are rate limited for {} by Google; quota resets around {} (Beijing time)", up, bj_time(soonest)));
-                        e.retry_after = (soonest - now + 999) / 1000;
-                        return Err(e);
-                    }
+                let ok: Vec<i64> = c.ids.iter().copied().filter(|&id| (pol.family != "ultra" || self.premium_for(up, id)) && c.flag(id).is_none()
+                    && !st.disp.disabled.contains(&id) && self.pin_ok(req, id)).collect();
+                if ok.is_empty() && pol.family == "ultra" {
+                    return herr(503, "This model needs a Pro or Ultra account; none is available in the account pool");
+                }
+                let now = now_ms();
+                let mut soonest = i64::MAX;
+                for &id in &ok {
+                    soonest = soonest.min(c.view(id, up, &pol.family, now).cooldown_until.max(c.cooldown_of(id)));
+                }
+                if !ok.is_empty() && soonest > now {
+                    let mut e = HttpErr::new(429, format!("{} 被谷歌限流，冷却中，约 {}（北京时间）恢复，{} 秒后可重试", up, bj_time(soonest), (soonest - now + 999) / 1000));
+                    e.retry_after = (soonest - now + 999) / 1000;
+                    return Err(e);
                 }
                 Plan { model: up.into(), family: pol.family.clone(), build: None, estimate: 0 }
             }
@@ -522,29 +520,23 @@ impl App {
             log(format!("[Auth] #{} marked invalid (login_required): sign-in expired during a request", t.account));
         }
         st.disp.mark_uncertain(&t);
-        let res = &it.req.res;
-        let retryable = r.as_ref().map(|r| {
-            r.rejection.is_some() && !r.worker_rejection && !r.uncertain && !r.cancelled
-                && ([401, 403, 429].contains(&r.status) || r.auth_expired || (r.status == 400 && r.rejection.as_ref().unwrap().header("x-ais-build-retry") == Some("upstream_failed")))
-        }).unwrap_or(false) && !res.started() && !res.gone();
+        let now = now_ms();
+        let cd429 = r.as_ref().filter(|r| r.status == 429 && !r.worker_rejection && !t.model.starts_with("build-"))
+            .and_then(|r| rejection_cooldown(r, now)).map(|x| x.1).filter(|&u| u > now);
         st.disp.finish_if_settled(&t.id);
         st.executing.remove(&t.id);
         if let Some(rj) = r.and_then(|r| r.rejection) {
-            it.rejection = Some(rj.clone());
-            let sig403 = rj.status == 403 && RE_SIGNATURE.is_match(&body_text(&rj.body, 16384));
-            let max = if sig403 { MAX_ATTEMPTS_SIGNATURE } else { MAX_ATTEMPTS };
-            if retryable && it.attempts < max && !st.closed && !st.core.halted && self.has_retry_candidate(&st, &it) {
-                it.id = uuid4();
-                let status = rj.status;
-                if Self::enqueue(&mut st, it) {
-                    st.counts.retried += 1;
-                    log(format!("[Scheduler] #{} {} rejected {}{}; retrying on another account", t.account, t.model, status, if sig403 { " (signature)" } else { "" }));
+            match cd429 {
+                Some(until) if !it.req.res.started() && !it.req.res.gone() => {
+                    let secs = (until - now + 999) / 1000;
+                    log(format!("[Scheduler] #{} {} rejected 429; model cooling until {} ({} s), not switching account", t.account, t.model, bj_time(until), secs));
+                    if !it.req.res.headers_sent() {
+                        it.req.res.set_header("Retry-After", &secs.to_string());
+                    }
+                    let up = clip_runes(&body_text(&rj.body, 4096), 300);
+                    it.req.res.fail(429, &format!("{} 被谷歌限流，冷却至 {}（北京时间），{} 秒后可重试。上游：{}", t.model, bj_time(until), secs, up));
                 }
-            } else {
-                if sig403 {
-                    log(format!("[Scheduler] #{} {} rejected 403 (signature); no other account left to try ({} attempts)", t.account, t.model, it.attempts));
-                }
-                it.req.res.respond_rejection(&rj);
+                _ => it.req.res.respond_rejection(&rj),
             }
         }
         self.pump_l(&mut st);

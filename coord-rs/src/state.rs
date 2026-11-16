@@ -295,8 +295,9 @@ impl Core {
     }
 
     // ---- quota ledger ----
-    fn limit_for(&self, id: i64, family: &str) -> Option<i64> {
-        Some(tier_limit(&(self.tier_of)(id), family))
+    /// no local daily cap: Google changes limits often; only its 429 (with cooldown) stops an account
+    fn limit_for(&self, _id: i64, _family: &str) -> Option<i64> {
+        None
     }
     fn window_active(a: Option<&QAcc>, now: i64) -> bool {
         a.map(|a| a.window_start > 0 && a.window_start <= now && a.window_start >= period_start(now)).unwrap_or(false)
