@@ -180,11 +180,10 @@ impl App {
         if ids.is_empty() {
             return Ok(None);
         }
-        let n = ids.len() as i64;
-        let cursor = st.disp.cursor as i64;
+        // fill-first: higher priority first, then account order; an account takes requests until it is at its concurrency limit
         let mut order: Vec<(i64, i64, i64, f64)> = ids.iter().enumerate()
-            .map(|(i, &a)| (a, ((i as i64 - cursor) % n + n) % n, self.sched.priority(a), self.rank(plan, a))).collect();
-        order.sort_by(|x, y| y.2.cmp(&x.2).then(x.3.partial_cmp(&y.3).unwrap_or(std::cmp::Ordering::Equal)).then(x.1.cmp(&y.1)));
+            .map(|(i, &a)| (a, i as i64, self.sched.priority(a), 0.0)).collect();
+        order.sort_by(|x, y| y.2.cmp(&x.2).then(x.1.cmp(&y.1)));
         let per = self.per_account();
         for (a, _, _, _) in order {
             if it.attempted.contains(&a) || !self.eligible(&it.req, plan, a) {
@@ -208,9 +207,6 @@ impl App {
             st.disp.requests.insert(id.into());
             st.disp.active += 1;
             *st.disp.inflight.entry(a).or_insert(0) += 1;
-            if let Some(i) = ids.iter().position(|&x| x == a) {
-                st.disp.cursor = (i + 1) % ids.len();
-            }
             if !metered {
                 st.core.checkpoint();
             }
