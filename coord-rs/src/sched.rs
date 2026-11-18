@@ -651,13 +651,18 @@ impl Routing {
     pub fn new() -> Self {
         Routing { models: RwLock::new((HashSet::new(), 0)) }
     }
-    pub async fn refresh(&self, app: &App) {
+    pub async fn refresh(&self, app: &App) -> Vec<String> {
         let r = app.svc.call(&crate::resp::Cancel::new(), "", "GET", "/v1/models", None).await;
         if r.err.is_some() || r.status != 200 || !r.json.g("data").is_array() {
-            return;
+            return vec![];
         }
         let m: HashSet<String> = r.json.a("data").iter().map(|d| d.s("id").to_string()).filter(|s| !s.is_empty()).collect();
+        let before = self.models.read().unwrap().0.clone();
         *self.models.write().unwrap() = (m, now_ms());
+        if before.is_empty() {
+            return vec![];
+        }
+        auto_policies(app, &before, &r.json)
     }
     pub fn has(&self, m: &str) -> bool {
         self.models.read().unwrap().0.contains(m)
@@ -691,6 +696,58 @@ impl Routing {
         }
         out.sort();
         out
+    }
+}
+/// A chat model that was not in the previous list and has no policy gets one: anti-truncation on,
+/// quota family ultra for paid models, pro for *pro*, flash otherwise. Derived -search / -build ids are skipped.
+fn auto_policies(app: &App, before: &HashSet<String>, data: &Value) -> Vec<String> {
+    let mut added = vec![];
+    for d in data.a("data") {
+        let id = d.s("id");
+        if id.is_empty() || before.contains(id) || id.ends_with("-search") || id.ends_with("-build") || app.policies.get(id).is_some() {
+            continue;
+        }
+        if d.g("capabilities").g("chat_model").as_bool() != Some(true) {
+            continue;
+        }
+        let family = if d.g("paid").as_bool() == Some(true) { "ultra" } else if id.to_lowercase().contains("pro") { "pro" } else { "flash" };
+        let rev = as_safe_int(app.policies.snapshot().g("revision")).unwrap_or(0);
+        match app.policies.set(id, family, true, rev) {
+            Ok(_) => {
+                log(format!("[Models] new model {}: policy {} + anti-truncation added automatically", id, family));
+                added.push(id.to_string());
+            }
+            Err(e) => log(format!("[Models] new model {}: automatic policy not saved ({})", id, e.msg)),
+        }
+    }
+    added
+}
+static PULLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+impl App {
+    /// Manual pull: every ready account re-reads its model list from Google (catalog only, no generation).
+    pub async fn pull_catalogs(&self) -> Value {
+        use std::sync::atomic::Ordering as AO;
+        if PULLING.swap(true, AO::SeqCst) {
+            return json!({"skipped":"already_pulling"});
+        }
+        let cancel = crate::resp::Cancel::new();
+        let r = self.svc.call(&cancel, "", "GET", "/api/accounts", None).await;
+        let (mut done, mut failed) = (vec![], vec![]);
+        for a in r.json.a("accounts") {
+            if a.s("state") != "ready" || a.g("enabled").as_bool() == Some(false) {
+                continue;
+            }
+            let id = a.s("id").to_string();
+            let path = format!("/api/accounts/{}/refresh", id);
+            match tokio::time::timeout(std::time::Duration::from_secs(90), self.svc.call(&cancel, "", "POST", &path, None)).await {
+                Ok(res) if res.err.is_none() && res.status == 200 => done.push(id),
+                Ok(res) => failed.push(json!({"account":id,"status":res.status})),
+                Err(_) => failed.push(json!({"account":id,"status":"timeout"})),
+            }
+        }
+        PULLING.store(false, AO::SeqCst);
+        log(format!("[Models] manual pull: {} account(s) refreshed, {} failed", done.len(), failed.len()));
+        json!({"refreshed":done,"failed":failed})
     }
 }
 pub fn is_build_model(m: &str) -> bool {

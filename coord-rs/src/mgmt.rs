@@ -759,7 +759,7 @@ async fn api(rq: &Rq, b: &Value, token: &str) -> Out {
             if !slot.is_string() || !["A", "B", "H"].contains(&b.s("slot")) {
                 return bad("Invalid slot");
             }
-            fwd(call("POST", "/internal/models/refresh", Some(json!({"slot":slot}))).await)
+            fwd(call_t("POST", "/internal/models/refresh", Some(json!({"slot":slot})), 300).await)
         }
         ("POST", "/api/set-mode") => {
             let md = b.g("mode");

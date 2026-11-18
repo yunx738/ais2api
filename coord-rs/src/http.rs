@@ -357,8 +357,9 @@ impl App {
             if !["A", "B", "H"].contains(&b.s("slot")) {
                 return Ok(write_json(400, &err_body("Invalid slot")));
             }
-            self.routing.refresh(self).await;
-            return Ok(write_json(202, &json!({"accepted":true,"models":self.routing.size()})));
+            let pulled = self.pull_catalogs().await;
+            let added = self.routing.refresh(self).await;
+            return Ok(write_json(202, &json!({"accepted":true,"models":self.routing.size(),"pulled":pulled,"added":added})));
         }
         if m == "POST" && p == "/internal/set-mode" {
             let b = c.obj(4096).await.unwrap_or(Value::Null);

@@ -195,12 +195,14 @@
   }
   async function sync(slot) {
     gate();if(buttons.get(slot)?.disabled)return;
-    if(!confirm(slot==='H'?'重新读取无浏览器服务的模型目录？':'同步实例 '+slot+' 的模型目录？'))return;
+    if(!confirm(slot==='H'?'从谷歌重新拉取所有可用账号的模型目录？（只拉目录，不发请求；新模型会自动加上并开启防截断）':'同步实例 '+slot+' 的模型目录？'))return;
     submitting=true;gate();
     try{
       const result=await api('/api/models/refresh',{slot});
       notice(result.pending?'同步状态待确认，请勿重复提交':
-        result.accepted?'同步中':'未启动：'+explain(result.reason));
+        result.accepted?(result.pulled?.skipped?'已有拉取任务在进行':'已拉取 '+(result.pulled?.refreshed?.length??0)+' 个账号，共 '+result.models+' 个模型'+
+        (result.added?.length?'；新增：'+result.added.join('、')+'（已开防截断）':'；没有新模型')+
+        (result.pulled?.failed?.length?'；失败：'+result.pulled.failed.map(f=>f.account).join('、'):'')):'未启动：'+explain(result.reason));
     }catch(e){notice('同步提交未确认。'+e.message+'。请先刷新任务状态，避免重复提交。');}
     finally{submitting=false;await refresh();await readCatalog();gate();}
   }
