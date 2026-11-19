@@ -31,12 +31,19 @@ pub struct Out {
     pub code: u16,
     pub h: Vec<(String, String)>,
     pub body: Bytes,
+    pub stream: Option<OutBody>,
 }
 impl Out {
     fn new(code: u16, ctype: &str, body: impl Into<Bytes>) -> Out {
-        Out { code, h: vec![("Content-Type".into(), ctype.into())], body: body.into() }
+        Out { code, h: vec![("Content-Type".into(), ctype.into())], body: body.into(), stream: None }
     }
-    fn json(code: u16, v: &Value) -> Out {
+    pub fn raw(code: u16, ctype: &str, body: impl Into<Bytes>) -> Out {
+        Self::new(code, ctype, body)
+    }
+    pub fn streaming(code: u16, h: Vec<(String, String)>, s: OutBody) -> Out {
+        Out { code, h, body: Bytes::new(), stream: Some(s) }
+    }
+    pub fn json(code: u16, v: &Value) -> Out {
         Out::new(code, "application/json; charset=utf-8", js_bytes(v))
     }
     fn err(code: u16, m: &str) -> Out {
@@ -228,8 +235,9 @@ fn set_token(k: &str) -> String {
 }
 
 // ---------------- static files (console-routes.js) ----------------
-const FIXED_ASSETS: [&str; 20] = ["console.css", "console-panels.css", "models.css", "analytics.css", "proxies.js", "console.js", "shell.js", "models.js", "prices.js",
-    "analytics.js", "admin.css", "admin-tools.js", "theme-nai.css", "theme-nai.js", "security.js", "build.js", "build.css", "ops.js", "ops.css", "theme-studio.css"];
+const FIXED_ASSETS: [&str; 22] = ["console.css", "console-panels.css", "models.css", "analytics.css", "proxies.js", "console.js", "shell.js", "models.js", "prices.js",
+    "analytics.js", "admin.css", "admin-tools.js", "theme-nai.css", "theme-nai.js", "security.js", "build.js", "build.css", "ops.js", "ops.css", "theme-studio.css",
+    "upstream-features.css", "upstream-features.js"];
 const PUBLIC_ASSETS: [&str; 3] = ["nai-hero.webp", "nai-logo.webp", "nai-favicon.png"];
 static ASSETS: Lazy<Vec<String>> = Lazy::new(|| {
     let re = Regex::new(r"^nai-[a-z0-9-]{1,40}\.webp$").unwrap();
@@ -268,6 +276,8 @@ static ALLOWED: Lazy<HashSet<String>> = Lazy::new(|| {
         "POST /api/proxies/apply", "GET /api/prices", "GET /api/auth", "POST /api/auth/password", "POST /api/auth/keys", "POST /api/auth/key",
         "POST /api/auth/internal", "POST /api/prices", "GET /api/concurrency", "POST /api/concurrency", "GET /api/ops/overview", "GET /api/ops/logs",
         "POST /api/build/rotate", "GET /api/at-prompt", "POST /api/at-prompt", "GET /api/at-prompt/export", "POST /api/at-prompt/import",
+        "GET /api/hl/live", "GET /api/hl/records", "GET /api/hl/request-body",
+        "POST /api/hl/cancel-request", "POST /api/hl/config", "POST /api/hl/playground",
     ].iter().map(|s| s.to_string()).collect();
     for op in OPS {
         s.insert(format!("POST /api/ops/{}", op));
@@ -699,6 +709,21 @@ async fn api(rq: &Rq, b: &Value, token: &str) -> Out {
     let fwd = |r: (u16, Value)| Out::fwd(r);
     match (m, p) {
         ("GET", "/api/status") => fwd(call("GET", "/internal/coordinator-status", None).await),
+        ("GET", "/api/hl/live") => crate::mgmt_hl::get_live().await,
+        ("GET", "/api/hl/records") => crate::mgmt_hl::get_records(rq).await,
+        ("GET", "/api/hl/request-body") => crate::mgmt_hl::get_request_body(rq).await,
+        ("POST", "/api/hl/cancel-request") => {
+            if !guard() { return Out::err(403, GUARD); }
+            crate::mgmt_hl::post_cancel_request(b).await
+        }
+        ("POST", "/api/hl/config") => {
+            if !guard() { return Out::err(403, GUARD); }
+            crate::mgmt_hl::post_config(b).await
+        }
+        ("POST", "/api/hl/playground") => {
+            if !guard() { return Out::err(403, GUARD); }
+            crate::mgmt_hl::post_playground(b).await
+        }
         ("GET", "/api/requests") | ("GET", "/api/usage") => {
             let q = requery(&rq.query);
             if js_len(&q) > 2048 {
@@ -1223,7 +1248,8 @@ pub async fn serve_req(req: hyper::Request<Incoming>) -> hyper::Response<OutBody
     for (k, v) in &out.h {
         r = r.header(k.as_str(), v.as_str());
     }
-    r.body(OutBody::full(out.body)).unwrap_or_else(|_| hyper::Response::builder().status(500).body(OutBody::full(Bytes::new())).unwrap())
+    let body = out.stream.unwrap_or_else(|| OutBody::full(out.body));
+    r.body(body).unwrap_or_else(|_| hyper::Response::builder().status(500).body(OutBody::full(Bytes::new())).unwrap())
 }
 pub async fn serve(addr: &str, stop: impl std::future::Future<Output = ()>) -> Result<(), String> {
     let ln = tokio::net::TcpListener::bind(addr).await.map_err(|e| format!("{}: {}", addr, e))?;

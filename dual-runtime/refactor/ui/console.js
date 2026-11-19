@@ -1,6 +1,6 @@
  'use strict';
 const $=id=>document.getElementById(id);
-const titles={overview:'概览',accounts:'账号',models:'模型',usage:'统计',build:'Build 通道',history:'请求记录',settings:'设置',ops:'运维'};
+const titles={overview:'概览',accounts:'账号',models:'模型',usage:'统计',build:'Build 通道',history:'实时与记录',access:'一键接入',playground:'API 试用台',settings:'设置',ops:'运维'};
 const pageAlias={add:'accounts'};
 let state=null,reading=false,mutating=false,fresh=false,readTask=null,statusError=false;
 let accountPage=1;
@@ -33,7 +33,7 @@ function setupAccountColumns(){
 }
 function notice(message){$('notice').textContent=message;$('notice').hidden=!message;}
 function date(value){return Number.isFinite(value)&&value>0?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';}
-function navigate(){const raw=location.hash.slice(1),name=pageAlias[raw]||raw;const page=titles[name]?name:'overview';for(const key of Object.keys(titles))$(key).hidden=key!==page;document.querySelectorAll('[data-page]').forEach(a=>{const on=a.dataset.page===page&&(a.dataset.page!=='add')||a.dataset.page==='add'&&raw==='add';a.classList.toggle('selected',on);if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});$('page-title').textContent=raw==='add'?'添加账号':titles[page];$('refresh').hidden=page==='usage'||page==='history';if(page==='overview')loadOverviewUsage();}
+function navigate(){const raw=location.hash.slice(1),name=pageAlias[raw]||raw;const page=titles[name]?name:'overview';for(const key of Object.keys(titles))$(key).hidden=key!==page;document.querySelectorAll('[data-page]').forEach(a=>{const on=a.dataset.page===page&&(a.dataset.page!=='add')||a.dataset.page==='add'&&raw==='add';a.classList.toggle('selected',on);if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});$('page-title').textContent=raw==='add'?'添加账号':titles[page];$('refresh').hidden=page==='usage'||page==='history'||page==='access'||page==='playground';if(page==='overview')loadOverviewUsage();}
 const targetPick={};
 function controls(){for(const id of ['sync','rotate','restart'])$(id).disabled=mutating||!fresh;$('save-mode').disabled=mutating;document.querySelectorAll('[data-worker-action]').forEach(b=>b.disabled=mutating||!fresh);}
 async function api(path,body){

@@ -8,15 +8,17 @@
   const more = document.getElementById('mobile-more');
   const description = document.getElementById('page-description');
   const descriptions = {
-    overview: '',
-    accounts: '',
-    add: '',
-    usage: '',
-    history: '',
-    build: '',
-    models: '',
-    settings: '',
-    ops: '服务、日志与维护',
+    overview: '实例状态、调度策略与实时遥测',
+    accounts: '账号池、代理出口地区与登录导入',
+    add: '支持 JSON、Cookie 请求头、cookies.txt 与密码登录',
+    usage: 'Token 用量、缓存命中率与模型分布',
+    history: '实时进行中请求、WAA 四阶段耗时拆解与请求原文抽屉',
+    access: '生成酒馆、Claude Code、Codex、OpenCode、Cherry Studio 等一键配置',
+    playground: '内置流式测试与双模型并排对比（自动经本机 8890 调度）',
+    build: 'Build 通道预设与状态',
+    models: 'Gemini 4 元素周期表、实时目录同步与防截断策略',
+    settings: '安全密钥、引擎特性开关与防截断提示词',
+    ops: '服务状态、日志与系统维护',
   };
   let restoreOverflow = '';
   let returnFocus = null;
@@ -32,7 +34,7 @@
 
   function updateMenuState() {
     const page = location.hash.slice(1);
-    more.classList.toggle('selected', sheet.open || page === 'settings' || page === 'ops' || page === 'history' || page === 'add' || page === 'build');
+    more.classList.toggle('selected', sheet.open || ['settings','ops','add','build','models','usage'].includes(page));
     document.querySelectorAll('[data-more-open]').forEach(button => {
       button.setAttribute('aria-expanded', String(sheet.open));
     });

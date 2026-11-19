@@ -1,29 +1,31 @@
 <!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>登录 · AIS2API</title><link rel="icon" type="image/png" href="/public-assets/nai-favicon.png">
-<meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#11141b" media="(prefers-color-scheme: dark)">
+<title>登录 · AIS2API 控制台</title><link rel="icon" type="image/png" href="/public-assets/nai-favicon.png">
+<meta name="theme-color" content="#f4f6f9" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0c0f14" media="(prefers-color-scheme: dark)">
 <style>
-:root{--bg:#f5f6f8;--fg:#1b2030;--panel:#fff;--muted:#5e6675;--border:#e2e5ea;--primary:#26457e;--on:#fff;--danger:#c2413b;color-scheme:light dark}
-@media (prefers-color-scheme:dark){:root{--bg:#11141b;--fg:#e4e7ee;--panel:#181c25;--muted:#9097a6;--border:#272d39;--primary:#93acdc;--on:#0f1420;--danger:#e0716b}}
+:root{--bg:#f4f6f9;--fg:#141820;--panel:#fff;--muted:#5a6577;--border:#d8dee8;--primary:#1d5bd6;--on:#fff;--danger:#c92a2a;color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root{--bg:#0c0f14;--fg:#e6ecf5;--panel:#131820;--muted:#8b97ab;--border:#242d3a;--primary:#3b82f6;--on:#fff;--danger:#f85149}}
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{display:grid;place-items:center;padding:20px;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"PingFang SC","HarmonyOS Sans SC","MiSans","Noto Sans SC","Microsoft YaHei",sans-serif}
-.panel{width:min(360px,100%);padding:28px 26px 24px;border:1px solid var(--border);border-radius:10px;background:var(--panel)}
-h1{margin:0;font-size:20px;font-weight:650;letter-spacing:-.2px}
-.sub{margin:2px 0 22px;color:var(--muted);font-size:13px}
-label{display:block;margin-bottom:6px;font-size:13px;font-weight:600}
-input{width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--fg);font:inherit}
+body{display:grid;place-items:center;padding:20px;background:var(--bg);color:var(--fg);font:14.5px/1.5 "Plus Jakarta Sans","Inter Variable",Inter,"PingFang SC","Microsoft YaHei UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.panel{width:min(380px,100%);padding:30px 28px 26px;border:1px solid var(--border);border-radius:12px;background:var(--panel);box-shadow:0 8px 28px rgba(15,23,42,.06)}
+.brand-row{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.mark{width:30px;height:30px;border-radius:8px;background:var(--primary);color:#fff;display:grid;place-items:center;font-weight:700;font-size:14px}
+h1{margin:0;font-size:19px;font-weight:700;letter-spacing:-.02em}
+.sub{margin:0 0 22px;color:var(--muted);font-size:13px}
+label{display:block;margin-bottom:6px;font-size:12.5px;font-weight:600;color:var(--muted)}
+input{width:100%;min-height:42px;padding:9px 12px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--fg);font:inherit}
 input::placeholder{color:var(--muted)}
-input:focus-visible{outline:2px solid var(--primary);outline-offset:0;border-color:var(--primary)}
-button{width:100%;min-height:44px;margin-top:16px;border:0;border-radius:6px;background:var(--primary);color:var(--on);font:inherit;font-weight:600;cursor:pointer}
-button:hover{background:color-mix(in srgb,var(--primary) 88%,#000)}
-button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
-.error{margin:12px 0 0;padding:8px 12px;border-left:3px solid var(--danger);border-radius:6px;background:color-mix(in srgb,var(--danger) 10%,transparent);color:var(--danger);font-size:13px}
+input:focus-visible{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 24%,transparent)}
+button{width:100%;min-height:42px;margin-top:16px;border:0;border-radius:7px;background:var(--primary);color:var(--on);font:inherit;font-weight:600;cursor:pointer}
+button:hover{filter:brightness(1.06)}
+.error{margin:12px 0 0;padding:8px 12px;border-left:3px solid var(--danger);border-radius:6px;background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger);font-size:13px}
 </style></head><body>
 <form class="panel" action="/login" method="post">
-<h1>AIS2API</h1><p class="sub">管理后台</p>
-<label for="k">密码</label>
-<input id="k" type="password" name="apiKey" placeholder="未设置密码时填 API Key" autocomplete="current-password" required autofocus>
+<div class="brand-row"><span class="mark">A</span><h1>AIS2API</h1></div>
+<p class="sub">进入调度与协议管理控制台</p>
+<label for="k">管理员密码 / API Key</label>
+<input id="k" type="password" name="apiKey" placeholder="输入管理密码或 API Key" autocomplete="current-password" required autofocus>
 <!--ERROR-->
-<button type="submit">登录</button>
+<button type="submit">进入控制台</button>
 </form></body></html>

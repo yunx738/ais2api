@@ -18,6 +18,7 @@ mod login_nightly;
 mod login_http;
 mod login_srv;
 mod mgmt;
+mod mgmt_hl;
 mod login_store;
 mod login_ws;
 mod metrics;

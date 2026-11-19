@@ -20,7 +20,41 @@ let prepared=null,busy=false;
 function reset(){prepared=null;$("send").disabled=true;}
 function convertCookies(text){
  if(new TextEncoder().encode(text).length>limit)throw Error("输入超过256 KiB");
- let d;try{d=JSON.parse(text);}catch{throw Error("JSON格式无效；请粘贴完整JSON，不是Cookie请求头");}
+ let d=null;const trimmed=text.trim();
+ try{d=JSON.parse(trimmed);}catch{
+  const expDefault=Math.floor(Date.now()/1000)+180*86400;
+  // Try Netscape cookies.txt (tab-separated 7 columns)
+  const lines=trimmed.split(/\r?\n/).map(l=>l.trim()).filter(l=>l&&(!l.startsWith("#")||l.startsWith("#HttpOnly_")));
+  const tsv=lines.filter(l=>l.split("\t").length>=7);
+  if(tsv.length){
+   d=tsv.map(l=>{
+    let httpOnly=false,rawLine=l;
+    if(rawLine.startsWith("#HttpOnly_")){httpOnly=true;rawLine=rawLine.slice(10);}
+    const p=rawLine.split("\t");
+    const dom=p[0].startsWith(".")||p[0].endsWith("google.com")?p[0]:".google.com";
+    const sec=String(p[3]).toUpperCase()==="TRUE"||p[5].startsWith("__Secure-");
+    const exp=Number(p[4]);
+    return {name:p[5],value:p[6]||"",domain:dom,path:p[2]||"/",expires:Number.isFinite(exp)&&exp>0?exp:expDefault,httpOnly:httpOnly||sec,secure:sec,sameSite:"Lax"};
+   }).filter(c=>/^\.?([a-z0-9-]+\.)*google\.com$/i.test(c.domain)&&c.name);
+  }else{
+   // Parse raw Cookie header ("Cookie: SID=...; SAPISID=..." or curl -H)
+   const cleaned=trimmed.replace(/^[\s"'`]*cookie\s*:\s*/i,"").replace(/[\r\n]+/g,"; ");
+   const pairs=cleaned.split(";").map(s=>s.trim()).filter(s=>s.includes("="));
+   if(!pairs.length)throw Error("无法识别格式：支持粘贴 JSON 数组、Cookie 请求头（SID=...; SAPISID=...）或 cookies.txt");
+   const map=new Map();
+   for(const pair of pairs){
+    const eq=pair.indexOf("=");
+    const k=pair.slice(0,eq).trim(),v=pair.slice(eq+1).trim();
+    if(!k||/^(path|domain|expires|max-age|samesite|secure|httponly)$/i.test(k))continue;
+    map.set(k,v);
+   }
+   if(!map.size)throw Error("没有提取到有效的 Cookie 键值对");
+   d=[...map.entries()].map(([name,value])=>({
+    name,value,domain:".google.com",path:"/",expires:expDefault,
+    httpOnly:true,secure:true,sameSite:"Lax"
+   }));
+  }
+ }
  const arr=Array.isArray(d)?d:d&&d.cookies;
  if(!Array.isArray(arr)||!arr.length||arr.length>200)throw Error("需要包含1至200个Cookie的数组");
  let sessions=0,defaults=0;const seen=new Set();
